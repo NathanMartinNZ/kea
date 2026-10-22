@@ -1,0 +1,12 @@
+{
+  "session_id": "febfcaa0-7279-439f-9091-ed587cf5f54d",
+  "transcript_path": "/tmp/kea-world/home/.claude/projects/-private-tmp-kea-fixture-xxxxxx-demo/febfcaa0-7279-439f-9091-ed587cf5f54d.jsonl",
+  "cwd": "/private/tmp/kea-fixture-xxxxxx/demo",
+  "prompt_id": "84fbe366-6ee5-4a83-99ae-3f3082841235",
+  "hook_event_name": "MessageDisplay",
+  "turn_id": "8458421e-64d8-4d94-ab3b-e75501ef311f",
+  "message_id": "d7db64e8-c999-4b27-8c37-968e4b8a4505",
+  "index": 0,
+  "final": false,
+  "delta": "DONE-ONE\n\n"
+}

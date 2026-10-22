@@ -1,0 +1,17 @@
+{
+  "name": "@kea/protocol",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./limits": "./src/generated/limits.ts",
+    "./platform": "./src/platform.ts",
+    "./os/darwin": "./src/os/darwin.ts",
+    "./os/linux": "./src/os/linux.ts"
+  },
+  "dependencies": {
+    "zod": "4.6.5"
+  }
+}

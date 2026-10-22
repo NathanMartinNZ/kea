@@ -1,0 +1,8 @@
+{"seq":0,"mono":"157230550737583","at":1791658225673,"source":"reconcile","spooled":false,"events":[{"t":"pty.spawned"}]}
+{"seq":1,"mono":"157230850737583","at":1791658225674,"source":"hook","spooled":false,"events":[{"t":"session.started","agentSessionId":"7f1c2a9e-0000-4000-8000-000000000002","source":"startup"}]}
+{"seq":2,"mono":"157231150737583","at":1791658225674,"source":"hook","spooled":false,"events":[{"t":"turn.started"}]}
+{"seq":3,"mono":"157231450737583","at":1791658225674,"source":"hook","spooled":false,"events":[{"t":"tool.started","name":"Task","summary":"explore","subagent":true}]}
+{"seq":4,"mono":"157231750737583","at":1791658225674,"source":"hook","spooled":false,"events":[{"t":"attention.permission","key":"Edit: src/parse.ts","tool":"Edit","summary":"src/parse.ts"}]}
+{"seq":5,"mono":"157232050737583","at":1791658225674,"source":"hook","spooled":false,"events":[{"t":"tool.started","name":"Read","summary":"src/lex.ts"}]}
+{"seq":6,"mono":"157232350737583","at":1791658225674,"source":"hook","spooled":false,"events":[{"t":"tool.finished","name":"Read","summary":"src/lex.ts","ok":true}]}
+{"seq":7,"mono":"157232650737583","at":1791658225674,"source":"hook","spooled":false,"events":[{"t":"tool.finished","name":"Task","summary":"explore","ok":true,"subagent":true}]}

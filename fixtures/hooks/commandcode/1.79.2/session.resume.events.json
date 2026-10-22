@@ -1,0 +1,28 @@
+[
+  {
+    "t": "session.started",
+    "agentSessionId": "ca2d172d-d61f-47f0-a566-9f33505fd0ff",
+    "transcriptPath": "/tmp/kea-world/home/.commandcode/projects/private-tmp-kea-fixture-xxxxxx-demo/ca2d172d-d61f-47f0-a566-9f33505fd0ff.jsonl",
+    "source": "resume"
+  },
+  {
+    "t": "turn.started"
+  },
+  {
+    "t": "meta",
+    "model": "deepseek/deepseek-v4-flash"
+  },
+  {
+    "t": "turn.failed",
+    "error": "Local-only mode: refused a Command Code API call (/alpha/generate). This CLI was started with --local-only, CMD_LOCAL_ONLY, or \"localOnly\": true in ~/.commandcode/config.json, so nothing is sent to Command Code — backend features (gateway models, /share, /usage, web tools) are unavailable.",
+    "kind": "other"
+  },
+  {
+    "t": "turn.started"
+  },
+  {
+    "t": "turn.failed",
+    "error": "Local-only mode: refused a Command Code API call (/alpha/generate). This CLI was started with --local-only, CMD_LOCAL_ONLY, or \"localOnly\": true in ~/.commandcode/config.json, so nothing is sent to Command Code — backend features (gateway models, /share, /usage, web tools) are unavailable.",
+    "kind": "other"
+  }
+]

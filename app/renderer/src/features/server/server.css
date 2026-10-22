@@ -1,0 +1,65 @@
+/* The dev-server control in the main header. Its buttons are the header's quiet buttons (shell/window.css
+   `.quiet-button`); this file adds the state dot, the URL chip and the hint line under the control. */
+
+.server-control {
+  position: relative;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+/* green while the server runs, red once it has crashed */
+.server-dot {
+  flex: none;
+  width: var(--size-dot);
+  height: var(--size-dot);
+  border-radius: 50%;
+  background: var(--ok);
+}
+
+.server-dot.crashed {
+  background: var(--danger);
+}
+
+/* the URL chip: a mono link, `:5173 ↗`, to the left of Stop */
+.server-chip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: var(--size-tree-row);
+  padding: 0 var(--space-1);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: var(--type-mono-size);
+  white-space: nowrap;
+}
+
+.server-chip:hover,
+.server-chip[aria-expanded='true'] {
+  background: var(--surface-2);
+  color: var(--text-1);
+}
+
+/* the one line under the control: who holds the port, and "Stop it and run here" */
+.server-hint {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+  padding: 0 var(--space-1) 0 var(--space-3);
+  border-radius: var(--radius-lg);
+  background: var(--surface-4);
+  box-shadow: var(--shadow-float);
+  color: var(--text-1);
+  white-space: nowrap;
+  -webkit-app-region: no-drag;
+}

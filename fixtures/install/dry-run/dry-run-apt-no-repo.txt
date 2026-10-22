@@ -1,0 +1,9 @@
+Release: Kea <version>, from https://github.com/<repository>/releases/latest/download/
+SHA256SUMS: signed by Kea's key <fingerprint> (checked with <verifier>)
+Plan: Kea's package kea-app_<version>_<arch>.deb, without Kea's repository, so apt never updates it (/etc/default/kea-app says add_repository=no)
+File kea-app.defaults, for /etc/default/kea-app: the package adds no repository:
+    add_repository=no
+Commands that would change the system (a dry run: none runs):
++ sudo install -m 0644 kea-app.defaults /etc/default/kea-app
++ sudo apt-get update
++ sudo apt-get install -y ./kea-app_<version>_<arch>.deb

@@ -1,0 +1,29 @@
+{
+  "session_id": "af557cb1-921d-4ece-8f20-f71c5e120a3e",
+  "transcript_path": "/tmp/kea-world/home/.claude/projects/-private-tmp-kea-fixture-xxxxxx-demo/af557cb1-921d-4ece-8f20-f71c5e120a3e.jsonl",
+  "cwd": "/private/tmp/kea-fixture-xxxxxx/demo",
+  "prompt_id": "6d63fbbf-a264-4f5c-bbf6-6e5cea4692c2",
+  "permission_mode": "default",
+  "agent_id": "a1780d131dbd1949d",
+  "agent_type": "general-purpose",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Read",
+  "tool_input": {
+    "file_path": "/private/tmp/kea-fixture-xxxxxx/demo/README.md"
+  },
+  "tool_response": {
+    "type": "text",
+    "file": {
+      "filePath": "/private/tmp/kea-fixture-xxxxxx/demo/README.md",
+      "content": "# demo\n\nA tiny project used for Kea recordings.\n",
+      "numLines": 4,
+      "startLine": 1,
+      "totalLines": 4
+    }
+  },
+  "tool_use_id": "toolu_mock_15_0",
+  "duration_ms": 12
+}

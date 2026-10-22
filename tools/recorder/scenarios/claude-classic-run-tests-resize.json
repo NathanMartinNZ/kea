@@ -1,0 +1,46 @@
+{
+  "name": "claude-classic-run-tests-resize",
+  "notes": "Classic renderer, a Bash permission prompt, the command's output, and three resizes while the next answer is pending.",
+  "agent": "claude",
+  "prompt": "run the tests and report how many pass",
+  "cols": 120,
+  "rows": 36,
+  "mock": {
+    "default": "Run the tests",
+    "replies": [
+      {
+        "delayMs": 1200,
+        "content": [
+          { "type": "text", "text": "Running the test suite." },
+          { "type": "tool_use", "name": "Bash", "input": { "command": "node --test test/", "description": "Run the test suite" } }
+        ]
+      },
+      { "delayMs": 5000, "content": [{ "type": "text", "text": "All 3 tests pass: `add`, `sub` and `counts up`." }] }
+    ]
+  },
+  "steps": [
+    { "wait": "\\? for shortcuts" },
+    { "pause": 500 },
+    { "type": "prompt", "keyDelayMs": 30 },
+    { "pause": 200 },
+    { "send": "\r" },
+    { "wait": "Do you want to proceed", "timeoutMs": 30000 },
+    { "mark": "permission" },
+    { "pause": 1200 },
+    { "send": "1" },
+    { "wait": "counts up", "timeoutMs": 30000 },
+    { "mark": "resizing" },
+    { "resize": [96, 30] },
+    { "pause": 900 },
+    { "resize": [140, 40] },
+    { "pause": 900 },
+    { "resize": [120, 36] },
+    { "wait": "All 3 tests pass", "timeoutMs": 30000 },
+    { "mark": "answered" },
+    { "pause": 1500 },
+    { "send": "/exit" },
+    { "pause": 400 },
+    { "send": "\r" },
+    { "exit": 15000 }
+  ]
+}

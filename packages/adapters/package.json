@@ -1,0 +1,15 @@
+{
+  "name": "@kea/adapters",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@kea/protocol": "workspace:*",
+    "@kea/kit": "workspace:*",
+    "zod": "4.6.5"
+  }
+}

@@ -1,0 +1,13 @@
+{"ms":0,"kind":"event","name":"session_start","arg":{"type":"session_start"}}
+{"ms":1,"kind":"hook","name":"onSessionStart","arg":{"source":"startup","sessionId":"00cf0cf6-282e-491e-8d3e-05d50e54a0ba"}}
+{"ms":1,"kind":"event","name":"session_titled","arg":{"type":"session_titled","title":"kea-01JXKEASESSION0000000000AA"}}
+{"ms":13,"kind":"event","name":"run_start","arg":{"type":"run_start","sessionId":"00cf0cf6-282e-491e-8d3e-05d50e54a0ba"}}
+{"ms":49,"kind":"event","name":"turn_start","arg":{"type":"turn_start","turnNumber":1}}
+{"ms":118,"kind":"event","name":"message_start","arg":{"type":"message_start"}}
+{"ms":118,"kind":"event","name":"model_request_start","arg":{"type":"model_request_start","model":"mock/mock-model"}}
+{"ms":147,"kind":"event","name":"model_request_end","arg":{"type":"model_request_end","model":"mock/mock-model","usage":{"inputTokens":27,"outputTokens":20,"cacheReadTokens":0,"cacheWriteTokens":0},"stopReason":"end_turn"}}
+{"ms":148,"kind":"event","name":"message_end","arg":{"type":"message_end","content":[{"type":"text","text":"This repository is a small demo project with tests."}]}}
+{"ms":148,"kind":"event","name":"turn_end","arg":{"type":"turn_end","turnNumber":1,"hadToolCalls":false,"usage":{"inputTokens":27,"outputTokens":20,"cacheReadTokens":0,"cacheWriteTokens":0}}}
+{"ms":153,"kind":"event","name":"run_end","arg":{"type":"run_end","result":{"finalText":"This repository is a small demo project with tests.","stopReason":"end_turn","turnCount":1,"usage":{"inputTokens":27,"outputTokens":20,"cacheReadTokens":0,"cacheWriteTokens":0},"systemPromptTokens":null,"nextState":{"sessionId":"00cf0cf6-282e-491e-8d3e-05d50e54a0ba","dropped":"conversation"}}}}
+{"ms":6307,"kind":"hook","name":"onSessionEnd","arg":{"reason":"shutdown"}}
+{"ms":6307,"kind":"event","name":"session_shutdown","arg":{"type":"session_shutdown"}}

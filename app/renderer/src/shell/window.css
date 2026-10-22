@@ -1,0 +1,1357 @@
+/* The window frame: columns, headers, sidebar, file panel, main header, banners, composer, sheets and toasts. Tokens
+   only (DS-2). Hover, selection and tab switches have no animation; only a column collapsing or expanding moves. */
+
+input,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+input[type='checkbox'] {
+  accent-color: var(--text-1);
+}
+
+/* ── columns ── */
+
+.window {
+  position: relative;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  height: 100%;
+  transition: grid-template-columns var(--motion-panel) ease-out;
+}
+
+.window.resizing {
+  transition: none;
+  cursor: col-resize;
+}
+
+.column {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+/* a hidden column keeps its grid track at 0 px (its content is clipped and inert), so the others keep their places */
+.column[hidden] {
+  display: flex;
+  visibility: hidden;
+}
+
+.sidebar-column {
+  grid-column: 1;
+  background: var(--surface-1);
+  border-right: 1px solid var(--line);
+}
+
+.file-panel {
+  grid-column: 2;
+  background: var(--surface-1);
+  border-right: 1px solid var(--line);
+}
+
+.main-column {
+  grid-column: 3;
+  background: var(--surface-0);
+}
+
+/* dividers: the 1 px line is the column's border; this is the hit area (--size-divider-hit) centred on it */
+.divider {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 3;
+  width: var(--size-divider-hit);
+  transform: translateX(-50%);
+  cursor: col-resize;
+  touch-action: none;
+  -webkit-app-region: no-drag;
+}
+
+.divider:focus-visible {
+  outline-offset: -2px;
+}
+
+/* ── the header row: one continuous drag region, --size-header high, except its controls ── */
+
+.column-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: var(--size-header);
+  box-sizing: border-box;
+  padding: 0 var(--space-2);
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--line);
+  -webkit-app-region: drag;
+  min-width: 0;
+}
+
+.column-header button,
+.column-header input,
+.column-header h1 {
+  -webkit-app-region: no-drag;
+}
+
+/* the traffic lights sit in the leftmost visible header */
+.sidebar-header,
+.window.no-sidebar .panel-header,
+.window.no-sidebar.no-tree .main-header {
+  padding-left: var(--size-traffic-lights);
+}
+
+/* Linux: the Window Controls Overlay's rectangle, on the right, on the left or both, as the desktop's button layout
+   puts it (changed live): the leftmost visible header starts after `titlebar-area-x`, and the main header, always the
+   rightmost, ends where the title-bar area ends. Without the overlay (full screen) both are 0. */
+.window.menu-button .sidebar-header,
+.window.menu-button.no-sidebar .panel-header,
+.window.menu-button.no-sidebar.no-tree .main-header {
+  padding-left: calc(env(titlebar-area-x, 0px) + var(--space-2));
+}
+
+.window.menu-button .main-header {
+  padding-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw) + var(--space-2));
+}
+
+.header-spacer {
+  flex: 1;
+}
+
+/* ── buttons and fields ── */
+
+.quiet-button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: var(--size-row);
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.quiet-button:hover {
+  background: var(--surface-2);
+  color: var(--text-1);
+}
+
+.quiet-button.icon {
+  justify-content: center;
+  width: var(--size-row);
+  padding: 0;
+}
+
+.button.danger,
+.button.danger:hover {
+  color: var(--danger);
+}
+
+.button:disabled,
+.quiet-button:disabled {
+  color: var(--text-3);
+  background: transparent;
+}
+
+/* a button whose own action is running keeps its place and the keyboard (`aria-disabled` and a guard, never `disabled`
+   under the focus: that drops the keyboard to nothing): it reads as disabled */
+.button[aria-disabled='true'],
+.button[aria-disabled='true']:hover {
+  color: var(--text-3);
+  background: transparent;
+}
+
+.link-button[aria-disabled='true'],
+.link-button[aria-disabled='true']:hover {
+  color: var(--text-3);
+  text-decoration: none;
+}
+
+/* the only filled accent button on screen */
+.primary-button {
+  display: inline-flex;
+  align-items: center;
+  height: var(--size-row);
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: var(--type-emphasis-weight);
+}
+
+.primary-button:hover {
+  background: var(--accent-hover);
+}
+
+.primary-button kbd {
+  color: var(--on-accent);
+  background: transparent;
+}
+
+/* `aria-disabled`: its own action is running (the rule above `.link-button`): it reads as disabled and keeps the keyboard */
+.primary-button:disabled,
+.primary-button[aria-disabled='true'],
+.primary-button[aria-disabled='true']:hover {
+  background: var(--surface-3);
+  color: var(--text-3);
+}
+
+.primary-button:disabled kbd,
+.primary-button[aria-disabled='true'] kbd {
+  color: var(--text-3);
+}
+
+.link-button {
+  padding: 0;
+  margin: 0 0 0 var(--space-2);
+  border: 0;
+  background: transparent;
+  color: var(--info);
+}
+
+.link-button:hover {
+  text-decoration: underline;
+}
+
+.field {
+  height: var(--size-row);
+  box-sizing: border-box;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  color: var(--text-1);
+  user-select: text;
+  min-width: 0;
+}
+
+textarea.field {
+  height: auto;
+  padding: var(--space-1) var(--space-2);
+  resize: vertical;
+}
+
+.field:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.field.mono,
+.mono {
+  font-family: var(--font-mono);
+  font-size: var(--type-mono-size);
+}
+
+/* ── sidebar ── */
+
+.sidebar-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-1) 0;
+}
+
+.sidebar-tree:focus {
+  outline: none;
+}
+
+.sidebar-filter {
+  display: block;
+  width: calc(100% - var(--space-4));
+  height: var(--size-tree-row);
+  box-sizing: border-box;
+  margin: 0 var(--space-2) var(--space-1);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  color: var(--text-1);
+  font-size: var(--type-secondary-size);
+  user-select: text;
+}
+
+.sidebar-filter:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.sidebar-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  color: var(--text-2);
+}
+
+.sidebar-empty p,
+.sidebar-note {
+  margin: 0;
+}
+
+/* the button's label starts where the line above it does; its hover background takes a row's inset */
+.sidebar-empty .button {
+  margin-left: calc(var(--space-2) * -1);
+  padding: 0 var(--space-2);
+}
+
+.sidebar-note {
+  padding: var(--space-1) var(--space-3);
+  color: var(--text-3);
+}
+
+.sidebar-footer {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+  padding: var(--space-2);
+}
+
+.sb-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: var(--size-row);
+  margin: 0 var(--space-1);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-md);
+  color: var(--text-2);
+  white-space: nowrap;
+  cursor: default;
+}
+
+.sb-row:hover,
+.sb-row.drop {
+  background: var(--surface-2);
+}
+
+.sb-row:focus-visible {
+  outline-offset: -2px;
+}
+
+.sb-project {
+  color: var(--text-1);
+  font-weight: var(--type-emphasis-weight);
+}
+
+.sb-project.missing {
+  color: var(--text-3);
+}
+
+.sb-session,
+.sb-archived {
+  padding-left: calc(var(--space-2) + var(--space-3));
+}
+
+.sb-session.selected {
+  background: var(--surface-3);
+}
+
+.sb-session.loud {
+  color: var(--text-1);
+  font-weight: var(--type-emphasis-weight);
+}
+
+.sb-name,
+.sb-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sb-caret {
+  flex: none;
+  color: var(--text-3);
+}
+
+.sb-count {
+  flex: none;
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-sm);
+  background: var(--accent-wash);
+  color: var(--accent);
+  font-size: var(--type-micro-size);
+  line-height: var(--type-micro-line);
+  font-weight: var(--type-micro-weight);
+  font-variant-numeric: tabular-nums;
+}
+
+/* the meta's slot is never narrower than the button hover shows in its place, so a row's title keeps its width */
+.sb-meta-slot {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: var(--size-tree-row);
+}
+
+.sb-meta {
+  color: var(--text-3);
+  font-size: var(--type-secondary-size);
+  line-height: var(--type-secondary-line);
+  font-weight: var(--type-base-weight);
+  font-variant-numeric: tabular-nums;
+}
+
+.sb-label {
+  color: var(--text-2);
+}
+
+.sb-dot {
+  width: var(--size-dot);
+  height: var(--size-dot);
+  border-radius: 50%;
+  background: var(--ok);
+}
+
+.sb-actions {
+  display: none;
+  flex: none;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.sb-actions.always,
+.sb-row:hover .sb-actions,
+.sb-row:focus-visible .sb-actions {
+  display: flex;
+}
+
+/* hover shows Archive in the meta's place: the meta keeps its room and the button lies over it */
+.sb-row:hover .hide-on-hover,
+.sb-row:focus-visible .hide-on-hover {
+  visibility: hidden;
+}
+
+.sb-actions.over {
+  position: absolute;
+  top: 0;
+  right: var(--space-2);
+  bottom: 0;
+}
+
+/* a failed teardown's two text buttons are wider than its meta: they take its place in the row */
+.sb-row:hover .swap-on-hover,
+.sb-row:focus-visible .swap-on-hover {
+  display: none;
+}
+
+.sb-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--size-tree-row);
+  height: var(--size-tree-row);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-3);
+}
+
+.sb-icon-button:hover {
+  background: var(--surface-3);
+  color: var(--text-1);
+}
+
+.sb-text-button {
+  height: var(--size-tree-row);
+  padding: 0 var(--space-1);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-2);
+  font-size: var(--type-secondary-size);
+  font-weight: var(--type-base-weight);
+}
+
+.sb-text-button:hover {
+  background: var(--surface-3);
+  color: var(--text-1);
+}
+
+/* the single uppercase, letter-spaced label in the app: the design allows the style nowhere else */
+.sb-section {
+  color: var(--text-3);
+  font-size: var(--type-micro-size);
+  line-height: var(--type-micro-line);
+  font-weight: var(--type-micro-weight);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* ── file panel ── */
+
+.segments {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 var(--space-1);
+}
+
+.segment {
+  height: var(--size-row);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-3);
+}
+
+.segment:hover {
+  color: var(--text-2);
+}
+
+.segment.on {
+  color: var(--text-1);
+  text-decoration: underline;
+  text-decoration-thickness: var(--size-focus-ring);
+  text-underline-offset: var(--space-1);
+}
+
+/* the body is the files feature's (features/files/files.css): a column whose list scrolls */
+.panel-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ── main header ── */
+
+.main-header {
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: 0 var(--space-2) 0 var(--space-3);
+}
+
+.header-left,
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.header-left {
+  flex: 1;
+}
+
+.header-right {
+  flex: none;
+  gap: var(--space-1);
+}
+
+/* The dev-server control's slot: as wide as the control's widest state, with its buttons at the slot's right end, so
+   the diff stat on its left keeps its place while the control goes from Run to Starting, to Stop with its chip, and
+   back (no layout shift). A session with nothing to run has no control and no slot. */
+.header-right > .server-control {
+  min-width: var(--size-server-control);
+  justify-content: flex-end;
+}
+
+.session-title {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-1);
+  font-size: var(--type-emphasis-size);
+  line-height: var(--type-emphasis-line);
+  font-weight: var(--type-emphasis-weight);
+}
+
+.session-title-field {
+  width: 32ch;
+}
+
+.branch-chip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: var(--size-tree-row);
+  padding: 0 var(--space-1);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: var(--type-mono-size);
+  white-space: nowrap;
+}
+
+.branch-chip:hover {
+  background: var(--surface-2);
+  color: var(--text-1);
+}
+
+.header-note {
+  flex: none;
+  color: var(--text-3);
+  font-size: var(--type-micro-size);
+  line-height: var(--type-micro-line);
+  font-weight: var(--type-micro-weight);
+}
+
+.config-summary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-3);
+  /* a quiet button: its click opens the session popover */
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+}
+
+.config-summary:hover,
+.config-summary[aria-expanded='true'] {
+  color: var(--text-2);
+}
+
+/* ── banners ── */
+
+.banners {
+  flex: none;
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--line);
+}
+
+.banner {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  min-height: var(--size-row);
+  padding: 0 var(--space-3);
+  color: var(--text-1);
+  user-select: text;
+}
+
+.banner-dot {
+  flex: none;
+  width: var(--size-dot);
+  height: var(--size-dot);
+  border-radius: 50%;
+}
+
+.banner-dot.error {
+  background: var(--danger);
+}
+
+.banner-dot.warning {
+  background: var(--warn);
+}
+
+.banner-fix {
+  flex: 1;
+  color: var(--text-3);
+}
+
+/* ── main pane ── */
+
+.main-pane {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.session-pane {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.terminal-pane {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: var(--size-tab-strip) minmax(0, 1fr);
+}
+
+.pane-strip {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--line);
+  color: var(--text-2);
+}
+
+.pane-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-4) var(--space-6);
+}
+
+.pane-note p {
+  margin: 0 0 var(--space-2);
+  color: var(--text-1);
+  user-select: text;
+}
+
+.pane-buttons {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.creation-steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--text-3);
+}
+
+.creation-steps .done {
+  color: var(--text-2);
+}
+
+.creation-steps .current {
+  color: var(--text-1);
+  font-weight: var(--type-emphasis-weight);
+}
+
+.creation-log {
+  margin: var(--space-4) 0 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-1);
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: var(--type-mono-size);
+  line-height: var(--type-mono-line);
+  white-space: pre-wrap;
+  word-break: break-all;
+  user-select: text;
+}
+
+.creation-log.sheet-log {
+  max-height: var(--size-composer-prompt-max);
+  overflow: auto;
+  margin-top: var(--space-2);
+}
+
+/* ── composer: top-aligned at --ratio-composer-top of the pane's height, --size-composer wide at most ── */
+
+.composer {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  padding: 0 var(--space-6) var(--space-6);
+}
+
+.composer::before {
+  content: '';
+  flex: 0 0 calc(var(--ratio-composer-top) * 100%);
+}
+
+.composer > :not(.kea-menu) {
+  flex: none;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: var(--size-composer);
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.composer-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-top: 0;
+  margin-bottom: var(--space-2);
+  color: var(--text-2);
+  font-size: var(--type-base-size);
+  line-height: var(--type-base-line);
+  font-weight: var(--type-base-weight);
+}
+
+.composer-project {
+  color: var(--text-1);
+  font-weight: var(--type-emphasis-weight);
+}
+
+.composer-note {
+  margin-top: 0;
+  margin-bottom: var(--space-2);
+  color: var(--text-2);
+}
+
+.composer-box {
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-1);
+}
+
+.composer-box:focus-within {
+  border-color: var(--accent);
+}
+
+.composer-prompt {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  min-height: calc(var(--type-base-line) * 3 + var(--space-4));
+  max-height: var(--size-composer-prompt-max);
+  field-sizing: content;
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  background: transparent;
+  color: var(--text-1);
+  resize: none;
+  outline: none;
+  user-select: text;
+}
+
+.composer-prompt::placeholder,
+.composer-branch::placeholder {
+  color: var(--text-3);
+}
+
+.composer-footer {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.composer-inplace {
+  color: var(--text-3);
+}
+
+.composer-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--text-2);
+}
+
+.composer-toggle.locked {
+  color: var(--text-3);
+}
+
+.composer-branch {
+  /* as wide as the name (the branch reads in full), within the row */
+  field-sizing: content;
+  min-width: 16ch;
+  max-width: 100%;
+  height: var(--size-tree-row);
+  box-sizing: border-box;
+  padding: 0 var(--space-1);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: var(--type-mono-size);
+  user-select: text;
+}
+
+.composer-branch:hover,
+.composer-branch:focus {
+  outline: none;
+  border-color: var(--line-strong);
+  background: var(--surface-2);
+}
+
+.composer-spacer {
+  flex: 1;
+}
+
+/* Start's tooltip is on this wrapper (a disabled button shows none) */
+.composer-start {
+  flex: none;
+  display: inline-flex;
+}
+
+.composer-problems {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+  margin-bottom: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--text-2);
+}
+
+.composer-problems .hard {
+  color: var(--danger);
+}
+
+/* a problem and its fixes: a fix that does not fit starts the next line at the message's left edge */
+.composer-problems li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: var(--space-2);
+}
+
+.composer-problems .link-button {
+  margin-left: 0;
+}
+
+.composer-started {
+  margin-top: var(--space-2);
+  margin-bottom: 0;
+  color: var(--text-2);
+}
+
+/* ── sheets: attached to the top of the main pane; the default button is the safe one ── */
+
+.confirm-sheet {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-height: 100%;
+  box-sizing: border-box;
+  /* a sheet taller than the pane scrolls its body; its title and its buttons stay in view (the default button has
+     the keyboard, and a sheet that scrolled as a whole opened at its end) */
+  overflow: hidden;
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--line-strong);
+  box-shadow: var(--shadow-float);
+}
+
+.sheet-title {
+  flex: none;
+  margin: 0;
+  color: var(--text-1);
+  font-size: var(--type-dialog-size);
+  line-height: var(--type-dialog-line);
+  font-weight: var(--type-dialog-weight);
+}
+
+.sheet-body {
+  min-height: 0;
+  overflow: auto;
+  color: var(--text-2);
+  user-select: text;
+}
+
+.sheet-body p {
+  margin: 0 0 var(--space-1);
+}
+
+.sheet-meta {
+  margin: 0;
+  color: var(--text-3);
+}
+
+.sheet-check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-1) 0;
+}
+
+.sheet-list,
+.sheet-rows {
+  max-height: var(--size-composer-prompt-max);
+  overflow: auto;
+  margin: var(--space-1) 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sheet-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--size-row);
+}
+
+.sheet-row-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-1);
+}
+
+code.sheet-row-title,
+.settings-value {
+  font-family: var(--font-mono);
+  font-size: var(--type-mono-size);
+}
+
+.sheet-row-meta {
+  flex: none;
+  color: var(--text-3);
+  font-size: var(--type-secondary-size);
+}
+
+.sheet-buttons {
+  display: flex;
+  flex: none;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+/* the default button, what ↵ does, rests on --surface-2: it shows without a keyboard focus ring. This block is the
+   whole of that look; a filled default (the quit sheet's) is already told apart */
+.sheet-buttons .button[data-default] {
+  background: var(--surface-2);
+  color: var(--text-1);
+}
+
+.sheet-buttons .button[data-default]:hover {
+  background: var(--surface-3);
+}
+
+/* project settings */
+
+.settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-width: var(--size-composer);
+}
+
+.settings-row {
+  display: grid;
+  grid-template-columns: var(--size-sidebar-min) minmax(0, 1fr);
+  align-items: center;
+  column-gap: var(--space-3);
+  row-gap: var(--space-1);
+}
+
+.settings-label {
+  color: var(--text-2);
+}
+
+.settings-value {
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: text;
+}
+
+.settings-row input[type='checkbox'] {
+  justify-self: start;
+  margin: 0;
+}
+
+.settings-help {
+  grid-column: 2;
+  color: var(--text-3);
+  font-size: var(--type-secondary-size);
+  line-height: var(--type-secondary-line);
+}
+
+/* ── toast: failures with no natural place, bottom-right, one action ── */
+
+.toast {
+  position: fixed;
+  right: var(--space-4);
+  bottom: var(--space-4);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  max-width: var(--size-palette);
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
+  border-radius: var(--radius-lg);
+  background: var(--surface-4);
+  box-shadow: var(--shadow-float);
+  animation: kea-float-in var(--motion-float-in) linear;
+}
+
+.toast-text {
+  color: var(--text-1);
+  user-select: text;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .window {
+    transition: none;
+  }
+
+  .toast {
+    animation: none;
+  }
+}
+
+/* ── status in the window: the sidebar footer, the session popover, the tab dot ── */
+
+.session-popover {
+  position: fixed;
+  z-index: 10;
+  width: var(--size-tree-max);
+  max-width: calc(100vw - var(--space-8));
+  max-height: calc(100vh - var(--space-8));
+  overflow-y: auto;
+  padding: var(--space-3);
+  box-sizing: border-box;
+  border-radius: var(--radius-lg);
+  background: var(--surface-4);
+  box-shadow: var(--shadow-float);
+  color: var(--text-2);
+  outline: none;
+  user-select: text;
+  animation: kea-float-in var(--motion-float-in) linear;
+}
+
+.popover-config {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--space-1) var(--space-3);
+  margin: 0 0 var(--space-3);
+}
+
+.popover-config dt {
+  color: var(--text-3);
+}
+
+.popover-config dd {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  margin: 0;
+  color: var(--text-1);
+}
+
+.popover-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+ * A path cut in its middle (`midPath`): the front gives way and ends in the ellipsis, the last folder (or the file's
+ * name) stays whole; it is cut, at its end, only where there is not room for it alone. Used by the Changes list, the
+ * finder, a diff's header and the session popover.
+ */
+.path-mid {
+  display: flex;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.path-mid > .head {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.path-mid > .tail {
+  flex: none;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.popover-value.mono,
+.popover-entries {
+  font-family: var(--font-mono);
+  font-size: var(--type-mono-size);
+  line-height: var(--type-mono-line);
+}
+
+.popover-copy {
+  flex: none;
+  height: auto;
+  color: var(--text-3);
+}
+
+.popover-heading {
+  margin: 0 0 var(--space-1);
+  color: var(--text-1);
+  font-size: var(--type-base-size);
+  line-height: var(--type-base-line);
+  font-weight: var(--type-emphasis-weight);
+}
+
+.popover-entries,
+.popover-attention {
+  margin: 0 0 var(--space-2);
+  padding: 0;
+  list-style: none;
+}
+
+.popover-entries li {
+  overflow-wrap: anywhere;
+}
+
+.popover-time,
+.popover-note,
+.popover-label {
+  color: var(--text-3);
+}
+
+.popover-note {
+  margin: 0 0 var(--space-1);
+}
+
+.popover-kind {
+  color: var(--text-1);
+}
+
+.popover-report {
+  margin-top: var(--space-2);
+  border-top: 1px solid var(--line);
+  padding-top: var(--space-2);
+}
+
+.popover-picker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+}
+
+.popover-notefield {
+  width: 100%;
+  margin-top: var(--space-2);
+  box-sizing: border-box;
+}
+
+.popover-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.popover-saved {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  margin: 0;
+  color: var(--text-1);
+}
+
+.condition-line,
+.condition-note {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  max-width: 100%;
+  margin: 0;
+  color: var(--text-3);
+  font-size: var(--type-micro-size);
+  line-height: var(--type-micro-line);
+  font-weight: var(--type-micro-weight);
+}
+
+/* the sidebar footer's line takes the secondary type; the note under a limited session's terminal keeps micro type */
+.condition-line {
+  font-size: var(--type-secondary-size);
+  line-height: var(--type-secondary-line);
+  font-weight: var(--type-secondary-weight);
+}
+
+.condition-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.condition-dot {
+  flex: none;
+  width: var(--size-dot);
+  height: var(--size-dot);
+  border-radius: 50%;
+  background: var(--warn);
+}
+
+.condition-action {
+  flex: none;
+  height: auto;
+  /* on a line of its own (below) its label starts where the text above it does */
+  margin-left: var(--size-dot);
+  font-size: inherit;
+  color: var(--text-2);
+}
+
+/* Continue all goes under the line where the sidebar has not room for both: the text that says why is never cut for it */
+.condition-line {
+  flex-wrap: wrap;
+}
+
+.condition-line > .condition-text {
+  flex: 0 1 auto;
+  max-width: calc(100% - var(--size-dot) - var(--space-2));
+}
+
+/* the needs-you dot sits in the tab's own right padding: a tab that gets one keeps its width */
+.tab-dot {
+  position: absolute;
+  top: 50%;
+  right: calc((var(--space-3) - var(--size-dot)) / 2);
+  width: var(--size-dot);
+  height: var(--size-dot);
+  margin-top: calc(var(--size-dot) / -2);
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+/* file and diff tabs: after the terminals' tabs; the preview tab's title is italic */
+.tabs.file-tabs {
+  margin-right: auto;
+}
+
+.tab.preview {
+  font-style: italic;
+}
+
+/* the viewer's mount: over the terminal area while a file or diff tab is the active one */
+.viewer-mount {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  background: var(--surface-0);
+  outline: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .session-popover {
+    animation: none;
+  }
+}

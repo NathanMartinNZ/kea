@@ -1,0 +1,6 @@
+Release: Kea <version>, from https://github.com/<repository>/releases/latest/download/
+SHA256SUMS: signed by Kea's key <fingerprint> (checked with <verifier>)
+Plan: Kea's package kea-app-<version>-1.<arch>.rpm, without Kea's repository, so zypper never updates it
+Commands that would change the system (a dry run: none runs):
++ sudo rpm --import kea-app.asc
++ sudo zypper --non-interactive install ./kea-app-<version>-1.<arch>.rpm

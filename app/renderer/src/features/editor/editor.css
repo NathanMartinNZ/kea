@@ -1,0 +1,21 @@
+/* The open-in-editor split button in the main header: the header's quiet buttons (shell/window.css `.quiet-button`)
+   side by side, the caret narrower; and its pressed state. */
+
+.editor-split {
+  flex: none;
+  display: flex;
+  align-items: center;
+}
+
+.editor-split .quiet-button.caret {
+  justify-content: center;
+  width: var(--space-6);
+  padding: 0;
+}
+
+/* Pressed for a moment after an open was asked for, wherever it was asked from */
+.editor-split .quiet-button.pressed,
+.editor-split .quiet-button.pressed:hover {
+  background: var(--surface-3);
+  color: var(--text-1);
+}

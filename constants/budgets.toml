@@ -1,0 +1,299 @@
+# Performance budgets, keyed by the ID of the perf test that measures each (tests/perf, run by `pnpm perf`).
+# `pnpm codegen` writes tools/perf/src/generated/budgets.ts. Fields: metric, unit, and the limits that apply: max, min,
+# p50, p95, p99 or a named one (max_confirmed, min_fps, …). A limit key ending in `_limit` names a limits.toml entry
+# instead, and codegen writes that entry's macOS value under the key without the suffix.
+
+["P-START-1"]
+metric = "cold launch → first window paint"
+max = 400
+unit = "ms"
+
+["P-START-2"]
+metric = "cold launch → sidebar populated from DB (20 sessions)"
+max = 700
+unit = "ms"
+
+["P-START-3"]
+metric = "cold launch → active terminal attached and typeable"
+max = 1000
+unit = "ms"
+
+["P-START-4"]
+metric = "relaunch with 20 live holders: visible terminal typeable / all statuses confirmed"
+max = 1000
+max_confirmed = 1500
+unit = "ms"
+
+["P-START-5"]
+metric = "work in main before window creation"
+max = 50
+unit = "ms"
+
+["P-TERM-1"]
+metric = "keydown → glyph painted, idle shell"
+p50 = 8
+p99 = 20
+unit = "ms"
+
+["P-TERM-2"]
+metric = "keydown → glyph while another terminal floods"
+p99 = 25
+unit = "ms"
+
+["P-TERM-3"]
+metric = "keydown → glyph during Claude Code thinking animation"
+p99 = 25
+unit = "ms"
+
+["P-TERM-4"]
+metric = "throughput holder → ptyhost → renderer, 100 MB ASCII"
+min = 10
+unit = "MB/s"
+min_fps = 50
+max_ptyhost_growth_mb = 50
+
+["P-TERM-5"]
+metric = "⌃C during flood → output stops on screen"
+max = 150
+unit = "ms"
+
+["P-TERM-6"]
+metric = "cassette replay renderer CPU (Claude fullscreen, 1×)"
+max = 15
+unit = "% of one core"
+max_frame_ms = 32
+
+["P-TERM-7"]
+metric = "session switch, warm xterm"
+max = 16
+unit = "ms"
+
+["P-TERM-8"]
+metric = "session switch, cold (snapshot 5 000 × 200)"
+max = 100
+unit = "ms"
+
+["P-TERM-9"]
+metric = "resize drag"
+min = 50
+unit = "fps"
+max_resizes_per_s = 20
+
+["P-TERM-10"]
+metric = "checkpoint serialise 5 000 × 200 in ptyhost"
+max = 30
+unit = "ms"
+
+["P-TERM-11"]
+metric = "mirror rebuild from checkpoint (unpark)"
+max = 50
+unit = "ms"
+
+["P-FT-1"]
+metric = "tree first paint after session switch (cached)"
+max = 16
+unit = "ms"
+
+["P-FT-2"]
+metric = "cold root listing, 5 000 entries"
+max = 100
+unit = "ms"
+
+["P-FT-3"]
+metric = "scroll 100 000 loaded rows"
+min = 58
+unit = "fps"
+max_frame_ms = 32
+
+["P-GS-1"]
+metric = "file save → decoration updated, medium repo"
+max = 250
+unit = "ms"
+
+["P-GS-2"]
+metric = "file save → decoration updated, large repo"
+max = 1500
+unit = "ms"
+
+["P-GS-3"]
+metric = "install-like burst: UI frame p99 / status runs / core idle after"
+p99 = 20
+unit = "ms"
+max_status_runs = 3
+max_idle_after_ms = 2000
+
+["P-FIND-1"]
+metric = "finder keystroke → results, 200 000 paths"
+p95 = 30
+unit = "ms"
+
+["P-DF-1"]
+metric = "open diff tab, 2 000-line file"
+max = 100
+unit = "ms"
+
+["P-FV-1"]
+metric = "click 2 000-line file → text painted"
+max = 50
+unit = "ms"
+
+["P-FV-2"]
+metric = "→ visible lines coloured (language loaded / first use)"
+max = 100
+max_first_use = 300
+unit = "ms"
+
+["P-FV-3"]
+metric = "scroll a 100 000-line file"
+min = 58
+unit = "fps"
+max_frame_ms = 32
+
+["P-FV-4"]
+metric = "open a 21 MB file (plain-text mode)"
+max = 150
+unit = "ms"
+
+["P-FV-7"]
+metric = "typing while a 5 MB file is tokenised (P-TERM-1 still met)"
+p50 = 8
+p99 = 20
+unit = "ms"
+
+["P-WT-1"]
+metric = "delete snapshot of a dirty worktree"
+max = 2000
+unit = "ms"
+
+["P-UI-1"]
+metric = "⌘N → composer interactive"
+max = 16
+unit = "ms"
+
+["P-UI-2"]
+metric = "⌘⇧P → palette interactive"
+max = 16
+unit = "ms"
+
+["P-UI-3"]
+metric = "palette keystroke, 500 sessions + 200 commands"
+max = 5
+unit = "ms"
+
+["P-UI-4"]
+metric = "⌘↵ → session row visible"
+max = 16
+unit = "ms"
+
+["P-UI-5"]
+metric = "⌘↵ → agent process started (medium repo, cached fetch)"
+max = 3000
+max_with_agent = 5000
+unit = "ms"
+
+["P-UI-6"]
+metric = "hook fired → sidebar glyph changed"
+max = 100
+unit = "ms"
+
+["P-UI-7"]
+metric = "20 sessions changing status at once"
+max_frame_ms = 20
+max = 20
+unit = "ms"
+
+["P-AGT-1"]
+metric = "synchronous hook delivery: the helper's own run per event (its stamp → core reading the envelope)"
+p99_limit = "hook_target_ms"
+unit = "ms"
+
+["P-MEM-1"]
+metric = "total footprint, window open, 1 project, 1 idle session"
+max = 350
+unit = "MB"
+
+["P-MEM-2"]
+metric = "per extra idle live session (mirror parked)"
+max = 4
+unit = "MB"
+
+["P-MEM-2b"]
+metric = "per extra session with an awake mirror (5 000 × 200)"
+max = 18
+unit = "MB"
+
+["P-MEM-3"]
+metric = "20 live idle sessions, window open"
+max = 450
+unit = "MB"
+
+["P-MEM-3b"]
+metric = "50 live idle sessions, window open"
+max = 600
+unit = "MB"
+
+["P-MEM-4"]
+metric = "holder footprint (ring excluded)"
+max_limit = "holder_footprint_max_bytes"
+unit = "bytes"
+
+["P-MEM-5"]
+metric = "window closed or menu-bar mode, 20 idle sessions"
+max = 200
+unit = "MB"
+
+["P-MEM-6"]
+metric = "20 MB file open in the viewer: while visible / after close"
+max = 80
+max_after_close = 5
+unit = "MB"
+
+["P-MEM-7"]
+metric = "highlight worker with 10 grammars"
+max = 60
+unit = "MB"
+
+["P-MEM-8"]
+metric = "ptyhost memory per awake mirror at 5 000 × 200"
+max = 15
+unit = "MB"
+
+["P-MEM-9"]
+metric = "ptyhost memory per parked or exited PTY"
+max = 100
+unit = "KB"
+
+["P-GPU-1"]
+metric = "WebGL contexts alive, regardless of session count"
+max_limit = "webgl_contexts_max"
+unit = "contexts"
+
+["P-GPU-2"]
+metric = "GPU helper footprint while the shimmer cassette runs (L-TERM-3) and over a dogfooding day"
+max = 1024
+unit = "MiB"
+
+["P-CPU-1"]
+metric = "app idle, 20 idle sessions, window visible"
+max = 1
+unit = "% of one core"
+
+["P-CPU-2"]
+metric = "app idle, window hidden or menu-bar mode"
+max = 0.5
+unit = "% of one core"
+max_timer_hz = 1
+
+["P-CPU-3"]
+metric = "5 sessions working (cassettes 1×), one visible"
+max = 40
+unit = "% of one core"
+
+["P-FD-1"]
+metric = "worktree FSEvents streams (+ each one's git-dir stream and one common-dir stream per repo)"
+max_limit = "watch_worktrees_lru"
+unit = "streams"
+
+["P-ENERGY-1"]
+metric = "energy impact in Activity Monitor, idle: Low (checked by hand)"
+unit = "manual"

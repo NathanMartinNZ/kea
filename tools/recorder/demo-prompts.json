@@ -1,0 +1,17 @@
+{
+  "$comment": "The only prompts a recorder may send (enforced by tools/scrubber/src/guard.ts). Harmless tasks for repo-factory demo repos. Add a prompt here before recording with it.",
+  "prompts": [
+    "add a README section describing the project",
+    "add a README section and run the tests",
+    "list the files in this repository and summarise what each one does",
+    "add a unit test for the add function in src/math.js",
+    "fix the typo in the greeting message in src/hello.js",
+    "rename the variable x to count in src/counter.js",
+    "add a .gitignore entry for the build folder",
+    "explain what this repository does in two sentences",
+    "create a file notes/todo.md with three placeholder items",
+    "run the tests and report how many pass",
+    "write a short CHANGELOG.md with an Unreleased section",
+    "print hello world from a new script scripts/hello.sh"
+  ]
+}

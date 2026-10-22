@@ -1,0 +1,39 @@
+/* The composer's selector row (under the prompt, inside the box, a hairline above; quiet dropdowns Agent → Model →
+   Effort → Permission mode). The rest of the composer is styled in shell/window.css. */
+
+.composer-selectors {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  padding: var(--space-1);
+  border-top: 1px solid var(--line);
+}
+
+/* a dangerous permission mode reads in --danger */
+.composer-selectors .danger-text,
+.composer-selectors .danger-text:hover {
+  color: var(--danger);
+}
+
+/* the free-text model field that replaces the Model dropdown while typing (an agent's `options.allowCustomModel`) */
+.composer-model {
+  field-sizing: content;
+  min-width: 16ch;
+  height: var(--size-row);
+  box-sizing: border-box;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  color: var(--text-1);
+  font-family: var(--font-mono);
+  font-size: var(--type-mono-size);
+  outline: none;
+  user-select: text;
+}
+
+/* The chosen agent's account condition, under the box (features/status ConditionNote) */
+.composer > .condition-note {
+  margin-top: var(--space-2);
+}

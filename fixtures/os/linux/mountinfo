@@ -1,0 +1,36 @@
+617 616 253:1 / / rw,relatime master:1 - ext4 /dev/vda1 rw,discard,errors=remount-ro,commit=30
+618 617 0:5 / /dev rw,nosuid,relatime master:2 - devtmpfs udev rw,size=2986528k,nr_inodes=746632,mode=755,inode64
+619 618 0:26 / /dev/pts rw,nosuid,noexec,relatime master:3 - devpts devpts rw,gid=5,mode=620,ptmxmode=000
+620 618 0:30 / /dev/shm rw,nosuid,nodev master:4 - tmpfs tmpfs rw,inode64
+621 618 0:36 / /dev/hugepages rw,nosuid,nodev,relatime master:15 - hugetlbfs hugetlbfs rw,pagesize=2M
+622 618 0:22 / /dev/mqueue rw,nosuid,nodev,noexec,relatime master:16 - mqueue mqueue rw
+623 617 0:27 / /run rw,nosuid,nodev,noexec,relatime master:5 - tmpfs tmpfs rw,size=605332k,mode=755,inode64
+624 623 0:31 / /run/lock rw,nosuid,nodev,noexec,relatime master:6 - tmpfs tmpfs rw,size=5120k,inode64
+625 623 0:60 / /run/user/1001 rw,nosuid,nodev,relatime master:618 - tmpfs tmpfs rw,size=605328k,nr_inodes=151332,mode=700,uid=1001,gid=1001,inode64
+626 625 0:62 / /run/user/1001/gvfs rw,nosuid,nodev,relatime master:686 - fuse.gvfsd-fuse gvfsd-fuse rw,user_id=1001,group_id=1001
+627 625 0:66 / /run/user/1001/doc rw,nosuid,nodev,relatime master:813 - fuse.portal portal rw,user_id=1001,group_id=1001
+667 623 0:47 / /run/user/1000 rw,nosuid,nodev,relatime master:261 - tmpfs tmpfs rw,size=605328k,nr_inodes=151332,mode=700,uid=1000,gid=1000,inode64
+668 617 0:24 / /sys rw,nosuid,nodev,noexec,relatime master:7 - sysfs sysfs rw
+669 668 0:28 / /sys/firmware/efi/efivars rw,nosuid,nodev,noexec,relatime master:8 - efivarfs efivarfs rw
+670 668 0:6 / /sys/kernel/security rw,nosuid,nodev,noexec,relatime master:9 - securityfs securityfs rw
+671 668 0:32 / /sys/fs/cgroup rw,nosuid,nodev,noexec,relatime master:10 - cgroup2 cgroup2 rw,nsdelegate,memory_recursiveprot
+672 668 0:33 / /sys/fs/pstore rw,nosuid,nodev,noexec,relatime master:11 - pstore pstore rw
+673 668 0:34 / /sys/fs/bpf rw,nosuid,nodev,noexec,relatime master:12 - bpf bpf rw,mode=700
+674 668 0:7 / /sys/kernel/debug rw,nosuid,nodev,noexec,relatime master:17 - debugfs debugfs rw
+675 668 0:12 / /sys/kernel/tracing rw,nosuid,nodev,noexec,relatime master:18 - tracefs tracefs rw
+676 668 0:37 / /sys/fs/fuse/connections rw,nosuid,nodev,noexec,relatime master:19 - fusectl fusectl rw
+677 668 0:23 / /sys/kernel/config rw,nosuid,nodev,noexec,relatime master:20 - configfs configfs rw
+678 617 0:25 / /proc rw,nosuid,nodev,noexec,relatime master:13 - proc proc rw
+679 678 0:35 / /proc/sys/fs/binfmt_misc rw,relatime master:14 - autofs systemd-1 rw,fd=32,pgrp=1,timeout=0,minproto=5,maxproto=5,direct,pipe_ino=2606
+680 679 0:38 / /proc/sys/fs/binfmt_misc rw,nosuid,nodev,noexec,relatime master:62 - binfmt_misc binfmt_misc rw
+681 617 7:0 / /snap/bare/5 ro,nodev,relatime master:21 - squashfs /dev/loop0 ro,errors=continue,threads=single
+682 617 7:1 / /snap/core24/2125 ro,nodev,relatime master:22 - squashfs /dev/loop1 ro,errors=continue,threads=single
+683 617 7:2 / /snap/firefox/9056 ro,nodev,relatime master:23 - squashfs /dev/loop2 ro,errors=continue,threads=single
+684 617 7:3 / /snap/gnome-46-2404/176 ro,nodev,relatime master:24 - squashfs /dev/loop3 ro,errors=continue,threads=single
+685 617 7:4 / /snap/gtk-common-themes/1535 ro,nodev,relatime master:25 - squashfs /dev/loop4 ro,errors=continue,threads=single
+686 617 7:6 / /snap/snapd/28255 ro,nodev,relatime master:35 - squashfs /dev/loop6 ro,errors=continue,threads=single
+687 617 7:5 / /snap/mesa-2404/1836 ro,nodev,relatime master:56 - squashfs /dev/loop5 ro,errors=continue,threads=single
+688 617 259:0 / /boot rw,relatime master:58 - ext4 /dev/vda16 rw
+689 688 253:15 / /boot/efi rw,relatime master:60 - vfat /dev/vda15 rw,fmask=0077,dmask=0077,codepage=437,iocharset=iso8859-1,shortname=mixed,errors=remount-ro
+691 617 0:58 / /mnt rw,relatime - tmpfs kea rw,inode64
+692 691 0:59 / /mnt/work\040on\040nfs rw,relatime - tmpfs kea-share rw,inode64

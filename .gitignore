@@ -1,0 +1,32 @@
+# dependencies and build output
+node_modules/
+dist/
+out/
+build/
+target/
+coverage/
+*.tsbuildinfo
+.vite/
+
+# raw fixture recordings stay on the machine that made them; only scrubbed fixtures are committed
+.raw/
+
+# test and perf artefacts, logs
+test-results/
+playwright-report/
+tools/perf/last.json
+*.log
+
+# private signing keys and certificates
+*.p12
+*.key
+*.sec
+*.gpg-private
+
+# OS and editors
+.DS_Store
+.claude/settings.local.json
+
+# the maintainer's private design specification and coding-agent notes, kept out of the repository
+/CLAUDE.md
+.plan/

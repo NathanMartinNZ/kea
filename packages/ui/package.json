@@ -1,0 +1,19 @@
+{
+  "name": "@kea/ui",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./tokens.css": "./src/generated/tokens.css",
+    "./ui.css": "./src/ui.css",
+    "./tokens": "./src/generated/tokens.ts",
+    "./mark": "./src/mark.ts",
+    "./syntax-theme.json": "./src/generated/syntax-theme.json"
+  },
+  "dependencies": {
+    "svelte": "5.57.2",
+    "@kea/protocol": "workspace:*"
+  }
+}

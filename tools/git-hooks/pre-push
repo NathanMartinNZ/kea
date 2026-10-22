@@ -1,0 +1,5 @@
+#!/bin/sh
+# pnpm verify before every push. Installed by `pnpm hooks:install` (git config core.hooksPath tools/git-hooks).
+# Skip once with `git push --no-verify` only when you know why.
+cd "$(git rev-parse --show-toplevel)" || exit 1
+exec pnpm verify

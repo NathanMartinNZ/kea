@@ -1,0 +1,37 @@
+{
+ "format": 1,
+ "id": "20261010-185025-674-01K00000000000000000000S03",
+ "agent": "claude",
+ "expected": "finished",
+ "note": "Esc before any output; busy → idle with no Stop is an interrupted turn",
+ "reported": {
+  "lifecycle": "live",
+  "phase": "ready"
+ },
+ "start": {
+  "base": {
+   "phase": "idle",
+   "attention": [],
+   "background": false,
+   "backgroundFromFile": false,
+   "unread": false,
+   "failureKind": null,
+   "compacting": false,
+   "source": null,
+   "at": null,
+   "lastActivityAt": 1791658225674,
+   "exactMono": null,
+   "sawHeuristic": false,
+   "typedMono": null,
+   "turnMono": null,
+   "model": null,
+   "effort": null,
+   "permissionMode": null,
+   "costUsd": null,
+   "contextPct": null
+  },
+  "baseMono": "157232650737583",
+  "prompt": false,
+  "noTurns": false
+ }
+}

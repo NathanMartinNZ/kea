@@ -1,0 +1,251 @@
+/* Settings: a sheet that fills the main pane, the section list on the left and the selected page on the right. Rows are
+   the project-settings rows of window.css (`.settings-row`), which the generated sections share. Tokens only (DS-2). */
+
+.confirm-sheet.settings-sheet {
+  bottom: 0;
+}
+
+.settings-sheet > .sheet-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.settings-panes {
+  display: grid;
+  grid-template-columns: var(--size-sidebar-min) minmax(0, 1fr);
+  column-gap: var(--space-4);
+  flex: 1;
+  min-height: 0;
+}
+
+.settings-nav {
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+}
+
+.settings-tab {
+  flex: none;
+  height: var(--size-row);
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  text-align: left;
+}
+
+.settings-tab:hover {
+  background: var(--surface-2);
+}
+
+.settings-tab.on {
+  background: var(--surface-3);
+  color: var(--text-1);
+  font-weight: var(--type-emphasis-weight);
+}
+
+.settings-panel {
+  min-height: 0;
+  overflow: auto;
+  padding: 0 var(--space-2) var(--space-2) 0;
+}
+
+.settings-panel .settings-form.settings-fill,
+.settings-projects {
+  max-width: none;
+}
+
+.settings-projects {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.settings-heading {
+  margin: var(--space-2) 0 0;
+  color: var(--text-1);
+  font-size: var(--type-emphasis-size);
+  line-height: var(--type-emphasis-line);
+  font-weight: var(--type-emphasis-weight);
+}
+
+.settings-row.column {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.settings-row.column > .settings-help {
+  grid-column: 1;
+}
+
+.settings-wide {
+  max-width: var(--size-composer);
+  margin: 0;
+  color: var(--text-3);
+  font-size: var(--type-secondary-size);
+  line-height: var(--type-secondary-line);
+}
+
+.settings-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+/* a button whose own action is running keeps its place and the focus (AgentsPage, AdvancedPage, DiagnosticsRow): it reads as disabled */
+.settings-sheet .button[aria-disabled='true'],
+.settings-sheet .button[aria-disabled='true']:hover {
+  color: var(--text-3);
+  background: transparent;
+}
+
+.settings-file {
+  margin-right: auto;
+}
+
+/* a generated row: the control, then "Reset" while the value differs from its default */
+
+.gen-control {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.gen-control > .field {
+  flex: 1;
+}
+
+.gen-control > .gen-number {
+  flex: none;
+  width: var(--size-server-control);
+}
+
+.gen-reset {
+  flex: none;
+}
+
+.gen-error {
+  color: var(--danger);
+}
+
+.gen-note {
+  color: var(--warn);
+}
+
+.field[aria-invalid='true'] {
+  border-color: var(--danger);
+}
+
+/* the Agents section: one card per adapter (no cards inside cards, so a card is a heading and a rule) */
+
+.agent-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--line);
+}
+
+.agent-detected {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+  color: var(--text-2);
+}
+
+.agent-command {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+/* the Terminal section's preview: a sample in the theme's own colours (set inline, from the theme's data) */
+
+.theme-preview {
+  max-width: var(--size-composer);
+  max-height: var(--size-composer-prompt-max);
+  overflow: hidden;
+  box-sizing: border-box;
+  padding: var(--size-terminal-pad-y) var(--size-terminal-pad-x);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  white-space: pre;
+  user-select: none;
+}
+
+.theme-preview-swatches {
+  display: flex;
+  margin-top: var(--space-1);
+}
+
+.theme-preview-swatches > span {
+  width: var(--size-icon);
+  height: var(--size-glyph);
+}
+
+/* Advanced: the holders */
+
+.settings-list-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.settings-holders {
+  max-height: none;
+}
+
+/* About: the platform report's lines. A value is a sentence on Linux, so it wraps; a line that is not the full
+   answer leads with the banner strip's warning dot and has its fix under it (the message in --text-1, the fix in
+   --text-3) */
+
+.about-lines {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.about-line {
+  align-items: start;
+}
+
+.about-value {
+  display: flex;
+  align-items: start;
+  gap: var(--space-2);
+  min-width: 0;
+  color: var(--text-1);
+  user-select: text;
+}
+
+.about-dot {
+  flex: none;
+  width: var(--size-dot);
+  height: var(--size-dot);
+  /* on the first line of the value: a --size-dot dot --space-2 down a --type-base-line line is within half a pixel of
+     its centre */
+  margin-top: var(--space-2);
+  border-radius: 50%;
+  background: var(--warn);
+}
+
+.about-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.about-fix {
+  /* the fix starts where the value's text does, after the dot */
+  padding-left: calc(var(--size-dot) + var(--space-2));
+  user-select: text;
+}
+
+.about-fix code {
+  font-family: var(--font-mono);
+  font-size: var(--type-mono-size);
+  color: var(--text-2);
+}

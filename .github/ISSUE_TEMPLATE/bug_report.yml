@@ -1,0 +1,43 @@
+name: Bug report
+description: Something in Kea does not work as it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For a security problem, do not open an issue: see SECURITY.md.
+        For a wrong session status, use Report Wrong Status (⌥⌘J on macOS, Ctrl+Shift+Alt+J on Linux): it saves the evidence to ~/.kea/reports. It holds the session's screen and the end of its transcript, so read it before attaching it.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1.
+        2.
+        3.
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: Paste the output of Copy Diagnostics (Help menu, or Settings › Advanced). It contains no terminal content, and no file paths outside ~/.kea unless you ticked "Include file paths". If Kea does not start, paste the installer's output instead.
+      render: text
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How Kea was installed
+      options:
+        - install.sh
+        - Kea's apt, dnf or zypper repository
+        - A downloaded package or tarball
+        - Built from source (pnpm kea:install or pnpm dev)
+    validations:
+      required: true

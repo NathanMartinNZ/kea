@@ -1,0 +1,722 @@
+/* The file viewer: VS Code's structure in Kea's palette. Everything is scoped under `.viewer`, three classes deep where
+   it restyles CodeMirror's own rules. Colours, sizes and spacing are design tokens only. */
+
+.viewer {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+  background: var(--surface-0);
+  color: var(--term-foreground);
+}
+
+/* ── header: --size-tab-strip tall on --surface-1 ── */
+
+.viewer-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex: none;
+  height: var(--size-tab-strip);
+  padding: 0 var(--space-3);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-1);
+  color: var(--text-2);
+  font-size: var(--type-secondary-size);
+  white-space: nowrap;
+}
+
+.viewer-header button {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+.viewer-crumbs {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  overflow: hidden;
+}
+
+.viewer-crumbs .crumb {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-2);
+}
+
+.viewer-crumbs .crumb.last {
+  flex: none;
+  color: var(--text-1);
+}
+
+.viewer-crumbs .crumb:hover,
+.viewer-path:hover {
+  color: var(--text-1);
+  text-decoration: underline;
+}
+
+.viewer-crumbs .sep {
+  flex: none;
+  color: var(--text-3);
+}
+
+.viewer-code {
+  flex: none;
+  font-family: var(--font-mono);
+  font-weight: var(--type-emphasis-weight);
+}
+
+.viewer-code[data-code='A'],
+.viewer-code[data-code='U'] {
+  color: var(--ok);
+}
+
+.viewer-code[data-code='M'],
+.viewer-code[data-code='R'] {
+  color: var(--warn);
+}
+
+.viewer-code[data-code='D'],
+.viewer-code[data-code='!'] {
+  color: var(--danger);
+}
+
+/* a diff's path is cut in its middle (`.path-mid`): the folders give way, the file's name stays whole */
+.viewer-header .viewer-path {
+  min-width: 0;
+  color: var(--text-1);
+}
+
+.viewer-stat {
+  flex: none;
+  font-family: var(--font-mono);
+  opacity: var(--opacity-numstat);
+}
+
+.viewer-stat .add {
+  color: var(--ok);
+}
+
+.viewer-stat .del {
+  color: var(--danger);
+}
+
+.viewer-spacer {
+  flex: 1;
+}
+
+.viewer-quiet {
+  flex: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-3);
+}
+
+.viewer-switch {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.viewer-switch button {
+  color: var(--text-3);
+}
+
+.viewer-switch button[aria-pressed='true'] {
+  color: var(--text-1);
+}
+
+.viewer-switch button:hover {
+  color: var(--text-1);
+}
+
+.viewer-switch .dot {
+  color: var(--text-3);
+}
+
+.viewer-header .viewer-open {
+  flex: none;
+  color: var(--text-2);
+}
+
+.viewer-header .viewer-open:hover {
+  color: var(--text-1);
+}
+
+.viewer-header .viewer-open kbd {
+  margin-left: var(--space-1);
+  color: var(--text-3);
+  font: inherit;
+}
+
+/* notices: one line of --text-3 under the header, never a banner */
+.viewer-notice {
+  flex: none;
+  margin: 0;
+  padding: var(--space-1) var(--space-3);
+  border-bottom: 1px solid var(--line);
+  color: var(--text-3);
+  font-size: var(--type-secondary-size);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── body ── */
+
+.viewer-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  outline: none;
+}
+
+.viewer-editor,
+.viewer-preview,
+.viewer-image,
+.viewer-images {
+  position: absolute;
+  inset: 0;
+}
+
+.viewer-editor[hidden],
+.viewer-preview[hidden] {
+  display: none;
+}
+
+/* A deleted file's last content, dimmed */
+.viewer-body.deleted .viewer-editor,
+.viewer-body.deleted .viewer-preview {
+  opacity: var(--opacity-detached-dim);
+}
+
+.viewer-note {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0;
+  padding: var(--space-3);
+  color: var(--text-3);
+  font-size: var(--type-secondary-size);
+}
+
+.viewer-note button {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--info);
+  font: inherit;
+}
+
+.viewer-note button:hover {
+  text-decoration: underline;
+}
+
+/* ── the editor: the terminal's font, size and line height on --surface-0 ── */
+
+.viewer .cm-editor {
+  height: 100%;
+  background: var(--surface-0);
+  color: var(--term-foreground);
+}
+
+.viewer .cm-editor.cm-focused {
+  outline: none;
+}
+
+.viewer .cm-editor .cm-scroller {
+  overflow: auto;
+  font-family: var(--viewer-font, var(--font-mono));
+  font-size: var(--viewer-font-size, var(--type-mono-size));
+  line-height: var(--viewer-line-height, 1.4);
+}
+
+.viewer .cm-editor .cm-content {
+  padding: var(--space-1) 0;
+  caret-color: var(--term-cursor);
+}
+
+.viewer .cm-editor .cm-line {
+  padding: 0 var(--space-2) 0 var(--space-1);
+}
+
+.viewer .cm-editor .cm-gutters {
+  border-right: 0;
+  background: var(--surface-0);
+  color: var(--text-3);
+}
+
+.viewer .cm-editor .cm-lineNumbers .cm-gutterElement {
+  min-width: 4ch;
+  padding: 0 var(--space-2) 0 var(--space-2);
+}
+
+.viewer .cm-editor .cm-activeLineGutter {
+  background: transparent;
+  color: var(--text-2);
+}
+
+.viewer .cm-editor .cm-activeLine {
+  background: var(--surface-1);
+}
+
+.viewer .cm-editor .cm-cursor {
+  border-left-color: var(--term-cursor);
+}
+
+.viewer .cm-editor .cm-selectionBackground,
+.viewer .cm-editor.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground {
+  background: var(--term-selection-background);
+}
+
+.viewer .cm-editor:not(.cm-focused) .cm-selectionBackground {
+  background: var(--term-selection-inactive-background);
+}
+
+.viewer .cm-editor .cm-matchingBracket,
+.viewer .cm-editor.cm-focused .cm-matchingBracket {
+  background: var(--surface-3);
+  outline: 1px solid var(--line-strong);
+}
+
+.viewer .cm-editor .cm-nonmatchingBracket,
+.viewer .cm-editor.cm-focused .cm-nonmatchingBracket {
+  background: transparent;
+}
+
+/* find: matches --warn at --opacity-find-match, the current one outlined */
+.viewer .cm-editor .cm-searchMatch {
+  background: color-mix(in srgb, var(--warn) calc(var(--opacity-find-match) * 100%), transparent);
+  outline: 0;
+}
+
+.viewer .cm-editor .cm-searchMatch.cm-searchMatch-selected {
+  background: color-mix(in srgb, var(--warn) calc(var(--opacity-find-match) * 100%), transparent);
+  outline: 1px solid var(--warn);
+}
+
+/* indent guides: a hairline at each level, drawn behind the leading whitespace */
+.viewer .cm-editor .kea-guides {
+  background-image: repeating-linear-gradient(to right, var(--line) 0 1px, transparent 1px var(--kea-indent));
+}
+
+/* git change markers: a 2 px bar at the far left; a wedge where lines were deleted */
+.viewer .cm-editor .kea-change-gutter {
+  width: 4px;
+}
+
+.viewer .cm-editor .kea-change-gutter .cm-gutterElement {
+  position: relative;
+}
+
+.viewer .cm-editor .kea-change-added {
+  box-shadow: inset 2px 0 0 var(--ok);
+}
+
+.viewer .cm-editor .kea-change-modified {
+  box-shadow: inset 2px 0 0 var(--warn);
+}
+
+.viewer .cm-editor .kea-change-deleted::after,
+.viewer .cm-editor .kea-change-deleted-top::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  width: 0;
+  height: 0;
+  border-left: 4px solid var(--danger);
+  border-top: 3px solid transparent;
+  border-bottom: 3px solid transparent;
+}
+
+.viewer .cm-editor .kea-change-deleted::after {
+  bottom: -3px;
+}
+
+.viewer .cm-editor .kea-change-deleted-top::after {
+  top: -3px;
+}
+
+/* fold chevrons appear only while the gutter is hovered; a folded block's chevron stays */
+.viewer .cm-editor .cm-foldGutter .cm-gutterElement {
+  width: 2ch;
+  text-align: center;
+  cursor: default;
+}
+
+.viewer .cm-editor .kea-fold {
+  color: var(--text-3);
+  opacity: 0;
+}
+
+.viewer .cm-editor .cm-gutters:hover .kea-fold,
+.viewer .cm-editor .kea-fold-closed {
+  opacity: 1;
+}
+
+.viewer .cm-editor .kea-fold:hover {
+  color: var(--text-1);
+}
+
+.viewer .cm-editor .cm-foldPlaceholder {
+  margin: 0 var(--space-1);
+  padding: 0 var(--space-1);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--surface-3);
+  color: var(--text-2);
+}
+
+/* ── the bars (find, go to line) ── */
+
+.viewer .cm-editor .cm-panels {
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+}
+
+.viewer .cm-editor .kea-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-3);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-1);
+  font-family: var(--font-ui);
+  font-size: var(--type-secondary-size);
+}
+
+.viewer .cm-editor .kea-bar-input {
+  width: var(--size-sidebar);
+  height: var(--size-tree-row);
+  box-sizing: border-box;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  outline: none;
+  background: var(--surface-2);
+  color: var(--text-1);
+  font: inherit;
+}
+
+.viewer .cm-editor .kea-bar-input:focus {
+  border-color: var(--accent);
+}
+
+.viewer .cm-editor .kea-bar.none .kea-bar-input {
+  border-color: var(--danger);
+}
+
+.viewer .cm-editor .kea-bar-count {
+  min-width: 10ch;
+  padding: 0 var(--space-1);
+  color: var(--text-3);
+}
+
+.viewer .cm-editor .kea-bar-toggle,
+.viewer .cm-editor .kea-bar-button {
+  min-width: var(--size-tree-row);
+  height: var(--size-tree-row);
+  padding: 0 var(--space-1);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+}
+
+.viewer .cm-editor .kea-bar-toggle:hover,
+.viewer .cm-editor .kea-bar-button:hover {
+  background: var(--surface-2);
+  color: var(--text-1);
+}
+
+/* a toggle that is on: as in the terminal's find bar (styles.css `.find-toggle.on`); the accent is not decoration */
+.viewer .cm-editor .kea-bar-toggle[aria-pressed='true'] {
+  background: var(--surface-3);
+  color: var(--text-1);
+}
+
+/* ── diff: added --ok and removed --danger at --opacity-diff-line, changed words at --opacity-diff-word ── */
+
+.viewer .cm-mergeView {
+  height: 100%;
+  overflow: auto;
+}
+
+.viewer .cm-mergeView .cm-editor {
+  height: auto;
+}
+
+.viewer .cm-mergeView .cm-mergeViewEditor:first-child {
+  border-right: 1px solid var(--line);
+}
+
+.viewer .cm-editor.cm-merge-b .cm-changedLine,
+.viewer .cm-editor .cm-inlineChangedLine {
+  background: color-mix(in srgb, var(--ok) calc(var(--opacity-diff-line) * 100%), transparent);
+}
+
+.viewer .cm-editor.cm-merge-a .cm-changedLine,
+.viewer .cm-editor .cm-deletedChunk {
+  background: color-mix(in srgb, var(--danger) calc(var(--opacity-diff-line) * 100%), transparent);
+}
+
+.viewer .cm-editor.cm-merge-b .cm-changedText {
+  background: color-mix(in srgb, var(--ok) calc(var(--opacity-diff-word) * 100%), transparent);
+}
+
+.viewer .cm-editor.cm-merge-a .cm-changedText,
+.viewer .cm-editor .cm-deletedChunk .cm-deletedText,
+.viewer .cm-editor.cm-merge-b .cm-deletedText {
+  background: color-mix(in srgb, var(--danger) calc(var(--opacity-diff-word) * 100%), transparent);
+}
+
+.viewer .cm-editor .cm-deletedChunk {
+  padding-left: var(--space-1);
+}
+
+.viewer .cm-editor .cm-insertedLine,
+.viewer .cm-editor .cm-deletedLine,
+.viewer .cm-editor .cm-deletedLine del {
+  text-decoration: none;
+}
+
+.viewer .cm-editor .cm-deletedChunk .cm-chunkButtons {
+  display: none;
+}
+
+.viewer .cm-editor .cm-changeGutter {
+  width: 4px;
+  padding-left: 0;
+}
+
+.viewer .cm-editor.cm-merge-b .cm-changedLineGutter {
+  background: transparent;
+  box-shadow: inset 2px 0 0 var(--ok);
+}
+
+.viewer .cm-editor.cm-merge-a .cm-changedLineGutter,
+.viewer .cm-editor .cm-deletedLineGutter {
+  background: transparent;
+  box-shadow: inset 2px 0 0 var(--danger);
+}
+
+/* a collapsed region: a --surface-1 row reading `⋯ 42 unchanged lines` */
+.viewer .cm-editor .cm-collapsedLines {
+  padding: 2px var(--space-3);
+  background: var(--surface-1);
+  color: var(--text-3);
+  font-family: var(--font-ui);
+  font-size: var(--type-secondary-size);
+  cursor: default;
+}
+
+.viewer .cm-editor .cm-collapsedLines:hover {
+  color: var(--text-1);
+}
+
+.viewer .cm-editor .cm-collapsedLines::before,
+.viewer .cm-editor .cm-collapsedLines::after {
+  content: none;
+}
+
+/* ── images ── */
+
+.viewer-image {
+  display: flex;
+  overflow: auto;
+  padding: var(--space-4);
+  box-sizing: border-box;
+}
+
+.viewer-image img {
+  margin: auto;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  cursor: zoom-in;
+}
+
+.viewer-image.actual img {
+  max-width: none;
+  max-height: none;
+  cursor: zoom-out;
+}
+
+.viewer-images {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--line);
+}
+
+.viewer-images figure {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding: var(--space-3);
+  box-sizing: border-box;
+  background: var(--surface-0);
+}
+
+.viewer-images figcaption {
+  flex: none;
+  padding-bottom: var(--space-2);
+  color: var(--text-3);
+  font-size: var(--type-secondary-size);
+}
+
+.viewer-images img {
+  flex: 1;
+  min-height: 0;
+  max-width: 100%;
+  object-fit: contain;
+}
+
+.viewer-images .none {
+  color: var(--text-3);
+  font-size: var(--type-secondary-size);
+}
+
+/* ── Markdown preview ── */
+
+.viewer-preview {
+  overflow: auto;
+  padding: var(--space-4) var(--space-6);
+  box-sizing: border-box;
+  color: var(--text-1);
+  font-family: var(--font-ui);
+  font-size: var(--type-base-size);
+  line-height: var(--type-base-line);
+  user-select: text;
+}
+
+.viewer-preview > * {
+  max-width: var(--size-composer);
+}
+
+.viewer-preview > pre,
+.viewer-preview > table {
+  max-width: none;
+}
+
+.viewer-preview h1,
+.viewer-preview h2,
+.viewer-preview h3,
+.viewer-preview h4,
+.viewer-preview h5,
+.viewer-preview h6 {
+  margin: var(--space-6) 0 var(--space-2);
+  font-size: var(--type-dialog-size);
+  font-weight: var(--type-dialog-weight);
+  line-height: var(--type-dialog-line);
+}
+
+.viewer-preview h3,
+.viewer-preview h4,
+.viewer-preview h5,
+.viewer-preview h6 {
+  font-size: var(--type-base-size);
+}
+
+.viewer-preview > :first-child {
+  margin-top: 0;
+}
+
+.viewer-preview p,
+.viewer-preview ul,
+.viewer-preview ol,
+.viewer-preview blockquote,
+.viewer-preview pre,
+.viewer-preview table {
+  margin: 0 0 var(--space-3);
+}
+
+.viewer-preview ul,
+.viewer-preview ol {
+  padding-left: var(--space-6);
+}
+
+.viewer-preview blockquote {
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--line-strong);
+  color: var(--text-2);
+}
+
+.viewer-preview code {
+  font-family: var(--viewer-font, var(--font-mono));
+  font-size: var(--type-mono-size);
+}
+
+.viewer-preview :not(pre) > code {
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.viewer-preview pre {
+  overflow: auto;
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--surface-1);
+  color: var(--term-foreground);
+  line-height: var(--type-mono-line);
+}
+
+.viewer-preview a[href],
+.viewer-preview a[data-path] {
+  color: var(--info);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.viewer-preview a[href]:hover,
+.viewer-preview a[data-path]:hover {
+  text-decoration: underline;
+}
+
+.viewer-preview img {
+  max-width: 100%;
+}
+
+.viewer-preview .md-no-image {
+  padding: 0 var(--space-1);
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text-3);
+}
+
+.viewer-preview hr {
+  height: 1px;
+  margin: var(--space-4) 0;
+  border: 0;
+  background: var(--line);
+}
+
+.viewer-preview table {
+  border-collapse: collapse;
+}
+
+.viewer-preview th,
+.viewer-preview td {
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--line);
+  text-align: left;
+}
+
+.viewer-preview .md-align-center {
+  text-align: center;
+}
+
+.viewer-preview .md-align-right {
+  text-align: right;
+}

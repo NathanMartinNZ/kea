@@ -1,0 +1,13 @@
+{
+  "name": "@kea/preload",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "dependencies": {
+    "@kea/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "electron": "44.5.1"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "name": "@kea/tests",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "dependencies": {
+    "@kea/protocol": "workspace:*",
+    "@kea/kit": "workspace:*",
+    "@kea/terminal": "workspace:*",
+    "@kea/adapters": "workspace:*",
+    "@kea/core": "workspace:*",
+    "@kea/ptyhost": "workspace:*",
+    "@kea-tools/repo-factory": "workspace:*",
+    "@kea-tools/process-zoo": "workspace:*",
+    "@kea-tools/fake-editor": "workspace:*"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@xterm/addon-serialize": "0.15.0-beta.301",
+    "@xterm/headless": "6.1.0-beta.303",
+    "electron": "44.5.1"
+  }
+}

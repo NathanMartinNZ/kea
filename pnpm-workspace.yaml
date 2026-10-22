@@ -1,0 +1,21 @@
+packages:
+  - app/*
+  - packages/*
+  - tools/*
+  - tests
+
+# Native and binary-downloading packages allowed to run install scripts.
+allowBuilds:
+  '@parcel/watcher': true
+  better-sqlite3: true
+  esbuild: true
+  electron: true
+  # electron-builder's Windows installer dependency (tools/pack): Kea builds no Windows installer
+  electron-winstaller: false
+
+patchedDependencies:
+  '@parcel/watcher@2.6.0': patches/@parcel__watcher@2.6.0.patch
+  '@xterm/addon-serialize@0.15.0-beta.301': patches/@xterm__addon-serialize@0.15.0-beta.301.patch
+  '@xterm/addon-webgl@0.20.0-beta.300': patches/@xterm__addon-webgl@0.20.0-beta.300.patch
+  '@xterm/xterm@6.1.0-beta.304': patches/@xterm__xterm@6.1.0-beta.304.patch
+  svelte@5.57.2: patches/svelte@5.57.2.patch

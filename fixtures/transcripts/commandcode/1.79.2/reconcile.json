@@ -1,0 +1,62 @@
+{
+  "allowed": {
+    "phase": "finished",
+    "model": "mock/mock-model",
+    "title": {
+      "title": "ok",
+      "source": "agent"
+    }
+  },
+  "answered": {
+    "phase": "finished",
+    "model": "mock/mock-model",
+    "title": {
+      "title": "ok",
+      "source": "agent"
+    }
+  },
+  "asking": {
+    "phase": null,
+    "model": "mock/mock-model",
+    "title": {
+      "title": "ok",
+      "source": "agent"
+    }
+  },
+  "cleared": {
+    "phase": "finished",
+    "model": "mock/mock-model",
+    "title": {
+      "title": "ok",
+      "source": "agent"
+    }
+  },
+  "denied": {
+    "phase": "finished",
+    "model": "mock/mock-model",
+    "title": {
+      "title": "ok",
+      "source": "agent"
+    }
+  },
+  "failed": {
+    "phase": null,
+    "model": "mock/mock-model",
+    "title": {
+      "title": "ok",
+      "source": "agent"
+    }
+  },
+  "interrupted": {
+    "phase": null,
+    "model": "mock/mock-model",
+    "title": {
+      "title": "ok",
+      "source": "agent"
+    }
+  },
+  "named": {
+    "phase": "finished",
+    "model": "mock/mock-model"
+  }
+}

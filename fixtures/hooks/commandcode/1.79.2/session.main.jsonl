@@ -1,0 +1,37 @@
+{"sessionId":"ca2d172d-d61f-47f0-a566-9f33505fd0ff","source":"startup","type":"session_start"}
+{"sessionId":"ca2d172d-d61f-47f0-a566-9f33505fd0ff","type":"run_start"}
+{"model":"mock/mock-model","sessionId":"ca2d172d-d61f-47f0-a566-9f33505fd0ff","type":"model_request_start"}
+{"input":{"command":"echo kea-probe"},"sessionId":"ca2d172d-d61f-47f0-a566-9f33505fd0ff","toolCallId":"toolu_mock_1_1","toolName":"shell_command","type":"tool_running"}
+{"input":{"command":"echo kea-probe"},"sessionId":"ca2d172d-d61f-47f0-a566-9f33505fd0ff","toolCallId":"toolu_mock_1_1","toolName":"shell_command","type":"tool_completed"}
+{"input":{"file_path":"/private/tmp/kea-fixture-xxxxxx/demo/missing.txt"},"sessionId":"ca2d172d-d61f-47f0-a566-9f33505fd0ff","toolCallId":"toolu_mock_2_0","toolName":"read_file","type":"tool_running"}
+{"error":"File not found or not readable: /private/tmp/kea-fixture-xxxxxx/demo/missing.txt","input":{"file_path":"/private/tmp/kea-fixture-xxxxxx/demo/missing.txt"},"sessionId":"ca2d172d-d61f-47f0-a566-9f33505fd0ff","toolCallId":"toolu_mock_2_0","toolName":"read_file","type":"tool_errored"}
+{"result":{"finalText":"This repository is a small demo project: a few JavaScript modules with tests. It exists to exercise tools.","stopReason":"end_turn"},"sessionId":"ca2d172d-d61f-47f0-a566-9f33505fd0ff","transcript":"/tmp/kea-world/home/.commandcode/projects/private-tmp-kea-fixture-xxxxxx-demo/ca2d172d-d61f-47f0-a566-9f33505fd0ff.jsonl","type":"run_end"}
+{"sessionId":"ca2d172d-d61f-47f0-a566-9f33505fd0ff","title":"ok","type":"session_titled"}
+{"sessionId":"ca2d172d-d61f-47f0-a566-9f33505fd0ff","type":"run_start"}
+{"input":{"file_path":"/private/tmp/kea-fixture-xxxxxx/demo/notes/todo.md"},"sessionId":"ca2d172d-d61f-47f0-a566-9f33505fd0ff","toolCallId":"toolu_mock_5_0","toolName":"write_file","type":"kea_tool_waiting"}
+{"input":{"file_path":"/private/tmp/kea-fixture-xxxxxx/demo/notes/todo.md"},"sessionId":"ca2d172d-d61f-47f0-a566-9f33505fd0ff","toolCallId":"toolu_mock_5_0","toolName":"write_file","type":"tool_running"}
+{"input":{"file_path":"/private/tmp/kea-fixture-xxxxxx/demo/notes/todo.md"},"sessionId":"ca2d172d-d61f-47f0-a566-9f33505fd0ff","toolCallId":"toolu_mock_5_0","toolName":"write_file","type":"tool_completed"}
+{"result":{"finalText":"Created notes/todo.md with three placeholder items.","stopReason":"end_turn"},"sessionId":"ca2d172d-d61f-47f0-a566-9f33505fd0ff","type":"run_end"}
+{"sessionId":"ca2d172d-d61f-47f0-a566-9f33505fd0ff","type":"run_start"}
+{"input":{"file_path":"/private/tmp/kea-fixture-xxxxxx/demo/.gitignore"},"sessionId":"ca2d172d-d61f-47f0-a566-9f33505fd0ff","toolCallId":"toolu_mock_7_1","toolName":"write_file","type":"kea_tool_waiting"}
+{"input":{"file_path":"/private/tmp/kea-fixture-xxxxxx/demo/.gitignore"},"sessionId":"ca2d172d-d61f-47f0-a566-9f33505fd0ff","toolCallId":"toolu_mock_7_1","toolName":"write_file","type":"tool_denied"}
+{"result":{"finalText":"","stopReason":"permission_denied"},"sessionId":"ca2d172d-d61f-47f0-a566-9f33505fd0ff","type":"run_end"}
+{"sessionId":"ca2d172d-d61f-47f0-a566-9f33505fd0ff","type":"run_start"}
+{"sessionId":"ca2d172d-d61f-47f0-a566-9f33505fd0ff","type":"interrupted"}
+{"result":{"finalText":"","stopReason":"interrupted"},"sessionId":"ca2d172d-d61f-47f0-a566-9f33505fd0ff","type":"run_end"}
+{"mode":"auto-accept","sessionId":"ca2d172d-d61f-47f0-a566-9f33505fd0ff","type":"permission_mode_changed"}
+{"mode":"plan","sessionId":"ca2d172d-d61f-47f0-a566-9f33505fd0ff","type":"permission_mode_changed"}
+{"mode":"bypass","sessionId":"ca2d172d-d61f-47f0-a566-9f33505fd0ff","type":"permission_mode_changed"}
+{"mode":"default","sessionId":"ca2d172d-d61f-47f0-a566-9f33505fd0ff","type":"permission_mode_changed"}
+{"sessionId":"ca2d172d-d61f-47f0-a566-9f33505fd0ff","type":"run_start"}
+{"result":{"finalText":"ok","stopReason":"end_turn"},"sessionId":"ca2d172d-d61f-47f0-a566-9f33505fd0ff","type":"run_end"}
+{"sessionId":"ca2d172d-d61f-47f0-a566-9f33505fd0ff","type":"run_start"}
+{"error":{"message":"invalid x-api-key","name":"TransportError","status":401},"sessionId":"ca2d172d-d61f-47f0-a566-9f33505fd0ff","type":"run_error"}
+{"result":{"finalText":"","stopReason":"run_error"},"sessionId":"ca2d172d-d61f-47f0-a566-9f33505fd0ff","type":"run_end"}
+{"reason":"replaced","sessionId":"ca2d172d-d61f-47f0-a566-9f33505fd0ff","type":"session_shutdown"}
+{"sessionId":"dccf2a7d-d3f9-4f9f-a4c0-31ffa65bf13e","source":"startup","type":"session_start"}
+{"sessionId":"dccf2a7d-d3f9-4f9f-a4c0-31ffa65bf13e","type":"run_start"}
+{"model":"mock/mock-model","sessionId":"dccf2a7d-d3f9-4f9f-a4c0-31ffa65bf13e","type":"model_request_start"}
+{"result":{"finalText":"There are four files: README.md, package.json, src/math.js and test/math.test.js.","stopReason":"end_turn"},"sessionId":"dccf2a7d-d3f9-4f9f-a4c0-31ffa65bf13e","transcript":"/tmp/kea-world/home/.commandcode/projects/private-tmp-kea-fixture-xxxxxx-demo/dccf2a7d-d3f9-4f9f-a4c0-31ffa65bf13e.jsonl","type":"run_end"}
+{"sessionId":"dccf2a7d-d3f9-4f9f-a4c0-31ffa65bf13e","title":"ok","type":"session_titled"}
+{"reason":"shutdown","sessionId":"dccf2a7d-d3f9-4f9f-a4c0-31ffa65bf13e","type":"session_shutdown"}

@@ -1,0 +1,97 @@
+{"ms":0,"kind":"event","name":"session_start","arg":{"type":"session_start"}}
+{"ms":3,"kind":"hook","name":"onSessionStart","arg":{"source":"startup","sessionId":"ca2d172d-d61f-47f0-a566-9f33505fd0ff"}}
+{"ms":15,"kind":"event","name":"run_start","arg":{"type":"run_start","sessionId":"ca2d172d-d61f-47f0-a566-9f33505fd0ff"}}
+{"ms":52,"kind":"event","name":"turn_start","arg":{"type":"turn_start","turnNumber":1}}
+{"ms":123,"kind":"event","name":"message_start","arg":{"type":"message_start"}}
+{"ms":125,"kind":"event","name":"model_request_start","arg":{"type":"model_request_start","model":"mock/mock-model"}}
+{"ms":154,"kind":"event","name":"model_request_end","arg":{"type":"model_request_end","model":"mock/mock-model","usage":{"inputTokens":27,"outputTokens":46,"cacheReadTokens":0,"cacheWriteTokens":0},"stopReason":"tool_use"}}
+{"ms":154,"kind":"event","name":"message_end","arg":{"type":"message_end","content":[{"type":"text","text":"Running a quick check."},{"type":"tool_use","id":"toolu_mock_1_1","name":"shell_command","input":{"command":"echo kea-probe","description":"Print a marker"}}]}}
+{"ms":156,"kind":"event","name":"tool_queued","arg":{"type":"tool_queued","toolCallId":"toolu_mock_1_1","toolName":"shell_command","input":{"command":"echo kea-probe","description":"Print a marker"}}}
+{"ms":164,"kind":"event","name":"tool_running","arg":{"type":"tool_running","toolCallId":"toolu_mock_1_1","toolName":"shell_command","description":null}}
+{"ms":172,"kind":"event","name":"tool_completed","arg":{"type":"tool_completed","toolCallId":"toolu_mock_1_1","toolName":"shell_command","result":[{"type":"text","text":"kea-probe\n"}],"deferred":false}}
+{"ms":172,"kind":"event","name":"turn_end","arg":{"type":"turn_end","turnNumber":1,"hadToolCalls":true,"usage":{"inputTokens":27,"outputTokens":46,"cacheReadTokens":0,"cacheWriteTokens":0}}}
+{"ms":176,"kind":"event","name":"turn_start","arg":{"type":"turn_start","turnNumber":2}}
+{"ms":177,"kind":"event","name":"message_start","arg":{"type":"message_start"}}
+{"ms":177,"kind":"event","name":"model_request_start","arg":{"type":"model_request_start","model":"mock/mock-model"}}
+{"ms":183,"kind":"event","name":"model_request_end","arg":{"type":"model_request_end","model":"mock/mock-model","usage":{"inputTokens":107,"outputTokens":34,"cacheReadTokens":0,"cacheWriteTokens":0},"stopReason":"tool_use"}}
+{"ms":183,"kind":"event","name":"message_end","arg":{"type":"message_end","content":[{"type":"tool_use","id":"toolu_mock_2_0","name":"read_file","input":{"file_path":"/private/tmp/kea-fixture-xxxxxx/demo/missing.txt"}}]}}
+{"ms":183,"kind":"event","name":"tool_queued","arg":{"type":"tool_queued","toolCallId":"toolu_mock_2_0","toolName":"read_file","input":{"file_path":"/private/tmp/kea-fixture-xxxxxx/demo/missing.txt"}}}
+{"ms":186,"kind":"event","name":"tool_running","arg":{"type":"tool_running","toolCallId":"toolu_mock_2_0","toolName":"read_file","description":null}}
+{"ms":190,"kind":"event","name":"tool_errored","arg":{"type":"tool_errored","toolCallId":"toolu_mock_2_0","toolName":"read_file","error":"File not found or not readable: /private/tmp/kea-fixture-xxxxxx/demo/missing.txt","deferred":false}}
+{"ms":190,"kind":"event","name":"turn_end","arg":{"type":"turn_end","turnNumber":2,"hadToolCalls":true,"usage":{"inputTokens":107,"outputTokens":34,"cacheReadTokens":0,"cacheWriteTokens":0}}}
+{"ms":194,"kind":"event","name":"turn_start","arg":{"type":"turn_start","turnNumber":3}}
+{"ms":195,"kind":"event","name":"message_start","arg":{"type":"message_start"}}
+{"ms":195,"kind":"event","name":"model_request_start","arg":{"type":"model_request_start","model":"mock/mock-model"}}
+{"ms":199,"kind":"event","name":"model_request_end","arg":{"type":"model_request_end","model":"mock/mock-model","usage":{"inputTokens":192,"outputTokens":34,"cacheReadTokens":0,"cacheWriteTokens":0},"stopReason":"end_turn"}}
+{"ms":199,"kind":"event","name":"message_end","arg":{"type":"message_end","content":[{"type":"text","text":"This repository is a small demo project: a few JavaScript modules with tests. It exists to exercise tools."}]}}
+{"ms":199,"kind":"event","name":"turn_end","arg":{"type":"turn_end","turnNumber":3,"hadToolCalls":false,"usage":{"inputTokens":192,"outputTokens":34,"cacheReadTokens":0,"cacheWriteTokens":0}}}
+{"ms":206,"kind":"event","name":"run_end","arg":{"type":"run_end","result":{"finalText":"This repository is a small demo project: a few JavaScript modules with tests. It exists to exercise tools.","stopReason":"end_turn","turnCount":3,"usage":{"inputTokens":326,"outputTokens":114,"cacheReadTokens":0,"cacheWriteTokens":0},"systemPromptTokens":null,"nextState":{"sessionId":"ca2d172d-d61f-47f0-a566-9f33505fd0ff","dropped":"conversation"}}}}
+{"ms":215,"kind":"event","name":"session_titled","arg":{"type":"session_titled","title":"ok"}}
+{"ms":24267,"kind":"event","name":"run_start","arg":{"type":"run_start","sessionId":"ca2d172d-d61f-47f0-a566-9f33505fd0ff"}}
+{"ms":24267,"kind":"event","name":"turn_start","arg":{"type":"turn_start","turnNumber":1}}
+{"ms":24268,"kind":"event","name":"message_start","arg":{"type":"message_start"}}
+{"ms":24268,"kind":"event","name":"model_request_start","arg":{"type":"model_request_start","model":"mock/mock-model"}}
+{"ms":24273,"kind":"event","name":"model_request_end","arg":{"type":"model_request_end","model":"mock/mock-model","usage":{"inputTokens":261,"outputTokens":44,"cacheReadTokens":0,"cacheWriteTokens":0},"stopReason":"tool_use"}}
+{"ms":24273,"kind":"event","name":"message_end","arg":{"type":"message_end","content":[{"type":"tool_use","id":"toolu_mock_5_0","name":"write_file","input":{"file_path":"/private/tmp/kea-fixture-xxxxxx/demo/notes/todo.md","content":"- one\n- two\n- three\n"}}]}}
+{"ms":24273,"kind":"event","name":"tool_queued","arg":{"type":"tool_queued","toolCallId":"toolu_mock_5_0","toolName":"write_file","input":{"file_path":"/private/tmp/kea-fixture-xxxxxx/demo/notes/todo.md","content":"- one\n- two\n- three\n"}}}
+{"ms":42739,"kind":"event","name":"tool_running","arg":{"type":"tool_running","toolCallId":"toolu_mock_5_0","toolName":"write_file","description":null}}
+{"ms":42749,"kind":"event","name":"tool_completed","arg":{"type":"tool_completed","toolCallId":"toolu_mock_5_0","toolName":"write_file","result":[{"type":"text","text":"File created successfully at: /private/tmp/kea-fixture-xxxxxx/demo/notes/todo.md"}],"deferred":false}}
+{"ms":42749,"kind":"event","name":"turn_end","arg":{"type":"turn_end","turnNumber":1,"hadToolCalls":true,"usage":{"inputTokens":261,"outputTokens":44,"cacheReadTokens":0,"cacheWriteTokens":0}}}
+{"ms":42761,"kind":"event","name":"turn_start","arg":{"type":"turn_start","turnNumber":2}}
+{"ms":42764,"kind":"event","name":"message_start","arg":{"type":"message_start"}}
+{"ms":42764,"kind":"event","name":"model_request_start","arg":{"type":"model_request_start","model":"mock/mock-model"}}
+{"ms":42770,"kind":"event","name":"model_request_end","arg":{"type":"model_request_end","model":"mock/mock-model","usage":{"inputTokens":356,"outputTokens":20,"cacheReadTokens":0,"cacheWriteTokens":0},"stopReason":"end_turn"}}
+{"ms":42770,"kind":"event","name":"message_end","arg":{"type":"message_end","content":[{"type":"text","text":"Created notes/todo.md with three placeholder items."}]}}
+{"ms":42771,"kind":"event","name":"turn_end","arg":{"type":"turn_end","turnNumber":2,"hadToolCalls":false,"usage":{"inputTokens":356,"outputTokens":20,"cacheReadTokens":0,"cacheWriteTokens":0}}}
+{"ms":42777,"kind":"event","name":"run_end","arg":{"type":"run_end","result":{"finalText":"Created notes/todo.md with three placeholder items.","stopReason":"end_turn","turnCount":2,"usage":{"inputTokens":617,"outputTokens":64,"cacheReadTokens":0,"cacheWriteTokens":0},"systemPromptTokens":null,"nextState":{"sessionId":"ca2d172d-d61f-47f0-a566-9f33505fd0ff","dropped":"conversation"}}}}
+{"ms":46359,"kind":"event","name":"run_start","arg":{"type":"run_start","sessionId":"ca2d172d-d61f-47f0-a566-9f33505fd0ff"}}
+{"ms":46360,"kind":"event","name":"turn_start","arg":{"type":"turn_start","turnNumber":1}}
+{"ms":46361,"kind":"event","name":"message_start","arg":{"type":"message_start"}}
+{"ms":46362,"kind":"event","name":"model_request_start","arg":{"type":"model_request_start","model":"mock/mock-model"}}
+{"ms":46370,"kind":"event","name":"model_request_end","arg":{"type":"model_request_end","model":"mock/mock-model","usage":{"inputTokens":408,"outputTokens":106,"cacheReadTokens":0,"cacheWriteTokens":0},"stopReason":"tool_use"}}
+{"ms":46370,"kind":"event","name":"message_end","arg":{"type":"message_end","content":[{"type":"tool_use","id":"toolu_mock_7_0","name":"read_file","input":{"file_path":"/private/tmp/kea-fixture-xxxxxx/demo/README.md"}},{"type":"tool_use","id":"toolu_mock_7_1","name":"write_file","input":{"file_path":"/private/tmp/kea-fixture-xxxxxx/demo/.gitignore","content":"build/\n"}},{"type":"tool_use","id":"toolu_mock_7_2","name":"shell_command","input":{"command":"git status --short","description":"Show changes"}}]}}
+{"ms":46370,"kind":"event","name":"tool_queued","arg":{"type":"tool_queued","toolCallId":"toolu_mock_7_0","toolName":"read_file","input":{"file_path":"/private/tmp/kea-fixture-xxxxxx/demo/README.md"}}}
+{"ms":46370,"kind":"event","name":"tool_queued","arg":{"type":"tool_queued","toolCallId":"toolu_mock_7_1","toolName":"write_file","input":{"file_path":"/private/tmp/kea-fixture-xxxxxx/demo/.gitignore","content":"build/\n"}}}
+{"ms":46371,"kind":"event","name":"tool_queued","arg":{"type":"tool_queued","toolCallId":"toolu_mock_7_2","toolName":"shell_command","input":{"command":"git status --short","description":"Show changes"}}}
+{"ms":62857,"kind":"event","name":"tool_denied","arg":{"type":"tool_denied","toolCallId":"toolu_mock_7_1","toolName":"write_file"}}
+{"ms":62861,"kind":"event","name":"turn_end","arg":{"type":"turn_end","turnNumber":1,"hadToolCalls":true,"usage":{"inputTokens":408,"outputTokens":106,"cacheReadTokens":0,"cacheWriteTokens":0}}}
+{"ms":62865,"kind":"event","name":"run_end","arg":{"type":"run_end","result":{"finalText":"","stopReason":"permission_denied","turnCount":1,"usage":{"inputTokens":408,"outputTokens":106,"cacheReadTokens":0,"cacheWriteTokens":0},"systemPromptTokens":null,"nextState":{"sessionId":"ca2d172d-d61f-47f0-a566-9f33505fd0ff","dropped":"conversation"}}}}
+{"ms":81375,"kind":"event","name":"run_start","arg":{"type":"run_start","sessionId":"ca2d172d-d61f-47f0-a566-9f33505fd0ff"}}
+{"ms":81376,"kind":"event","name":"turn_start","arg":{"type":"turn_start","turnNumber":1}}
+{"ms":81377,"kind":"event","name":"message_start","arg":{"type":"message_start"}}
+{"ms":81378,"kind":"event","name":"model_request_start","arg":{"type":"model_request_start","model":"mock/mock-model"}}
+{"ms":85403,"kind":"event","name":"interrupted","arg":{"type":"interrupted"}}
+{"ms":85407,"kind":"event","name":"run_end","arg":{"type":"run_end","result":{"finalText":"","stopReason":"interrupted","turnCount":1,"usage":{"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheWriteTokens":0},"systemPromptTokens":null,"nextState":{"sessionId":"ca2d172d-d61f-47f0-a566-9f33505fd0ff","dropped":"conversation"}}}}
+{"ms":87376,"kind":"event","name":"permission_mode_changed","arg":{"type":"permission_mode_changed","mode":"auto-accept"}}
+{"ms":88578,"kind":"event","name":"permission_mode_changed","arg":{"type":"permission_mode_changed","mode":"plan"}}
+{"ms":89777,"kind":"event","name":"permission_mode_changed","arg":{"type":"permission_mode_changed","mode":"bypass"}}
+{"ms":90981,"kind":"event","name":"permission_mode_changed","arg":{"type":"permission_mode_changed","mode":"default"}}
+{"ms":93917,"kind":"event","name":"run_start","arg":{"type":"run_start","sessionId":"ca2d172d-d61f-47f0-a566-9f33505fd0ff"}}
+{"ms":93918,"kind":"event","name":"turn_start","arg":{"type":"turn_start","turnNumber":1}}
+{"ms":93919,"kind":"event","name":"message_start","arg":{"type":"message_start"}}
+{"ms":93920,"kind":"event","name":"model_request_start","arg":{"type":"model_request_start","model":"mock/mock-model"}}
+{"ms":94936,"kind":"event","name":"model_request_end","arg":{"type":"model_request_end","model":"mock/mock-model","usage":{"inputTokens":653,"outputTokens":8,"cacheReadTokens":0,"cacheWriteTokens":0},"stopReason":"end_turn"}}
+{"ms":94936,"kind":"event","name":"message_end","arg":{"type":"message_end","content":[{"type":"text","text":"ok"}]}}
+{"ms":94937,"kind":"event","name":"turn_end","arg":{"type":"turn_end","turnNumber":1,"hadToolCalls":false,"usage":{"inputTokens":653,"outputTokens":8,"cacheReadTokens":0,"cacheWriteTokens":0}}}
+{"ms":94947,"kind":"event","name":"run_end","arg":{"type":"run_end","result":{"finalText":"ok","stopReason":"end_turn","turnCount":1,"usage":{"inputTokens":653,"outputTokens":8,"cacheReadTokens":0,"cacheWriteTokens":0},"systemPromptTokens":null,"nextState":{"sessionId":"ca2d172d-d61f-47f0-a566-9f33505fd0ff","dropped":"conversation"}}}}
+{"ms":115507,"kind":"event","name":"run_start","arg":{"type":"run_start","sessionId":"ca2d172d-d61f-47f0-a566-9f33505fd0ff"}}
+{"ms":115508,"kind":"event","name":"turn_start","arg":{"type":"turn_start","turnNumber":1}}
+{"ms":115509,"kind":"event","name":"message_start","arg":{"type":"message_start"}}
+{"ms":115509,"kind":"event","name":"model_request_start","arg":{"type":"model_request_start","model":"mock/mock-model"}}
+{"ms":115517,"kind":"event","name":"run_error","arg":{"type":"run_error","error":{"name":"TransportError","message":"invalid x-api-key","status":401,"retryable":false,"responseBody":"{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"invalid x-api-key\"}}"}}}
+{"ms":115520,"kind":"event","name":"run_end","arg":{"type":"run_end","result":{"finalText":"","stopReason":"run_error","turnCount":1,"usage":{"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheWriteTokens":0},"systemPromptTokens":null,"nextState":{"sessionId":"ca2d172d-d61f-47f0-a566-9f33505fd0ff","dropped":"conversation"}}}}
+{"ms":120373,"kind":"hook","name":"onSessionEnd","arg":{"reason":"replaced"}}
+{"ms":120373,"kind":"event","name":"session_shutdown","arg":{"type":"session_shutdown"}}
+{"ms":120373,"kind":"event","name":"session_start","arg":{"type":"session_start"}}
+{"ms":120377,"kind":"hook","name":"onSessionStart","arg":{"source":"startup","sessionId":"dccf2a7d-d3f9-4f9f-a4c0-31ffa65bf13e"}}
+{"ms":124061,"kind":"event","name":"run_start","arg":{"type":"run_start","sessionId":"dccf2a7d-d3f9-4f9f-a4c0-31ffa65bf13e"}}
+{"ms":124107,"kind":"event","name":"turn_start","arg":{"type":"turn_start","turnNumber":1}}
+{"ms":124174,"kind":"event","name":"message_start","arg":{"type":"message_start"}}
+{"ms":124176,"kind":"event","name":"model_request_start","arg":{"type":"model_request_start","model":"mock/mock-model"}}
+{"ms":124180,"kind":"event","name":"model_request_end","arg":{"type":"model_request_end","model":"mock/mock-model","usage":{"inputTokens":31,"outputTokens":27,"cacheReadTokens":0,"cacheWriteTokens":0},"stopReason":"end_turn"}}
+{"ms":124180,"kind":"event","name":"message_end","arg":{"type":"message_end","content":[{"type":"text","text":"There are four files: README.md, package.json, src/math.js and test/math.test.js."}]}}
+{"ms":124180,"kind":"event","name":"turn_end","arg":{"type":"turn_end","turnNumber":1,"hadToolCalls":false,"usage":{"inputTokens":31,"outputTokens":27,"cacheReadTokens":0,"cacheWriteTokens":0}}}
+{"ms":124185,"kind":"event","name":"run_end","arg":{"type":"run_end","result":{"finalText":"There are four files: README.md, package.json, src/math.js and test/math.test.js.","stopReason":"end_turn","turnCount":1,"usage":{"inputTokens":31,"outputTokens":27,"cacheReadTokens":0,"cacheWriteTokens":0},"systemPromptTokens":null,"nextState":{"sessionId":"dccf2a7d-d3f9-4f9f-a4c0-31ffa65bf13e","dropped":"conversation"}}}}
+{"ms":124194,"kind":"event","name":"session_titled","arg":{"type":"session_titled","title":"ok"}}
+{"ms":128861,"kind":"hook","name":"onSessionEnd","arg":{"reason":"shutdown"}}
+{"ms":128861,"kind":"event","name":"session_shutdown","arg":{"type":"session_shutdown"}}

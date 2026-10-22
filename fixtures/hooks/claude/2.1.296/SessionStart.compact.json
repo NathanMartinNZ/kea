@@ -1,0 +1,9 @@
+{
+  "session_id": "febfcaa0-7279-439f-9091-ed587cf5f54d",
+  "transcript_path": "/tmp/kea-world/home/.claude/projects/-private-tmp-kea-fixture-xxxxxx-demo/febfcaa0-7279-439f-9091-ed587cf5f54d.jsonl",
+  "cwd": "/private/tmp/kea-fixture-xxxxxx/demo",
+  "prompt_id": "9252732a-faf3-485b-bc7e-b1ae5bca760d",
+  "hook_event_name": "SessionStart",
+  "source": "compact",
+  "model": "claude-opus-5-5"
+}

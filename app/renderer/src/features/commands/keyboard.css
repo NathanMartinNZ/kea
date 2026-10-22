@@ -1,0 +1,102 @@
+/* The keyboard list: Settings › Keyboard and the Keyboard Shortcuts sheet. Tokens only (DS-2). */
+
+.keyboard-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+  color: var(--text-2);
+}
+
+.keyboard-file {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.keyboard-note {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  color: var(--text-3);
+  font-size: var(--type-secondary-size);
+  line-height: var(--type-secondary-line);
+}
+
+.keyboard-problem {
+  margin: 0;
+  color: var(--danger);
+  font-size: var(--type-secondary-size);
+  line-height: var(--type-secondary-line);
+}
+
+.keyboard-issues {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--warn);
+  font-size: var(--type-secondary-size);
+  line-height: var(--type-secondary-line);
+}
+
+.keyboard-category {
+  margin: var(--space-2) 0 0;
+  color: var(--text-1);
+  font-size: var(--type-emphasis-size);
+  line-height: var(--type-emphasis-line);
+  font-weight: var(--type-emphasis-weight);
+}
+
+.keyboard-rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.keyboard-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--size-row);
+  border-bottom: 1px solid var(--line);
+}
+
+.keyboard-title {
+  flex: none;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-1);
+}
+
+.keyboard-row[data-changed] .keyboard-title {
+  font-weight: var(--type-emphasis-weight);
+}
+
+/* the command's id, as an entry of keybindings.json names it: quiet beside the title, and the first to give way */
+.keyboard-id {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: var(--type-secondary-size);
+}
+
+.keyboard-scope,
+.keyboard-gesture {
+  color: var(--text-3);
+  font-size: var(--type-secondary-size);
+  white-space: nowrap;
+}
+
+/* keeps the width of its keys (the id gives way before them) and takes what is left, so they sit at the row's end */
+.keyboard-keys {
+  display: flex;
+  flex: 1 0 auto;
+  align-items: center;
+  justify-content: flex-end;
+}

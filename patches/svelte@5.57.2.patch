@@ -1,0 +1,14 @@
+diff --git a/src/internal/client/dom/elements/events.js b/src/internal/client/dom/elements/events.js
+index 0ed2ffc085f09d125b2611863054a420b978e2b3..0a826925f2faeba09e924ce4cd74f0a6b1308751 100644
+--- a/src/internal/client/dom/elements/events.js
++++ b/src/internal/client/dom/elements/events.js
+@@ -322,6 +322,9 @@ export function handle_event_propagation(event) {
+ 		event[event_symbol] = handler_element;
+ 		// @ts-ignore remove proxy on currentTarget
+ 		delete event.currentTarget;
++		// Kea: V8 keeps the getter above in the shape later events of this type share, so its closure would keep
++		// the element propagation stopped at (and its detached subtree) alive after the event: let go of it
++		current_target = null;
+ 		set_active_reaction(previous_reaction);
+ 		set_active_effect(previous_effect);
+ 	}

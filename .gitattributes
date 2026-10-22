@@ -1,0 +1,21 @@
+# Text files are committed with LF endings; install.sh and the launcher must stay LF to run.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.icns binary
+*.ttf binary
+*.gpg binary
+*.sig binary
+
+# Fixtures are byte-exact recordings: no line-ending conversion. Their diffs stay visible for privacy review.
+fixtures/** -text
+
+# Patches must apply byte for byte (pnpm-lock.yaml pins each one's hash): no line-ending conversion.
+patches/*.patch -text
+
+# Collapsed in pull-request diffs: written by tools, reviewed through their sources.
+pnpm-lock.yaml linguist-generated=true
+native/kea-helper/Cargo.lock linguist-generated=true
+**/generated/** linguist-generated=true
+native/kea-helper/src/limits.rs linguist-generated=true

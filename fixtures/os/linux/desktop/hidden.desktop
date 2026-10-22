@@ -1,0 +1,5 @@
+[Desktop Entry]
+Type=Application
+Name=Removed by the person
+Exec=/usr/bin/konsole
+Hidden=true

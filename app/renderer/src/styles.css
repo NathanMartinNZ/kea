@@ -1,0 +1,448 @@
+/* The window and its terminals. Tokens only (DS-2): every colour, size and font comes from tokens.css. The window
+   frame, sidebar, file panel, main header, composer and sheets are in window.css. */
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  background: var(--surface-0);
+  color: var(--text-1);
+  font-family: var(--font-ui);
+  font-size: var(--type-base-size);
+  line-height: var(--type-base-line);
+  overflow: hidden;
+  user-select: none;
+  /* dark only: native scrollbars, selects and their pop-ups are drawn dark too */
+  color-scheme: dark;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: var(--size-focus-ring) solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* toggles (the composer's "◉ Worktree" among them): every checkbox and switch is a ring, filled with a dot when on;
+   neutral colours (the accent colour means "needs you" or the primary action, never decoration) and no native control
+   look */
+input[type='checkbox'] {
+  appearance: none;
+  flex: none;
+  display: inline-grid;
+  place-content: center;
+  box-sizing: border-box;
+  width: var(--size-glyph);
+  height: var(--size-glyph);
+  margin: 0;
+  border: var(--size-icon-stroke) solid var(--text-3);
+  border-radius: 50%;
+  background: transparent;
+}
+
+input[type='checkbox']:checked {
+  border-color: var(--text-1);
+}
+
+input[type='checkbox']:checked::after {
+  content: '';
+  width: var(--size-dot);
+  height: var(--size-dot);
+  border-radius: 50%;
+  background: var(--text-1);
+}
+
+input[type='checkbox']:disabled {
+  border-color: var(--line-strong);
+}
+
+input[type='checkbox']:disabled:checked::after {
+  background: var(--text-3);
+}
+
+kbd {
+  font-family: var(--font-ui);
+  font-size: var(--type-micro-size);
+  line-height: var(--type-micro-line);
+  font-weight: var(--type-micro-weight);
+  color: var(--text-3);
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  padding: 0 var(--space-1);
+  margin: 0 0 0 var(--space-2);
+}
+
+/* tab strip */
+
+.tabstrip {
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--line);
+  min-width: 0;
+}
+
+.tabs {
+  display: flex;
+  align-items: stretch;
+  overflow-x: auto;
+  min-width: 0;
+}
+
+.tab {
+  -webkit-app-region: no-drag;
+  position: relative;
+  border: 0;
+  background: transparent;
+  color: var(--text-3);
+  padding: 0 var(--space-3);
+  cursor: default;
+  white-space: nowrap;
+  max-width: var(--size-sidebar);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tab.active {
+  color: var(--text-1);
+  background: var(--surface-0);
+}
+
+.tab:focus-visible {
+  outline-offset: -2px;
+}
+
+/* a tab that can be closed (a shell, a file or diff): its title, then its close button, which keeps its place when
+   hidden, so a tab's width never changes under the pointer; a long title is cut, never the button */
+.tab.closable {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding-right: var(--space-1);
+}
+
+.tab-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tab-close {
+  flex: none;
+  display: flex;
+  border-radius: var(--radius-sm);
+  color: var(--text-3);
+  visibility: hidden;
+}
+
+.tab.active .tab-close,
+.tab:hover .tab-close {
+  visibility: visible;
+}
+
+.tab-close:hover {
+  color: var(--text-1);
+  background: var(--surface-3);
+}
+
+.tab-note {
+  align-self: center;
+  flex: none;
+  color: var(--text-3);
+  font-size: var(--type-micro-size);
+  line-height: var(--type-micro-line);
+  font-weight: var(--type-micro-weight);
+  padding: 0 var(--space-3);
+}
+
+/* terminal area */
+
+.terminal-frame {
+  position: relative;
+  min-height: 0;
+  /* the padding around a terminal takes its theme's background (Kea Dark's is --surface-0; settings/store.ts sets the
+     variable for any other theme) */
+  background: var(--terminal-canvas, var(--surface-0));
+}
+
+.terminal-area {
+  position: absolute;
+  inset: 0;
+}
+
+.terminal-host {
+  position: absolute;
+  inset: var(--size-terminal-pad-y) var(--size-terminal-pad-x);
+}
+
+/* warm terminals are hidden (xterm pauses rendering); a terminal painting its snapshot is laid out but not visible */
+.terminal-host.hidden {
+  display: none;
+}
+
+.terminal-host.pending {
+  visibility: hidden;
+}
+
+/* an ended terminal's last screen, dimmed */
+.terminal-frame.ended .terminal-host {
+  opacity: var(--opacity-detached-dim);
+}
+
+/* the detached overlay: one centred row over the dimmed last screen, no modal; the terminal around it stays readable
+   and scrollable */
+.detached-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+/* `Session ended · Resume ↵ · Restart ⌘↵`: each `·` has the same room on both sides (the buttons' padding is that room) */
+.detached-row {
+  display: flex;
+  align-items: center;
+  padding: 0 var(--space-1) 0 var(--space-3);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  color: var(--text-2);
+  pointer-events: auto;
+}
+
+.detached-row > span:first-child {
+  margin-right: var(--space-2);
+}
+
+.detached-row .button {
+  padding: 0 var(--space-2);
+  color: var(--text-1);
+}
+
+/* the key's chip has the row's own background here: without its padding the row's spacing is even */
+.detached-row kbd {
+  padding: 0;
+}
+
+/* live views no terminal area hosts: other sessions' warm terminals, hidden like a warm host */
+.terminal-dock {
+  display: none;
+}
+
+.kea-terminal {
+  width: 100%;
+  height: 100%;
+}
+
+/* scrollbar: an overlay slider, --size-scrollbar wide, at the right edge, inside xterm's default track */
+.kea-terminal .xterm-scrollbar.xterm-vertical > .xterm-slider {
+  left: auto !important;
+  right: 0;
+  width: var(--size-scrollbar) !important;
+}
+
+/* find bar: docked top-right, not a floating card */
+
+.find-bar {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: var(--size-row);
+  padding: 0 var(--space-1) 0 var(--space-2);
+  background: var(--surface-1);
+  border-left: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.find-input {
+  width: 24ch;
+  height: var(--size-tree-row);
+  box-sizing: border-box;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  color: var(--text-1);
+  font-family: var(--font-ui);
+  font-size: var(--type-secondary-size);
+  user-select: text;
+}
+
+.find-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.find-count {
+  min-width: 10ch;
+  color: var(--text-3);
+  font-size: var(--type-micro-size);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.find-toggle,
+.find-button {
+  height: var(--size-tree-row);
+  min-width: var(--size-tree-row);
+  padding: 0 var(--space-1);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: var(--type-secondary-size);
+}
+
+.find-toggle:hover,
+.find-button:hover {
+  background: var(--surface-2);
+}
+
+.find-toggle.on {
+  color: var(--text-1);
+  background: var(--surface-3);
+}
+
+/* jump to bottom */
+
+.jump-bottom {
+  position: absolute;
+  right: var(--space-6);
+  bottom: var(--space-4);
+  z-index: 2;
+  height: var(--size-row);
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: var(--surface-4);
+  color: var(--text-2);
+  box-shadow: var(--shadow-float);
+}
+
+.jump-bottom:hover {
+  color: var(--text-1);
+}
+
+/* link target on hover: the full target, after the tooltip delay */
+
+.link-tip {
+  position: fixed;
+  z-index: 3;
+  transform: translate(var(--space-2), var(--space-4));
+  max-width: var(--size-composer);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-md);
+  background: var(--surface-4);
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: var(--type-micro-size);
+  line-height: var(--type-micro-line);
+  word-break: break-all;
+  pointer-events: none;
+  box-shadow: var(--shadow-float);
+  animation: kea-float-in var(--motion-float-in) linear var(--motion-tooltip-delay) both;
+}
+
+@keyframes kea-float-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* menus */
+
+.menu {
+  position: fixed;
+  z-index: 3;
+  padding: var(--space-1);
+  border-radius: var(--radius-lg);
+  background: var(--surface-4);
+  box-shadow: var(--shadow-float);
+}
+
+.menu-item {
+  display: block;
+  width: 100%;
+  height: var(--size-row);
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-1);
+  text-align: left;
+}
+
+.menu-item:hover,
+.menu-item:focus {
+  outline: none;
+  background: var(--surface-3);
+}
+
+/* confirmation sheet attached to the top of the main pane */
+
+.sheet {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--line-strong);
+}
+
+.sheet-text {
+  flex: 1;
+  color: var(--text-1);
+}
+
+/* quiet button */
+
+.button {
+  height: var(--size-row);
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-2);
+}
+
+.button:hover {
+  background: var(--surface-2);
+  color: var(--text-1);
+}
+
+/* empty state: top-left, not centred */
+
+.empty {
+  position: absolute;
+  top: var(--space-4);
+  left: var(--space-4);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--text-2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .link-tip {
+    animation: none;
+  }
+}

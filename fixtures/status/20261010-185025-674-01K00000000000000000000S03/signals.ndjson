@@ -1,0 +1,6 @@
+{"seq":0,"mono":"157232650737583","at":1791658225674,"source":"reconcile","spooled":false,"events":[{"t":"pty.spawned"}]}
+{"seq":1,"mono":"157232950737583","at":1791658225674,"source":"hook","spooled":false,"events":[{"t":"session.started","agentSessionId":"7f1c2a9e-0000-4000-8000-000000000003","source":"startup"}]}
+{"seq":2,"mono":"157233250737583","at":1791658225674,"source":"hook","spooled":false,"events":[{"t":"turn.started"}]}
+{"seq":3,"mono":"157233350737583","at":1791658225674,"source":"status-file","spooled":false,"events":[{"t":"statusFile","status":"busy"}]}
+{"seq":4,"mono":"157234250737583","at":1791658225674,"source":"status-file","spooled":false,"events":[{"t":"statusFile","status":"idle"}]}
+{"seq":5,"mono":"157234550737583","at":1791658225674,"source":"status-file","spooled":false,"events":[{"t":"turn.interrupted"}]}

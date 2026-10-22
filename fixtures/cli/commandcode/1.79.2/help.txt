@@ -1,0 +1,158 @@
+
+Command Code v1.79.2
+Coding agent that continuously learns your taste of writing code.
+
+Usage
+  cmd <command> [options]
+
+Options
+  cmd                               Start interactive session
+  cmd "message"                     Start with initial message
+  -r, --resume [name]               Resume a conversation by id or name (use quotes for multi-word names), or pick from history
+  -c, --continue                    Continue the last conversation
+  --fork-session                    With --resume/--continue, fork the session into a new one (original left untouched)
+  --session <path|id>               Resume a session by transcript path (.jsonl) or a unique session-id prefix
+  --no-session                      Don't persist this session to disk (in-memory only)
+  -n, --name <name>                 Set the session display name
+  -t, --trust                       Auto-trust project (skip initial permission prompt)
+  -p, --print [query]               Run in non-interactive mode, output response and exit
+  --max-turns <number>              Cap conversation turns in -p mode (default 100; exit 8 on cap-hit)
+  --output-format <format>          -p output: text (default) or json (NDJSON event stream + final result line)
+  --tools-all                       -p: enable every tool, including the ones a headless run withholds
+  --tools-enable <names>            -p: enable specific withheld tools by name, comma-separated (repeatable)
+  -m, --model <model>               Run on a specific model this session
+  --effort <level>                  Set reasoning effort for the session (e.g. low, medium, high) — depends on the model
+  --theme <theme>                   Set the color theme (dark or light)
+  --config <key=value>              Set any setting headlessly, e.g. --config theme=dark (repeatable) — the CLI form of /config
+  --list-models                     List the models available for use
+  --local-only                      For BYOK: local-only with your BYOK providers, no Command Code traffic (same as CMD_LOCAL_ONLY=1)
+  --plan                            Start in plan mode
+  --permission-mode <mode>          Set permission mode (standard, plan, accept-edits, yolo)
+  --accept-edits                    Start in accept edits mode
+  --yolo                            Bypass all permission prompts (alias for --dangerously-skip-permissions)
+  --add-dir <directory>             Add directory to workspace context
+  -w, --worktree [name]             Run in an isolated managed worktree (name, path, or #PR; generated when omitted)
+  --cloud [id|message]              Run in the cloud (beta); pass a session id to reopen one
+  --base <branch>                   Base branch for a new cloud session
+  --mod <path>                      Load a mod file or directory for this session (repeatable)
+  --mod-option <name=value>         Set a mod-declared flag value (repeatable)
+  --skill <path>                    Load extra skills from a path (a skill directory or a directory of skills); repeatable
+  --no-skills                       Skip skill discovery; paths given via --skill still load
+  --skip-onboarding                 Skip taste onboarding (for automated runs)
+  --ide-setup                       Connect IDE to share your open file and selected lines
+  --no-auto-update                  Disable automatic background updates for this run
+  -v, --version                     Output the version number
+  -h, --help                        Display this help message
+
+Commands
+  cmd info                          Display system information
+  cmd status                        Show authentication status
+  cmd help                          Display help information
+  cmd whoami                        Show current user
+  cmd update                        Update Command Code to the latest version
+  cmd feedback [title]              Report a bug or share feedback — opens a GitHub issue (alias: cmd issue)
+  cmd taste                         Manage taste learning packages
+  cmd taste learn <source>          Learn taste from a local repository or GitHub repo
+  cmd learn-taste                   Learn command structure from repositories
+  cmd mcp                           Manage MCP (Model Context Protocol) servers
+  cmd cloud                         Manage cloud sessions (list, status <id>, stop <id>)
+  cmd skills                        Manage skills from GitHub repositories
+  cmd acp                           Run as an ACP agent over stdio (for Zed, etc.)
+  cmd mods                          Manage mods (loadable extensions) from npm, git, or local paths
+  cmd login                         Login with Command Code account
+  cmd logout                        Log out of Command Code
+
+Slash Commands
+  /init                             Initialize AGENTS.md for this project
+  /import [claude|codex|cursor|pi|opencode|gemini]Import your setup (skills, agents, commands, MCP, memory) from another coding agent
+  /goal [<objective>|clear|status]  Set an objective for the agent to work towards
+  /memory                           Manage Command Code memory
+  /resume                           Resume a past conversation
+  /sessions                         Resume a past conversation (alias of /resume)
+  /fork [name]                      Fork the conversation into a new session
+  /worktree [name|list|remove <name>]Create, list, or switch isolated git worktrees
+  /clone                            Clone the current branch into a new session and switch to it
+  /rename [name]                    Rename the current session
+  /name [name]                      Alias of /rename; bare /name shows the current name
+  /rewind                           Restore to a previous checkpoint (Press Esc twice)
+  /tree                             Browse the session tree and jump to any point in it
+  /clear (new)                      Start a new session with empty context; previous stays on disk, resumable with /resume (/new is the same command)
+  /theme                            Switch between dark and light themes
+  /language                         Switch the interface language (English / 简体中文)
+  /share [gist]                     Share as a GitHub gist — /share gist [html|jsonl|md] (link sharing is being rebuilt, use /export)
+  /unshare                          Stop sharing conversation
+  /taste                            Manage Taste learning and usage
+  /learn-taste                      Learn taste from sessions with other coding agents (Claude Code, Cursor, etc)
+  /skills                           Browse and open agent skills
+  /agents                           Manage agent configurations
+  /design                           Design partner: audit, build, compose, and ship UI — type /design to browse modes
+  /mcp                              Manage MCP server connections
+  /model                            Switch between Command Code models
+  /effort                           Set reasoning effort for the current model
+  /connect                          Connect to AI providers. Command Code, BYOK providers and API keys
+  /compact                          Compact the conversation history
+  /compact-mode                     Select a compact mode to compact sessions
+  /config                           Search and change settings, including which model runs each built-in task
+  /context                          Show context window usage and breakdown
+  /ide                              Connect IDE to share your open file and selected lines
+  /terminal-setup                   Setup VSCode keybindings
+  /login                            Log in to Command Code
+  /logout                           Log out of Command Code
+  /learn (courses)                  Open the Command Code learn hub in your browser
+  /feedback [title]                 Report a bug or share feedback — opens a prefilled GitHub issue (alias: /issue)
+  /trace                            Copy the current trace id; required for support debugging
+  /session-file                     Show the current session id and path to the on-disk session file
+  /copy                             Copy the last response to the clipboard
+  /export [path]                    Export session — /export [html|jsonl|md] or a file path
+  /changelog                        See what's new in Command Code
+  /hotkeys                          Show all keyboard shortcuts
+  /todos                            Manage the session todo list — x to remove an item, c to clear
+  /loop [interval] [task]           Re-run a task on fixed intervals, or let the agent pace itself
+  /rc                               Remote-control this session from Telegram or Discord
+  /plan [task]                      Enter plan mode; `/plan <task>` plans that task
+  /mode [name]                      Show or switch the permission mode — /mode [default|accept-edits|plan]
+  /mode:default                     Switch to default mode (prompt before edits/commands)
+  /mode:accept-edits                Switch to accept edits mode (accept edits automatically)
+  /mode:plan                        Switch to plan mode (read-only, no side effects)
+  /plans [name]                     Browse, review, and annotate saved plans
+  /plan-review                      Review this session's latest plan
+  /review [pr]                      Review a pull request (optional PR number)
+  /pr-comments                      Fetch all PR comments for current branch
+  /add-dir                          Manage additional directory scope
+  /status                           Show comprehensive environment status
+  /usage                            Display credits, plan, and usage metrics
+  /upgrade                          Open billing page to upgrade your plan
+  /extra                            Buy extra usage at API cost, zero markup
+  /update                           Update Command Code to the latest version
+  /reload                           Restart Command Code and resume this session (applies a staged update)
+  /help                             Display help information
+  /exit                             Exit Command Code
+  /quit                             Exit Command Code (alias of /exit)
+
+Keyboard Shortcuts
+  Shift+Tab                         Toggle mode (default → accept edits → plan → yolo)
+  Ctrl+O                            Toggle expanded tool output
+  Alt+P                             Quick model switch (Option+P on macOS)
+  Ctrl+G                            Open input in external editor ($EDITOR)
+  Press Esc twice                   Rewind to previous checkpoint
+  /                                 Open command menu
+
+Examples
+  cmd                               Start interactive session
+  cmd "fix the login bug"           Start with a task
+  cmd -c                            Continue last conversation
+  cmd -r                            Resume a past session
+  cmd --resume "auth refactor"      Resume a named session
+  cmd -p "your query"               Run non-interactive query
+  cmd taste learn .                 Learn taste from the current repository
+  cmd taste learn owner/repo        Learn taste from a GitHub repository
+  cmd --add-dir ../shared           Start with additional directory scope
+  cmd info                          Show system information
+  cmd feedback "title"              Open feedback form with title
+
+❯ Start with a prompt: cmd "fix the login bug"
+
+Links
+  Documentation                     https://commandcode.ai/docs
+  Discord Community                 https://commandcode.ai/discord
+

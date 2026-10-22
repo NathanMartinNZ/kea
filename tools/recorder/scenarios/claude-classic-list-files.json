@@ -1,0 +1,44 @@
+{
+  "name": "claude-classic-list-files",
+  "notes": "Classic renderer, a read-only Bash call (auto-allowed), then a long markdown answer with a table that scrolls the screen.",
+  "agent": "claude",
+  "prompt": "list the files in this repository and summarise what each one does",
+  "cols": 120,
+  "rows": 36,
+  "mock": {
+    "default": "Repository file summary",
+    "replies": [
+      {
+        "delayMs": 1500,
+        "content": [
+          { "type": "text", "text": "I'll list the files first." },
+          { "type": "tool_use", "name": "Bash", "input": { "command": "ls -R src test", "description": "List source and test files" } }
+        ]
+      },
+      {
+        "delayMs": 2500,
+        "content": [
+          {
+            "type": "text",
+            "text": "Here is every file in the repository and what it does.\n\n## Overview\n\n| File | Purpose |\n|---|---|\n| `README.md` | A one-paragraph description of the project |\n| `package.json` | Package metadata; `npm test` runs `node --test test/` |\n| `.gitignore` | Keeps `node_modules/` out of git |\n| `src/math.js` | `add(a, b)` and `sub(a, b)` |\n| `src/hello.js` | `greet(name)`, which returns a greeting string |\n| `src/counter.js` | A module-level counter with `next()` |\n| `src/index.js` | Entry point: prints a greeting and `add(2, 3)` |\n| `test/math.test.js` | Tests for `add` and `sub` |\n| `test/counter.test.js` | Tests that `next()` counts up from 1 |\n\n## Source modules\n\n- **`src/math.js`** exports two pure functions. Both take two numbers and return a number; there is no input validation.\n- **`src/hello.js`** builds the greeting with a template literal. Note that the greeting text contains a typo (`Helo`).\n- **`src/counter.js`** keeps its state in a module-level variable named `x`, so every importer shares one counter.\n- **`src/index.js`** wires the modules together and logs the result when run with `node src/index.js`.\n\n## Tests\n\n1. `test/math.test.js` checks `add(2, 3) === 5` and `sub(5, 3) === 2`.\n2. `test/counter.test.js` checks that the first two calls to `next()` return 1 and 2.\n\n## Suggestions\n\n- Fix the typo in `src/hello.js` and add a test for `greet`.\n- Rename `x` in `src/counter.js` to something descriptive such as `count`.\n- Add a `.gitignore` entry for a `build/` folder if one is ever added.\n\nThat's the whole project: nine source files plus the marker file used by the demo tooling."
+          }
+        ]
+      }
+    ]
+  },
+  "steps": [
+    { "wait": "\\? for shortcuts" },
+    { "pause": 500 },
+    { "type": "prompt", "keyDelayMs": 25 },
+    { "pause": 200 },
+    { "send": "\r" },
+    { "mark": "waiting" },
+    { "wait": "That's the whole project", "timeoutMs": 30000 },
+    { "mark": "answered" },
+    { "pause": 1500 },
+    { "send": "/exit" },
+    { "pause": 400 },
+    { "send": "\r" },
+    { "exit": 15000 }
+  ]
+}

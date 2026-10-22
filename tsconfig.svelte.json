@@ -1,0 +1,7 @@
+{
+  "//": "svelte-check's project (`pnpm typecheck`): the renderer and packages/ui, .svelte files included. svelte-check runs on TypeScript 6 (app/renderer's devDependency) because it needs the compiler API TypeScript 7 no longer ships; tsc 7 checks the rest.",
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": { "lib": ["ES2024", "DOM", "DOM.Iterable"] },
+  "include": ["app/renderer/src/**/*", "packages/ui/src/**/*"],
+  "exclude": ["**/node_modules", "**/dist"]
+}

@@ -1,0 +1,184 @@
+/* The design system's primitives: icons, status glyphs, menus and the tooltip. Tokens only (DS-2). */
+
+/* icons: --size-icon square, a --size-icon-stroke stroke, currentColor, one family */
+.kea-icon {
+  width: var(--size-icon);
+  height: var(--size-icon);
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: var(--size-icon-stroke);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.kea-icon-filled {
+  fill: currentColor;
+  stroke: none;
+}
+
+/* status glyphs: --size-glyph square, shapes drawn with the icon stroke */
+.kea-glyph {
+  width: var(--size-glyph);
+  height: var(--size-glyph);
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: var(--size-icon-stroke);
+  stroke-linecap: round;
+}
+
+.kea-glyph .kea-glyph-fill {
+  fill: currentColor;
+  stroke: none;
+}
+
+.kea-glyph .kea-glyph-dashed {
+  stroke-dasharray: 1.5 1.5;
+}
+
+.kea-glyph-working {
+  color: var(--text-2);
+  animation: kea-spin var(--motion-spinner) linear infinite;
+}
+
+.kea-glyph-needsYou {
+  color: var(--accent);
+}
+
+.kea-glyph-unread {
+  color: var(--text-1);
+}
+
+.kea-glyph-idle,
+.kea-glyph-detached,
+.kea-glyph-limited {
+  color: var(--text-3);
+}
+
+.kea-glyph-failed {
+  color: var(--danger);
+}
+
+@keyframes kea-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+/* floating menus */
+.kea-menu {
+  position: fixed;
+  z-index: 10;
+  min-width: var(--size-sidebar-min);
+  max-width: var(--size-tree-max);
+  /* a long list (a base branch among many refs) scrolls inside the window */
+  max-height: calc(100vh - var(--space-8));
+  overflow-y: auto;
+  padding: var(--space-1);
+  box-sizing: border-box;
+  border-radius: var(--radius-lg);
+  background: var(--surface-4);
+  box-shadow: var(--shadow-float);
+  outline: none;
+  animation: kea-menu-in var(--motion-float-in) linear both;
+}
+
+.kea-menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: var(--size-row);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-md);
+  color: var(--text-1);
+  white-space: nowrap;
+  cursor: default;
+  outline: none;
+}
+
+.kea-menu-item.current {
+  background: var(--surface-3);
+}
+
+/* the highlight is the focused item's indicator, so no ring over it */
+.kea-menu-item:focus-visible {
+  outline: none;
+}
+
+.kea-menu-item.danger {
+  color: var(--danger);
+}
+
+/* greyed alike; a muted item keeps its highlight, since it can be chosen */
+.kea-menu-item[aria-disabled='true'],
+.kea-menu-item.muted {
+  color: var(--text-3);
+}
+
+.kea-menu-item[aria-disabled='true'].current {
+  background: transparent;
+}
+
+.kea-menu-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.kea-menu-kbd {
+  margin: 0;
+}
+
+/* the tooltip: micro type on --surface-4, over every other floating layer; it never takes the pointer */
+.kea-tooltip {
+  position: fixed;
+  z-index: 11;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: var(--size-tree-max);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-md);
+  background: var(--surface-4);
+  box-shadow: var(--shadow-float);
+  color: var(--text-1);
+  font-size: var(--type-micro-size);
+  line-height: var(--type-micro-line);
+  font-weight: var(--type-micro-weight);
+  white-space: nowrap;
+  pointer-events: none;
+  animation: kea-menu-in var(--motion-float-in) linear both;
+}
+
+.kea-tooltip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.kea-tooltip kbd {
+  flex: none;
+  margin: 0;
+  background: var(--surface-2);
+}
+
+@keyframes kea-menu-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kea-glyph-working {
+    animation: none;
+  }
+  .kea-menu {
+    animation: none;
+  }
+  .kea-tooltip {
+    animation: none;
+  }
+}

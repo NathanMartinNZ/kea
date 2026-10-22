@@ -1,0 +1,11 @@
+{
+  "name": "@kea-tools/perf",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "electron": "44.5.1"
+  }
+}

@@ -1,0 +1,6 @@
+{"seq":0,"mono":"157229050737583","at":1791658225671,"source":"reconcile","spooled":false,"events":[{"t":"pty.spawned"}]}
+{"seq":1,"mono":"157229350737583","at":1791658225672,"source":"hook","spooled":false,"events":[{"t":"session.started","agentSessionId":"7f1c2a9e-0000-4000-8000-000000000001","source":"startup"}]}
+{"seq":2,"mono":"157229650737583","at":1791658225672,"source":"hook","spooled":false,"events":[{"t":"turn.started"}]}
+{"seq":3,"mono":"157229950737583","at":1791658225672,"source":"hook","spooled":false,"events":[{"t":"tool.started","name":"Bash","summary":"npm test"}]}
+{"seq":4,"mono":"157230250737583","at":1791658225672,"source":"hook","spooled":false,"events":[{"t":"attention.permission","key":"Bash: npm test","tool":"Bash","summary":"npm test"}]}
+{"seq":5,"mono":"157230550737583","at":1791658225672,"source":"transcript","spooled":false,"events":[{"t":"turn.interrupted"}]}

@@ -1,0 +1,37 @@
+{
+ "format": 1,
+ "id": "20261010-185025-673-01K00000000000000000000S01",
+ "agent": "claude",
+ "expected": "finished",
+ "note": "permission answered No (no hook); the interrupt marker must clear it",
+ "reported": {
+  "lifecycle": "live",
+  "phase": "ready"
+ },
+ "start": {
+  "base": {
+   "phase": "idle",
+   "attention": [],
+   "background": false,
+   "backgroundFromFile": false,
+   "unread": false,
+   "failureKind": null,
+   "compacting": false,
+   "source": null,
+   "at": null,
+   "lastActivityAt": 1791658225671,
+   "exactMono": null,
+   "sawHeuristic": false,
+   "typedMono": null,
+   "turnMono": null,
+   "model": null,
+   "effort": null,
+   "permissionMode": null,
+   "costUsd": null,
+   "contextPct": null
+  },
+  "baseMono": "157229050737583",
+  "prompt": true,
+  "noTurns": false
+ }
+}

@@ -1,0 +1,17 @@
+{
+  "name": "@kea/main",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/main.mjs",
+  "dependencies": {
+    "@kea/kit": "workspace:*",
+    "@kea/protocol": "workspace:*",
+    "@kea/ui": "workspace:*"
+  },
+  "devDependencies": {
+    "electron": "44.5.1",
+    "esbuild": "0.28.2"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "name": "@kea/terminal",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@kea/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@xterm/headless": "6.1.0-beta.303",
+    "@xterm/addon-serialize": "0.15.0-beta.301"
+  }
+}

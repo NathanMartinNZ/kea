@@ -1,0 +1,38 @@
+{
+  "name": "claude-classic-explain",
+  "notes": "Classic renderer, a long wait (spinner with its truecolor shimmer), a two-sentence answer, /exit.",
+  "agent": "claude",
+  "prompt": "explain what this repository does in two sentences",
+  "cols": 120,
+  "rows": 36,
+  "mock": {
+    "default": "Demo repository overview",
+    "replies": [
+      {
+        "delayMs": 6000,
+        "content": [
+          {
+            "type": "text",
+            "text": "This is a tiny JavaScript demo project: `src/` holds small math, greeting and counter modules, and `src/index.js` prints a greeting and a sum. The `test/` folder checks the math and counter modules with Node's built-in test runner."
+          }
+        ]
+      }
+    ]
+  },
+  "steps": [
+    { "wait": "\\? for shortcuts" },
+    { "pause": 600 },
+    { "mark": "typing" },
+    { "type": "prompt", "keyDelayMs": 40 },
+    { "pause": 300 },
+    { "send": "\r" },
+    { "mark": "waiting" },
+    { "wait": "built-in test runner", "timeoutMs": 30000 },
+    { "mark": "answered" },
+    { "pause": 1500 },
+    { "send": "/exit" },
+    { "pause": 400 },
+    { "send": "\r" },
+    { "exit": 15000 }
+  ]
+}

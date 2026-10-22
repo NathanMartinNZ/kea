@@ -1,0 +1,40 @@
+{
+  "name": "claude-fullscreen-changelog",
+  "notes": "Fullscreen renderer (alternate screen, mouse capture), a Write permission prompt accepted with 1.",
+  "agent": "claude",
+  "prompt": "write a short CHANGELOG.md with an Unreleased section",
+  "cols": 120,
+  "rows": 36,
+  "env": { "CLAUDE_CODE_NO_FLICKER": "1" },
+  "mock": {
+    "default": "Add a changelog",
+    "replies": [
+      {
+        "delayMs": 2500,
+        "content": [
+          { "type": "text", "text": "Creating the changelog." },
+          { "type": "tool_use", "name": "Write", "input": { "file_path": "{{repo}}/CHANGELOG.md", "content": "# Changelog\n\n## Unreleased\n\n- Initial demo project: math, greeting and counter modules with tests.\n" } }
+        ]
+      },
+      { "delayMs": 1500, "content": [{ "type": "text", "text": "Added `CHANGELOG.md` with an Unreleased section and one entry." }] }
+    ]
+  },
+  "steps": [
+    { "wait": "\\? for shortcuts" },
+    { "pause": 500 },
+    { "type": "prompt", "keyDelayMs": 30 },
+    { "pause": 200 },
+    { "send": "\r" },
+    { "wait": "Do you want to create", "timeoutMs": 30000 },
+    { "mark": "permission" },
+    { "pause": 1500 },
+    { "send": "1" },
+    { "wait": "with an Unreleased section and one entry", "timeoutMs": 30000 },
+    { "mark": "answered" },
+    { "pause": 1500 },
+    { "send": "/exit" },
+    { "pause": 400 },
+    { "send": "\r" },
+    { "exit": 15000 }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "session_id": "febfcaa0-7279-439f-9091-ed587cf5f54d",
+  "transcript_path": "/tmp/kea-world/home/.claude/projects/-private-tmp-kea-fixture-xxxxxx-demo/febfcaa0-7279-439f-9091-ed587cf5f54d.jsonl",
+  "cwd": "/private/tmp/kea-fixture-xxxxxx/demo",
+  "prompt_id": "84fbe366-6ee5-4a83-99ae-3f3082841235",
+  "permission_mode": "default",
+  "hook_event_name": "UserPromptSubmit",
+  "prompt": "list the files in this repository and summarise what each one does"
+}

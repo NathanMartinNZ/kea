@@ -1,0 +1,14 @@
+{"ms":0,"kind":"event","name":"session_start","arg":{"type":"session_start"}}
+{"ms":3,"kind":"hook","name":"onSessionStart","arg":{"source":"resume","sessionId":"ca2d172d-d61f-47f0-a566-9f33505fd0ff"}}
+{"ms":18010,"kind":"event","name":"run_start","arg":{"type":"run_start","sessionId":"ca2d172d-d61f-47f0-a566-9f33505fd0ff"}}
+{"ms":18052,"kind":"event","name":"turn_start","arg":{"type":"turn_start","turnNumber":1}}
+{"ms":18133,"kind":"event","name":"message_start","arg":{"type":"message_start"}}
+{"ms":18136,"kind":"event","name":"model_request_start","arg":{"type":"model_request_start","model":"deepseek/deepseek-v4-flash"}}
+{"ms":18217,"kind":"event","name":"run_error","arg":{"type":"run_error","error":{"name":"LocalOnlyError","message":"Local-only mode: refused a Command Code API call (/alpha/generate). This CLI was started with --local-only, CMD_LOCAL_ONLY, or \"localOnly\": true in ~/.commandcode/config.json, so nothing is sent to Command Code — backend features (gateway models, /share, /usage, web tools) are unavailable."}}}
+{"ms":18221,"kind":"event","name":"run_end","arg":{"type":"run_end","result":{"finalText":"","stopReason":"run_error","turnCount":1,"usage":{"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheWriteTokens":0},"systemPromptTokens":null,"nextState":{"sessionId":"ca2d172d-d61f-47f0-a566-9f33505fd0ff","dropped":"conversation"}}}}
+{"ms":42827,"kind":"event","name":"run_start","arg":{"type":"run_start","sessionId":"ca2d172d-d61f-47f0-a566-9f33505fd0ff"}}
+{"ms":42830,"kind":"event","name":"turn_start","arg":{"type":"turn_start","turnNumber":1}}
+{"ms":42832,"kind":"event","name":"message_start","arg":{"type":"message_start"}}
+{"ms":42832,"kind":"event","name":"model_request_start","arg":{"type":"model_request_start","model":"deepseek/deepseek-v4-flash"}}
+{"ms":42888,"kind":"event","name":"run_error","arg":{"type":"run_error","error":{"name":"LocalOnlyError","message":"Local-only mode: refused a Command Code API call (/alpha/generate). This CLI was started with --local-only, CMD_LOCAL_ONLY, or \"localOnly\": true in ~/.commandcode/config.json, so nothing is sent to Command Code — backend features (gateway models, /share, /usage, web tools) are unavailable."}}}
+{"ms":42946,"kind":"event","name":"run_end","arg":{"type":"run_end","result":{"finalText":"","stopReason":"run_error","turnCount":1,"usage":{"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheWriteTokens":0},"systemPromptTokens":null,"nextState":{"sessionId":"ca2d172d-d61f-47f0-a566-9f33505fd0ff","dropped":"conversation"}}}}

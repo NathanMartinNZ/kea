@@ -1,0 +1,40 @@
+{
+  "name": "claude-classic-fix-typo",
+  "notes": "Classic renderer, Read then Edit: the edit's permission prompt with a diff, accepted with 1.",
+  "agent": "claude",
+  "prompt": "fix the typo in the greeting message in src/hello.js",
+  "cols": 120,
+  "rows": 36,
+  "mock": {
+    "default": "Fix greeting typo",
+    "replies": [
+      { "delayMs": 1200, "content": [{ "type": "tool_use", "name": "Read", "input": { "file_path": "{{repo}}/src/hello.js" } }] },
+      {
+        "delayMs": 1500,
+        "content": [
+          { "type": "text", "text": "The greeting says \"Helo\". Fixing it." },
+          { "type": "tool_use", "name": "Edit", "input": { "file_path": "{{repo}}/src/hello.js", "old_string": "Helo, ", "new_string": "Hello, " } }
+        ]
+      },
+      { "delayMs": 1500, "content": [{ "type": "text", "text": "Fixed: `greet` now returns \"Hello, <name>!\"." }] }
+    ]
+  },
+  "steps": [
+    { "wait": "\\? for shortcuts" },
+    { "pause": 500 },
+    { "type": "prompt", "keyDelayMs": 30 },
+    { "pause": 200 },
+    { "send": "\r" },
+    { "wait": "Do you want to make this edit", "timeoutMs": 30000 },
+    { "mark": "permission" },
+    { "pause": 1500 },
+    { "send": "1" },
+    { "wait": "now returns", "timeoutMs": 30000 },
+    { "mark": "answered" },
+    { "pause": 1500 },
+    { "send": "/exit" },
+    { "pause": 400 },
+    { "send": "\r" },
+    { "exit": 15000 }
+  ]
+}

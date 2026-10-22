@@ -1,0 +1,140 @@
+/* The command palette: `--size-palette` wide near the top of the window, one input over one list of rows
+   (`--size-palette-row` high), shortcut hints right-aligned in kbd chips. The file mode's rows are the finder's
+   (features/files/files.css). Tokens only (DS-2). */
+
+.palette {
+  position: fixed;
+  z-index: 10;
+  top: calc(var(--size-header) + var(--space-8));
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: var(--size-palette);
+  max-width: calc(100vw - var(--space-8));
+  max-height: calc(100vh - var(--size-header) - var(--space-8) - var(--space-8));
+  padding: var(--space-1);
+  border-radius: var(--radius-lg);
+  background: var(--surface-4);
+  box-shadow: var(--shadow-float);
+  transform: translateX(-50%);
+  animation: palette-in var(--motion-float-in) linear both;
+}
+
+.palette input {
+  flex: none;
+  box-sizing: border-box;
+  width: 100%;
+  height: var(--size-palette-row);
+  padding: 0 var(--space-2);
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--text-1);
+  font: inherit;
+}
+
+.palette input::placeholder {
+  color: var(--text-3);
+}
+
+.palette-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.palette-section {
+  padding: var(--space-1) var(--space-2) 0;
+  color: var(--text-3);
+  font-size: var(--type-micro-size);
+  line-height: var(--type-micro-line);
+  font-weight: var(--type-micro-weight);
+}
+
+.palette-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  box-sizing: border-box;
+  height: var(--size-palette-row);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-md);
+  color: var(--text-2);
+  white-space: nowrap;
+  cursor: default;
+}
+
+.palette-row.current {
+  background: var(--surface-3);
+  color: var(--text-1);
+}
+
+.palette-title {
+  flex: none;
+  max-width: 70%;
+  overflow: hidden;
+  color: var(--text-1);
+  text-overflow: ellipsis;
+}
+
+.palette-detail {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-3);
+  font-size: var(--type-secondary-size);
+  text-overflow: ellipsis;
+}
+
+/* a command that cannot run now: listed dimmed, with its reason in the detail's place */
+.palette-row[aria-disabled='true'] .palette-title {
+  color: var(--text-3);
+}
+
+/* what ↵ does on it instead */
+.palette-remedy {
+  flex: none;
+  color: var(--text-2);
+  font-size: var(--type-secondary-size);
+}
+
+.palette-remedy kbd {
+  margin: 0 var(--space-1) 0 0;
+}
+
+.palette-kbd {
+  flex: none;
+  margin: 0 0 0 auto;
+}
+
+/* what the query matched: marked as a find match is in the viewer (--warn at --opacity-find-match), not in the
+   accent, which is never decoration */
+.palette-row mark {
+  background: color-mix(in srgb, var(--warn) calc(var(--opacity-find-match) * 100%), transparent);
+  color: inherit;
+}
+
+.palette-note {
+  flex: none;
+  margin: 0;
+  padding: var(--space-1) var(--space-2);
+  color: var(--text-3);
+  font-size: var(--type-secondary-size);
+  line-height: var(--type-secondary-line);
+}
+
+@keyframes palette-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .palette {
+    animation: none;
+  }
+}

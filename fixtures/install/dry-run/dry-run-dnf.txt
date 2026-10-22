@@ -1,0 +1,15 @@
+Release: Kea <version>, from https://github.com/<repository>/releases/latest/download/
+SHA256SUMS: signed by Kea's key <fingerprint> (checked with <verifier>)
+Plan: Kea's dnf repository, then Kea's package from it
+File kea-app.repo, for /etc/yum.repos.d/kea-app.repo:
+    [kea-app]
+    name=Kea
+    baseurl=https://<owner>.github.io/<name>/rpm/$basearch
+    enabled=1
+    gpgcheck=1
+    repo_gpgcheck=1
+    gpgkey=https://github.com/<repository>/releases/latest/download/kea-app.asc
+Commands that would change the system (a dry run: none runs):
++ sudo rpm --import kea-app.asc
++ sudo install -m 0644 kea-app.repo /etc/yum.repos.d/kea-app.repo
++ sudo dnf install -y kea-app

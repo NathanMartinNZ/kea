@@ -1,0 +1,5 @@
+Release: Kea <version>, from https://github.com/<repository>/releases/latest/download/
+SHA256SUMS: not signature-checked (neither GnuPG's gpgv nor Sequoia's sqv is installed). Every file is still checked against it, and Kea's key against the fingerprint this script pins
+Plan: Kea <version> in /Applications/Kea.app, from Kea-<version>-<arch>-mac.zip: unpacked with ditto -x -k, then checked with codesign --verify --deep --strict and against Kea's certificate (leaf a2a3615d4399591d66f30acfb0c5562b0552e87c)
+Commands that would change the system (a dry run: none runs):
++ mv app/Kea.app /Applications/Kea.app

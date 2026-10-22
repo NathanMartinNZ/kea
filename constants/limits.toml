@@ -1,0 +1,1748 @@
+# Every cap, timeout and interval in Kea. Each entry has a value, a unit and why. A number that differs by system adds
+# `linux = …` and/or `darwin = …`, with `why_linux` saying why.
+# `pnpm codegen` writes packages/protocol/src/generated/limits.ts and native/kea-helper/src/limits.rs from this file;
+# code reads its numbers from there and never writes one inline.
+
+# ── architecture ────────────────────────────────────────────────────────────────
+
+[supervisor_backoff_min_ms]
+value = 200
+unit = "ms"
+why = "first restart delay after a supervised process exits"
+
+[supervisor_backoff_max_ms]
+value = 5000
+unit = "ms"
+why = "restart delay doubles up to this"
+
+[supervisor_heartbeat_ms]
+value = 2000
+unit = "ms"
+why = "heartbeat interval for core and ptyhost"
+
+[supervisor_missed_heartbeats]
+value = 3
+unit = "count"
+why = "kill + restart after this many missed heartbeats"
+
+[supervisor_healthy_reset_ms]
+value = 30000
+unit = "ms"
+why = "backoff resets after a process stays up this long"
+
+[supervisor_shutdown_grace_ms]
+value = 2000
+unit = "ms"
+why = "full quit: how long main waits for core and ptyhost to exit after `shutdown` before stopping them"
+
+[store_tick_ms]
+value = 16
+unit = "ms"
+why = "store deltas coalesced to at most one message per store per tick; also the DB write-batch tick"
+
+[frame_fallback_ms]
+value = 50
+unit = "ms"
+why = "a window that gets no animation frames (hidden or covered) still flushes its store copies after this long; longer than a frame at 30 Hz or faster, so a shown window's stores flush once per frame"
+
+[core_control_waiters_max]
+value = 256
+unit = "count"
+why = "core's calls waiting for ptyhost's control port while ptyhost is away; one more fails at once with `unavailable`"
+
+[reconnecting_bar_delay_ms]
+value = 500
+unit = "ms"
+why = "core away longer than this before the window shows the thin Reconnecting… bar"
+
+# ── holder ────────────────────────────────────────────────────────────────────
+
+[holder_protocol_version]
+value = 1
+unit = "version"
+why = "wire protocol v1, frozen once shipped"
+
+[pty_id_length]
+value = 10
+unit = "chars"
+why = "ptyId is also the socket and ring file name"
+
+[socket_path_max_bytes]
+value = 103
+unit = "bytes"
+why = "macOS sun_path is 104 bytes including the NUL"
+
+[ring_bytes_default]
+value = 4194304
+unit = "bytes"
+why = "default of the terminal.ringBytes setting and the holder's default --ring-bytes"
+
+[ring_bytes_min]
+value = 1048576
+unit = "bytes"
+why = "smallest allowed terminal.ringBytes"
+
+[ring_bytes_max]
+value = 67108864
+unit = "bytes"
+why = "largest allowed terminal.ringBytes"
+
+[ring_header_bytes]
+value = 64
+unit = "bytes"
+why = "fixed ring file header {magic, version, capacity, earliestSeq, latestSeq} padded"
+
+[holder_stale_client_ms]
+value = 5000
+unit = "ms"
+why = "attached client silent this long while over the watermark → free-run"
+
+[holder_flow_high_bytes]
+value = 262144
+unit = "bytes"
+why = "stop reading the PTY when sent − acked exceeds this"
+
+[holder_flow_low_bytes]
+value = 65536
+unit = "bytes"
+why = "resume reading the PTY below this"
+
+[holder_input_cap_bytes]
+value = 1048576
+unit = "bytes"
+why = "pending input to the child; beyond it the holder stops reading its socket"
+
+[holder_linger_ms]
+value = 86400000
+unit = "ms"
+why = "holder lingers after child exit until RELEASE or this long"
+
+[holder_refusal_log_interval_ms]
+value = 60000
+unit = "ms"
+why = "refused connections are logged at most once a minute"
+
+[holder_read_buffer_bytes]
+value = 65536
+unit = "bytes"
+why = "fixed PTY read buffer; also the largest OUTPUT payload"
+
+[holder_max_frame_bytes]
+value = 1114112
+unit = "bytes"
+why = "largest frame payload accepted from a client (input cap + slack); larger closes the connection"
+
+[holder_stat_pids_max]
+value = 4096
+unit = "count"
+why = "STAT lists at most this many descendant pids, so its reply fits the holder's fixed frame buffer"
+
+[holder_proc_map_max]
+value = 32768
+unit = "count"
+why = "Linux, session mode: the (pid, parent) pairs one pass over /proc maps for STAT's descendants, a buffer reserved at the holder's start; processes past it are not seen"
+
+[holder_pty_open_attempts]
+value = 3
+unit = "count"
+why = "opening the PTY is retried at once while macOS fails it with its internal EREDRIVEOPEN (errno -6), as it now and then does while other processes open terminals"
+
+[holder_launch_timeout_ms]
+value = 10000
+unit = "ms"
+why = "ptyhost waits this long for the launcher's result line"
+
+[holder_launch_output_max_bytes]
+value = 65536
+unit = "bytes"
+why = "the launcher prints one result line; anything longer is a broken launcher"
+
+[scope_start_timeout_ms]
+value = 5000
+unit = "ms"
+why = "Linux: the launcher waits this long for `systemd-run --user --scope` to bring the daemon to READY (measured at about 15 ms), then kills it and spawns the daemon in session mode, within holder_launch_timeout_ms"
+
+[codesign_timeout_ms]
+value = 10000
+unit = "ms"
+why = "reading Kea's own designated requirement with codesign at ptyhost start"
+
+[codesign_output_max_bytes]
+value = 65536
+unit = "bytes"
+why = "codesign -d -r- prints a few hundred bytes"
+
+[ptyhost_notes_max]
+value = 1000
+unit = "count"
+why = "notifications queued while core is away; beyond this they drop and core recovers state from pty.list"
+
+[holder_parent_gone_grace_ms]
+value = 2000
+unit = "ms"
+why = "--no-detach holder: SIGTERM to SIGKILL grace for the child's tree once its parent's stdin pipe closes"
+
+[holder_peer_check_timeout_ms]
+value = 2000
+unit = "ms"
+why = "bound on the forked code-signature check of a connecting client (normally ~10 ms); past it the client is refused"
+
+[holder_pending_checks_max]
+value = 4
+unit = "count"
+why = "connections awaiting their forked code check at once (checks run beside the attached client's I/O, never blocking it); one more is refused at once, so a flood costs at most this many check processes"
+
+[holder_footprint_max_bytes]
+value = 2097152
+unit = "bytes"
+why = "an idle holder's physical footprint, the file-backed ring mapping excluded; checked by I-HLD-18"
+
+# ── ptyhost ────────────────────────────────────────────────────────────────────
+
+[ptyhost_semi_space_mb]
+value = 2
+unit = "MB"
+why = "V8 semi-space cap for ptyhost (`--max-semi-space-size`): bounds its young generation and the dead output buffers it holds between scavenges under a flood"
+
+[mirror_write_max_bytes]
+value = 4096
+unit = "bytes"
+why = "the mirror is given output in pieces of at most this size: xterm keeps a parse buffer of 4 bytes per byte of its largest write for good (4 096 entries to begin with)"
+
+[coalesce_window_ms]
+value = 4
+unit = "ms"
+why = "output batched for at most this long under load"
+
+[coalesce_max_bytes]
+value = 65536
+unit = "bytes"
+why = "output batch flushed at this size"
+
+[coalesce_quiet_ms]
+value = 4
+unit = "ms"
+why = "first chunk after this much quiet is forwarded immediately"
+
+[stream_credit_bytes]
+value = 262144
+unit = "bytes"
+why = "renderer credit window per terminal stream"
+
+[stream_skip_ahead_bytes]
+value = 1048576
+unit = "bytes"
+why = "renderer this far behind the mirror gets a fresh snapshot instead of the backlog"
+
+[flood_neighbour_bound_ms]
+value = 100
+unit = "ms"
+why = "beside a flooding terminal, a key's echo in another terminal and a control call are answered within this under any load (a hard bound, about four times the worst p99 read on a loaded machine, 26.4 ms; the budget for a quiet machine is P-TERM-2)"
+
+[checkpoint_max_age_ms]
+value = 60000
+unit = "ms"
+why = "dirty mirror checkpointed after this long"
+
+[checkpoint_ring_fraction]
+value = 0.5
+unit = "ratio"
+why = "dirty mirror checkpointed after this fraction of a ring of output"
+
+[checkpoint_quiet_ms]
+value = 300
+unit = "ms"
+why = "no serialisation within this long after a keystroke to the visible terminal"
+
+[checkpoint_min_interval_ms]
+value = 100
+unit = "ms"
+why = "at most one serialisation per this interval"
+
+[resize_debounce_ms]
+value = 50
+unit = "ms"
+why = "resizes debounced"
+
+[pty_min_cols]
+value = 10
+unit = "cols"
+why = "smallest PTY width"
+
+[pty_min_rows]
+value = 2
+unit = "rows"
+why = "smallest PTY height"
+
+[pty_default_cols]
+value = 80
+unit = "cols"
+why = "a background start's width before any grid was reported"
+
+[pty_default_rows]
+value = 24
+unit = "rows"
+why = "a background start's height before any grid was reported"
+
+[shell_env_timeout_ms]
+value = 10000
+unit = "ms"
+why = "login-shell environment resolution timeout"
+
+[shell_env_output_max_bytes]
+value = 4194304
+unit = "bytes"
+why = "a login shell printing more than this is cut off and the next fallback is tried"
+
+[terminal_records_max]
+value = 1000
+unit = "count"
+why = "shell tabs' terminal records, kept in terminals.json; the oldest ended records are dropped first"
+
+[instance_lock_timeout_ms]
+value = 5000
+unit = "ms"
+why = "Linux's instance lock: util-linux's `flock --nonblock` on the lock's descriptor answers at once; past this the lock is not taken and the process says why"
+
+[process_probe_timeout_ms]
+value = 10000
+unit = "ms"
+why = "the one `kea-helper procs` run that reads holder pids' start times and executables (pid-reuse check), and the one that lists the processes for the helper-copy pruning"
+
+[mirror_park_idle_ms]
+value = 120000
+unit = "ms"
+why = "mirror with no renderer and no output this long is parked"
+
+[mirror_stall_ms]
+value = 5000
+unit = "ms"
+why = "write callback silent this long with data pending → mirror rebuilt"
+
+[holder_readopt_interval_ms]
+value = 5000
+unit = "ms"
+why = "a holder connection that closes while its PTY runs is re-adopted at once, at most once per this interval; closing again sooner reports the PTY lost (a holder that keeps dropping ptyhost)"
+
+[repaint_nudge_ms]
+value = 50
+unit = "ms"
+why = "delay between the rows−1 and restore resizes of the alt-screen repaint nudge"
+
+[holder_connect_timeout_ms]
+value = 3000
+unit = "ms"
+why = "connect + HELLO to a holder; longer than holder_peer_check_timeout_ms so a slow admitting check is not taken for a dead holder"
+
+[snapshot_sync_wait_ms]
+value = 1000
+unit = "ms"
+why = "a snapshot or checkpoint waits at most this long for an open DEC 2026 block to close"
+
+# ── renderer terminal ──────────────────────────────────────────────────────────
+
+[shell_close_grace_ms]
+value = 2000
+unit = "ms"
+why = "a closed shell tab's session is hung up; anything still alive this long after is terminated"
+
+[tab_title_stat_ms]
+value = 250
+unit = "ms"
+why = "a shell tab on screen asks its holder what runs in the foreground (`STAT`) at most once in this long when its output starts or a key is typed (a pause of its output is asked at once)"
+
+[webgl_contexts_max]
+value = 4
+unit = "count"
+why = "WebGL contexts alive at once, well below Chromium's ≈ 16"
+
+[warm_terminals]
+value = 3
+unit = "count"
+why = "other sessions' Agent terminals kept warm with WebGL"
+
+[atlas_guard_bytes]
+value = 134217728
+unit = "bytes"
+why = "glyph atlas pages summed above this are cleared (tuned with tools/perf/src/gpu-soak.ts)"
+
+[search_highlights_max]
+value = 1000
+unit = "count"
+why = "find highlight decorations cap"
+
+[find_query_max_chars]
+value = 1000
+unit = "chars"
+why = "longest find-bar query kept; longer input is cut"
+
+[osc52_max_bytes]
+value = 1048576
+unit = "bytes"
+why = "largest OSC 52 clipboard write applied"
+
+[osc52_note_ms]
+value = 2000
+unit = "ms"
+why = "'Copied by terminal' shown this long"
+
+[osc_text_max_chars]
+value = 120
+unit = "chars"
+why = "titles, bells and OSC 9/777 text truncated before display"
+
+[terminal_font_step]
+value = 1
+unit = "px"
+why = "⌘+ / ⌘− change the terminal font size by this much, within terminal.fontSize's range"
+
+[terminal_link_line_max_chars]
+value = 2048
+unit = "chars"
+why = "a logical terminal line (its wrapped rows joined) is searched for file references up to this length"
+
+[terminal_link_path_max_chars]
+value = 1024
+unit = "chars"
+why = "a printed path longer than this is not a file link"
+
+[terminal_link_candidates_max]
+value = 16
+unit = "count"
+why = "file references checked per terminal line (one existence check in core for all of them)"
+
+[terminal_link_cache_max]
+value = 256
+unit = "count"
+why = "checked file references the window remembers (path, session → file or not), least recently used first out"
+
+[terminal_link_cache_ms]
+value = 5000
+unit = "ms"
+why = "a checked file reference is trusted this long before it is checked again (files come and go)"
+
+[terminal_link_checks_in_flight_max]
+value = 2
+unit = "count"
+why = "file references core checks on disk at once, one per place at most; a check the system does not answer keeps its place until it does, so core's other file calls always keep two of the four threads they share"
+
+[terminal_link_checks_waiting_max]
+value = 64
+unit = "count"
+why = "file references waiting for their check (four lines' worth); one more is answered \"not a file\" at once"
+
+[terminal_link_check_deadline_ms]
+value = 500
+unit = "ms"
+why = "a file reference whose check has not answered this long after it was asked is not a link (a volume that no longer answers)"
+
+[terminal_link_hung_after_ms]
+value = 2000
+unit = "ms"
+why = "a check the system answers within this long after its request gave up on it was only slow (a busy disk): its place is checked again at once; one answered later hung, and its place is left alone for terminal_link_hung_place_ms more"
+
+[terminal_link_hung_places_max]
+value = 32
+unit = "count"
+why = "places whose check hung that core remembers and does not check again, the oldest forgotten first"
+
+[terminal_link_hung_place_ms]
+value = 60000
+unit = "ms"
+why = "a place whose check hung is not checked again for this long after the system answered it at last"
+
+# ── memory ─────────────────────────────────────────────────────────────────────
+
+[pool_git]
+value = 2
+unit = "count"
+why = "concurrent git children"
+
+[pool_ports]
+value = 1
+unit = "count"
+why = "concurrent port-scan children"
+
+[pool_other]
+value = 4
+unit = "count"
+why = "concurrent other children"
+
+[held_children_max]
+value = 256
+unit = "count"
+why = "children whose stdin pipe is held open for their whole life (non-detached holders); one more is refused at once"
+
+[pool_queue_max]
+value = 1000
+unit = "count"
+why = "requests waiting for a pool slot; beyond this runProcess rejects (a caller is leaking work)"
+
+[process_kill_grace_ms]
+value = 1000
+unit = "ms"
+why = "runProcess timeout / cancel / byte cap: SIGTERM to the child's process group, SIGKILL after this grace"
+
+[process_stdout_max_bytes]
+value = 8388608
+unit = "bytes"
+why = "default stdout cap when runProcess collects output and the caller names no cap"
+
+[process_stderr_max_bytes]
+value = 16384
+unit = "bytes"
+why = "stderr kept per child; the rest is drained and discarded"
+
+[listener_warn_count]
+value = 50
+unit = "count"
+why = "dev builds warn when an emitter exceeds this many listeners"
+
+[log_file_max_bytes]
+value = 10485760
+unit = "bytes"
+why = "log rotation size per file"
+
+[log_files_kept]
+value = 5
+unit = "count"
+why = "rotated log files kept per process"
+
+[log_memory_entries]
+value = 1000
+unit = "entries"
+why = "in-memory logger (tests, recent errors for diagnostics) keeps the newest entries"
+
+[watchdog_interval_ms]
+value = 30000
+unit = "ms"
+why = "footprint sampling interval"
+
+[watchdog_soft_core_bytes]
+value = 419430400
+unit = "bytes"
+why = "core soft limit (log a report)"
+
+[watchdog_soft_ptyhost_bytes]
+value = 419430400
+unit = "bytes"
+why = "ptyhost soft limit"
+
+[watchdog_soft_renderer_bytes]
+value = 629145600
+unit = "bytes"
+why = "renderer soft limit"
+
+[watchdog_soft_gpu_bytes]
+value = 1342177280
+unit = "bytes"
+why = "GPU helper soft limit"
+
+[watchdog_hard_core_bytes]
+value = 838860800
+unit = "bytes"
+why = "core hard limit (restart when idle); also the cap of core's V8 old space"
+
+[watchdog_hard_ptyhost_bytes]
+value = 838860800
+unit = "bytes"
+why = "ptyhost hard limit (restart when idle); also the cap of ptyhost's V8 old space"
+
+[watchdog_hard_renderer_bytes]
+value = 1288490188
+unit = "bytes"
+why = "renderer hard limit (1.2 GB → reload the window)"
+
+[watchdog_hard_gpu_bytes]
+value = 1610612736
+unit = "bytes"
+why = "GPU hard limit (clear atlas, recreate WebGL)"
+
+[watchdog_idle_ms]
+value = 60000
+unit = "ms"
+why = "user counts as idle after no input this long; hard-limit actions wait for it"
+
+[watchdog_cooldown_ms]
+value = 600000
+unit = "ms"
+why = "never act twice on one process (its role: a restarted core is still core) within this"
+
+[metrics_samples_kept]
+value = 120
+unit = "count"
+why = "main keeps the last hour of footprint samples"
+
+[resource_log_interval_ms]
+value = 3600000
+unit = "ms"
+why = "resources.ndjson line once an hour"
+
+[resource_report_timeout_ms]
+value = 2000
+unit = "ms"
+why = "main waits this long for a process's resource report, and for a footprint run, before listing it as missing"
+
+[resource_report_rows_max]
+value = 256
+unit = "count"
+why = "rows in a resource report crossing a process boundary, and values in one row"
+
+[resource_name_max_chars]
+value = 128
+unit = "chars"
+why = "longest row or value name in a resource report crossing a process boundary"
+
+[notification_ttl_ms]
+value = 3600000
+unit = "ms"
+why = "posted notifications expire after an hour"
+
+[hook_socket_connections_max]
+value = 64
+unit = "count"
+why = "concurrent hook socket connections in core"
+
+[window_gone_settle_ms]
+value = 10000
+unit = "ms"
+why = "after the window closes or Kea goes to the menu bar: no renderer process by this long"
+
+[window_gone_footprint_ms]
+value = 30000
+unit = "ms"
+why = "after the window closes or Kea goes to the menu bar: the total footprint within P-MEM-5 by this long, read settled. The processes give back what the window used over some seconds: with 20 idle agent sessions every reading was within 200 MB by 26.5 s, few at 10 s"
+
+[composer_draft_max_bytes]
+value = 102400
+unit = "bytes"
+why = "one composer draft per project"
+
+[last_launch_agents_max]
+value = 8
+unit = "count"
+why = "agents whose last-used model, effort and mode a project remembers (the most recently started)"
+
+# ── database ───────────────────────────────────────────────────────────────────
+
+[db_busy_timeout_ms]
+value = 2000
+unit = "ms"
+why = "SQLite busy_timeout"
+
+[db_cache_kib]
+value = 2000
+unit = "KiB"
+why = "cache_size = -2000 (2 MB; better-sqlite3's default page cache is 16 MB)"
+
+[db_journal_size_limit_bytes]
+value = 16777216
+unit = "bytes"
+why = "journal_size_limit"
+
+[db_wal_truncate_bytes]
+value = 8388608
+unit = "bytes"
+why = "WAL checkpointed with TRUNCATE above this"
+
+[status_events_per_session]
+value = 500
+unit = "rows"
+why = "status_events trimmed to the newest rows per session"
+
+[db_idle_checkpoint_ms]
+value = 30000
+unit = "ms"
+why = "the WAL is checkpointed with TRUNCATE this long after the last write"
+
+# ── files and git ──────────────────────────────────────────────────────────────
+
+[watch_exclusions_max]
+value = 8
+unit = "count"
+why = "FSEvents accepts at most 8 exclusion paths; macOS only: inotify has no such limit, and the Linux OS layer passes none"
+
+[watch_poll_ms]
+value = 10000
+unit = "ms"
+why = "poll of the visible session only in poll-only mode or after a watcher error"
+
+[watch_restart_ms]
+value = 800
+unit = "ms"
+why = "subscription restarted after a rescan error"
+
+[watch_start_timeout_ms]
+value = 5000
+unit = "ms"
+why = "watcher start timeout before poll-only mode"
+
+[watch_batch_ms]
+value = 75
+unit = "ms"
+why = "event collection window"
+
+[watch_chunk]
+value = 500
+unit = "events"
+why = "events processed per chunk with a yield between"
+
+[watch_rescan_threshold]
+value = 30000
+unit = "events"
+why = "more pending events collapse into one rescan"
+
+[watch_worktrees_lru]
+value = 4
+unit = "count"
+why = "worktree subscriptions kept (visible + three recent)"
+
+[watch_cycle_leak_max_bytes]
+value = 8192
+unit = "bytes"
+why = "native memory one released FSEvents stream may leave behind (measured 4.0–5.3 KB with 8 exclusions)"
+
+[watch_files_max]
+value = 2048
+unit = "count"
+why = "single files and directories followed outside a worktree stream (2 per live agent session, plus the app's own)"
+
+[watch_dir_settle_ms]
+value = 250
+unit = "ms"
+why = "one more look at followed directories, and at files waited for on one, this long after their shared stream (re)starts: what happens while it starts can go unreported"
+
+[watch_entries_max]
+value = 400000
+unit = "entries"
+why = "entries the followed worktrees' streams may hold in all, as the patched watcher reports them: the inotify backend keeps every entry in core's memory, measured at about 290 B each in a file-heavy tree and 630 B in a directory-heavy one, so ≈ 116–250 MB, which keeps core (idle at 33–39 MiB) under watchdog_soft_core_bytes (400 MiB) with room for its directory caches; the repo factory's `large` (300 025 entries) fits"
+
+[watch_entries_remembered]
+value = 32
+unit = "worktrees"
+why = "entry counts kept for worktrees the entries cap released, so one shown again is followed only when there is room for it (no walk of a tree that would be released again)"
+
+[inotify_watches_suggested]
+value = 524288
+unit = "watches"
+why = "what the banner's fix suggests for fs.inotify.max_user_watches (8 × Ubuntu's 65 536; each watch pins ≈ 1.4 KB of kernel memory while held)"
+
+[inotify_instances_suggested]
+value = 1024
+unit = "instances"
+why = "what the banner's fix suggests for fs.inotify.max_user_instances (8 × the usual 128)"
+
+[dir_big_threshold]
+value = 10000
+unit = "entries"
+why = "directories larger than this show the first page and 'Show all'"
+
+[dir_first_page]
+value = 2000
+unit = "entries"
+why = "first page of a big directory"
+
+[tree_update_ms]
+value = 300
+unit = "ms"
+why = "created/deleted files appear within this"
+
+[file_cache_sessions]
+value = 3
+unit = "count"
+why = "sessions whose dir caches and git snapshots are kept"
+
+[dir_cache_entries_max]
+value = 100000
+unit = "entries"
+why = "entries per session directory cache"
+
+[git_status_cap_bytes]
+value = 33554432
+unit = "bytes"
+why = "git status output cap"
+
+[git_diff_cap_bytes]
+value = 8388608
+unit = "bytes"
+why = "git diff output cap"
+
+[git_lsfiles_cap_bytes]
+value = 67108864
+unit = "bytes"
+why = "git ls-files output cap"
+
+[git_record_max_bytes]
+value = 65536
+unit = "bytes"
+why = "one NUL-terminated record of git output (a path, a header); a longer one ends the parse as truncated"
+
+[check_ignore_debounce_ms]
+value = 300
+unit = "ms"
+why = "visible rows checked with git check-ignore in debounced batches"
+
+[check_ignore_queue_max]
+value = 2000
+unit = "paths"
+why = "paths waiting for a check-ignore batch; more become one refresh of the ignored-directory list"
+
+[untracked_count_max_bytes]
+value = 1048576
+unit = "bytes"
+why = "untracked files larger than this get no line count"
+
+[untracked_count_budget_bytes]
+value = 33554432
+unit = "bytes"
+why = "untracked-file bytes read for line counts in one status run; files past it get no count"
+
+[git_debounce_ms]
+value = 300
+unit = "ms"
+why = "status triggers debounced"
+
+[git_debounce_max_ms]
+value = 2000
+unit = "ms"
+why = "a waiting status trigger runs at the latest this long after it arrived, however many follow"
+
+[git_status_entries_max]
+value = 10000
+unit = "entries"
+why = "stop parsing and mark 'too many changes'"
+
+[git_status_timeout_ms]
+value = 15000
+unit = "ms"
+why = "git status timeout"
+
+[git_default_timeout_ms]
+value = 30000
+unit = "ms"
+why = "timeout for other git calls through kit git()"
+
+[fsmonitor_hint_ms]
+value = 1000
+unit = "ms"
+why = "status slower than this suggests fsmonitor once"
+
+[discard_trash_timeout_ms]
+value = 10000
+unit = "ms"
+why = "the `trash` run of Discard Changes is killed after this long"
+
+[discard_detail_max_chars]
+value = 300
+unit = "chars"
+why = "what git or `trash` said when a discard failed, as shown in the toast"
+
+[tree_overscan_rows]
+value = 8
+unit = "rows"
+why = "rows drawn above and below the visible part of the tree and the Changes list, so a scroll step shows no gap"
+
+[tree_typeahead_ms]
+value = 800
+unit = "ms"
+why = "type-ahead in the file tree: keys typed within this long of each other extend one prefix"
+
+[panel_save_ms]
+value = 400
+unit = "ms"
+why = "the file panel's scroll position and selection are saved this long after they last changed"
+
+[open_all_changed_max]
+value = 20
+unit = "files"
+why = "Open All in Editor opens at most this many changed files, one editor call each"
+
+[finder_drop_ms]
+value = 60000
+unit = "ms"
+why = "finder index dropped this long after its last query"
+
+[finder_paths_max]
+value = 500000
+unit = "paths"
+why = "finder index cap"
+
+[finder_results]
+value = 50
+unit = "count"
+why = "top results streamed to the palette"
+
+[finder_recent_max]
+value = 64
+unit = "paths"
+why = "recently opened paths a finder query may name for the recency boost"
+
+[finder_query_max_chars]
+value = 1024
+unit = "chars"
+why = "a finder query longer than the longest path macOS allows matches nothing; the call refuses it"
+
+# ── worktrees ──────────────────────────────────────────────────────────────────
+
+[fetch_timeout_ms]
+value = 5000
+unit = "ms"
+why = "base fetch and remote set-head capped"
+
+[slug_max_words]
+value = 5
+unit = "words"
+why = "session slug words"
+
+[slug_max_chars]
+value = 40
+unit = "chars"
+why = "session slug length"
+
+[worktree_path_max_chars]
+value = 200
+unit = "chars"
+why = "worktree root + slug capped below this"
+
+[teardown_timeout_ms]
+value = 60000
+unit = "ms"
+why = "teardown process tree terminated after this"
+
+[teardown_grace_ms]
+value = 2000
+unit = "ms"
+why = "grace between SIGTERM and SIGKILL when terminating a teardown tree"
+
+[snapshot_untracked_max_bytes]
+value = 10485760
+unit = "bytes"
+why = "untracked files above this are left out of the delete snapshot"
+
+[disk_measure_interval_ms]
+value = 3600000
+unit = "ms"
+why = "worktree size measured at most once an hour per session"
+
+[disk_walk_timeout_ms]
+value = 120000
+unit = "ms"
+why = "size walk capped per worktree"
+
+[disk_stale_days]
+value = 7
+unit = "days"
+why = "'Stale' lists sessions not viewed for this long"
+
+[git_checkout_timeout_ms]
+value = 600000
+unit = "ms"
+why = "git commands that check out or download a tree (worktree add, submodule update, lfs pull, read-tree -u) time out after this"
+
+[creation_log_max_bytes]
+value = 1048576
+unit = "bytes"
+why = "a session's creation log keeps its newest half once it passes this; the renderer reads at most this much of it"
+
+[base_refs_max]
+value = 1000
+unit = "count"
+why = "branches and tags the composer's Base list offers (git for-each-ref)"
+
+# ── sessions and status ────────────────────────────────────────────────────────
+
+[project_name_max_chars]
+value = 200
+unit = "chars"
+why = "longest project display name"
+
+[stop_grace_ms]
+value = 2000
+unit = "ms"
+why = "SIGTERM to SIGKILL grace when stopping an agent (SessionEnd hooks run)"
+
+[session_ui_max_bytes]
+value = 65536
+unit = "bytes"
+why = "a session's saved panel state (session_ui.state JSON)"
+
+[auto_clean_interval_ms]
+value = 3600000
+unit = "ms"
+why = "auto-clean and the retention purge run at launch and this often after"
+
+[title_max_chars]
+value = 200
+unit = "chars"
+why = "longest session title (a user rename, an agent's title)"
+
+[trust_window_ms]
+value = 5000
+unit = "ms"
+why = "no SessionStart this long in an untrusted repo → trust-pending question"
+
+[hook_target_ms]
+value = 5
+unit = "ms"
+why = "per-event cost target of the synchronous hook helper"
+
+[hook_bound_ms]
+value = 50
+unit = "ms"
+why = "hard bound on connect, write and core's answer before the helper spools"
+
+[hook_timeout_s]
+value = 5
+unit = "s"
+why = "timeout field of each injected hook"
+
+[hook_envelope_max_bytes]
+value = 4096
+unit = "bytes"
+why = "projected hook envelope cap"
+
+[hook_summary_max_chars]
+value = 300
+unit = "chars"
+why = "summarised fields cut on a character boundary"
+
+[hook_stdin_max_bytes]
+value = 33554432
+unit = "bytes"
+why = "hook stdin above this is drained and dropped (payload {} plus \"oversize\":true)"
+
+[spool_soft_bytes]
+value = 1048576
+unit = "bytes"
+why = "above this only state-changing events are spooled"
+
+[spool_hard_bytes]
+value = 4194304
+unit = "bytes"
+why = "above this nothing is spooled"
+
+[spool_lock_retry_ms]
+value = 50
+unit = "ms"
+why = "a drain that finds a helper appending to the spool (its lock held) tries once more after this long"
+
+[spool_rewrites_max]
+value = 3
+unit = "count"
+why = "where core takes a spool without the hook's lock (Linux), the hook writes its line again into a fresh spool while the one it wrote to was taken meanwhile, at most this many times"
+
+[settings_inline_max_bytes]
+value = 2097152
+unit = "bytes"
+why = "inline --settings JSON cap"
+
+[transcript_tail_bytes]
+value = 262144
+unit = "bytes"
+why = "reconcile reads at most this much of a transcript"
+
+[permission_dedupe_ms]
+value = 10000
+unit = "ms"
+why = "Notification(permission_prompt) ignored this soon after a PermissionRequest"
+
+[cc_permission_queued_ms]
+value = 6000
+unit = "ms"
+why = "Command Code tool_queued without tool_running this long → permission"
+
+[cc_mod_tools_max]
+value = 256
+unit = "entries"
+why = "queued tool calls of one run whose input kea-mod.ts keeps for their later events; more are forwarded without it"
+
+[cc_model_list_ttl_ms]
+value = 86400000
+unit = "ms"
+why = "Command Code's detection (its model list) is renewed in the background once it is this old"
+
+[cc_models_max]
+value = 500
+unit = "models"
+why = "models of Command Code's own list the composer offers; any other id can still be typed"
+
+[cc_meta_file_max_bytes]
+value = 65536
+unit = "bytes"
+why = "a Command Code session's meta file (its title) is read whole up to this size; a larger one is not read"
+
+[tier3_working_after_ms]
+value = 1000
+unit = "ms"
+why = "output flowing this long after the last keystroke → turn.started"
+
+[tier3_ready_after_ms]
+value = 3000
+unit = "ms"
+why = "no output this long while working with no tier-1 source → turn.finished"
+
+[activity_report_ms]
+value = 250
+unit = "ms"
+why = "ptyhost rate-limits activity started/stopped signals to core"
+
+[heuristic_suppress_ms]
+value = 10000
+unit = "ms"
+why = "tier-3 events ignored this soon after a tier-1/1b/2 event"
+
+[unconfirmed_status_ms]
+value = 2000
+unit = "ms"
+why = "restored status confirmed by live signal or reconcile within this"
+
+[viewed_dwell_ms]
+value = 500
+unit = "ms"
+why = "viewing a session this long marks it read"
+
+[why_status_entries]
+value = 20
+unit = "rows"
+why = "'Why this status?' journal entries"
+
+[report_events]
+value = 200
+unit = "rows"
+why = "status_events in a report bundle"
+
+[signal_ring_entries]
+value = 200
+unit = "entries"
+why = "recent-signal ring per live session"
+
+[report_transcript_bytes]
+value = 65536
+unit = "bytes"
+why = "transcript tail in a report"
+
+[report_ring_bytes]
+value = 262144
+unit = "bytes"
+why = "PTY ring tail in a report"
+
+[report_capture_ms]
+value = 200
+unit = "ms"
+why = "report capture time bound"
+
+[report_note_max_chars]
+value = 2000
+unit = "chars"
+why = "the optional note of a status report"
+
+[condition_check_ms]
+value = 60000
+unit = "ms"
+why = "a usage limit's reset time is checked against the wall clock at least this often (sleep cannot delay it)"
+
+[reports_kept]
+value = 50
+unit = "count"
+why = "newest reports kept"
+
+[reports_max_bytes]
+value = 209715200
+unit = "bytes"
+why = "reports folder cap"
+
+[notify_min_turn_ms]
+value = 10000
+unit = "ms"
+why = "N2 suppressed for turns shorter than this"
+
+[notify_burst_count]
+value = 4
+unit = "count"
+why = "this many sessions changing within the burst window collapse into one"
+
+[notify_burst_ms]
+value = 2000
+unit = "ms"
+why = "burst window"
+
+[notify_body_max_chars]
+value = 120
+unit = "chars"
+why = "notification body truncation"
+
+[background_starts_user_time_ms]
+value = 10000
+unit = "ms"
+why = "three background sessions started in a row with ⌥⌘↵ take less than this of the person's time"
+
+# ── dev server ─────────────────────────────────────────────────────────────────
+
+[port_range_start]
+value = 20000
+unit = "port"
+why = "first port of the allocation range (below the macOS ephemeral range)"
+
+[port_range_end]
+value = 48999
+unit = "port"
+why = "last port of the allocation range"
+
+[port_block_size]
+value = 10
+unit = "ports"
+why = "ports per session block"
+
+[port_blocks_min]
+value = 100
+unit = "count"
+why = "fewer port blocks than this below Linux's ephemeral range (ip_local_port_range) raise a banner that names the setting"
+
+[port_scan_fast_ms]
+value = 2500
+unit = "ms"
+why = "scan interval until the first listening port is found"
+
+[port_scan_slow_ms]
+value = 30000
+unit = "ms"
+why = "scan interval once a port is found"
+
+[port_scan_extra_ms]
+value = 500
+unit = "ms"
+why = "extra scan this long after URL / 'listening' output"
+
+[server_stop_step_ms]
+value = 3000
+unit = "ms"
+why = "SIGINT → SIGTERM → SIGKILL escalation steps"
+
+[start_script_shebang_bytes]
+value = 512
+unit = "bytes"
+why = "how much of a non-executable start.sh is read for its `#!` line (the kernel's own limit for one)"
+
+[server_stop_poll_ms]
+value = 100
+unit = "ms"
+why = "while stopping, how often the processes of the server's tree listed at stop time are checked, so Stop ends as soon as they are gone"
+
+[server_stop_settle_ms]
+value = 500
+unit = "ms"
+why = "after the last SIGKILL, how long Stop waits for the exit report and for the listed processes to be reaped"
+
+[port_scan_max_bytes]
+value = 262144
+unit = "bytes"
+why = "output kept from one `kea-helper ports` or `lsof` run"
+
+[server_output_tail_bytes]
+value = 16384
+unit = "bytes"
+why = "how much of the server's latest output is read for a URL or a 'listening' line each time its output starts or pauses"
+
+[server_url_candidates_max]
+value = 8
+unit = "urls"
+why = "printed URLs kept per run, in the order printed, until the port of one is confirmed listening"
+
+[server_ports_max]
+value = 32
+unit = "ports"
+why = "listening ports reported per server, lowest first"
+
+[port_scan_timeout_ms]
+value = 5000
+unit = "ms"
+why = "one `kea-helper ports` run is killed after this long"
+
+[port_holder_timeout_ms]
+value = 3000
+unit = "ms"
+why = "the `lsof` run that names a port's holder is killed after this long"
+
+[project_server_ports_max]
+value = 16
+unit = "ports"
+why = "fixed ports remembered per project (the latest kept)"
+
+[ephemeral_port_start]
+value = 49152
+unit = "port"
+why = "first port of the range the system hands out by itself: a port from here on is never a project's fixed port, so it is not remembered"
+
+[create_pr_timeout_ms]
+value = 30000
+unit = "ms"
+why = "`gh pr create --web` is killed after this long"
+
+# ── editor ─────────────────────────────────────────────────────────────────────
+
+[editor_launch_timeout_ms]
+value = 5000
+unit = "ms"
+why = "each launch attempt's timeout"
+
+[editor_pressed_ms]
+value = 600
+unit = "ms"
+why = "pressed state after clicking Open in editor"
+
+[editor_detect_cache_ms]
+value = 60000
+unit = "ms"
+why = "editor detection cached"
+
+[editor_detect_timeout_ms]
+value = 3000
+unit = "ms"
+why = "one Spotlight lookup of an app bundle by its id (`mdfind`) is killed after this long"
+
+[editor_error_max_chars]
+value = 400
+unit = "chars"
+why = "the last attempt's stderr shown in the failure toast (its end is kept)"
+
+# ── viewer ─────────────────────────────────────────────────────────────────────
+
+[viewer_pinned_tabs_max]
+value = 8
+unit = "tabs"
+why = "pinned file tabs per session"
+
+[viewer_first_lines]
+value = 150
+unit = "lines"
+why = "first lines tokenised before streaming the rest"
+
+[viewer_reload_per_s]
+value = 4
+unit = "per second"
+why = "reloads throttled while an agent writes"
+
+[viewer_reload_diff_lines]
+value = 20000
+unit = "lines"
+why = "a reload is applied line by line when at most this many lines lie between its unchanged start and end; beyond it they are replaced as one"
+
+[viewer_full_bytes]
+value = 1048576
+unit = "bytes"
+why = "full features up to this size"
+
+[viewer_highlight_budget_ms]
+value = 1500
+unit = "ms"
+why = "highlighting budget for 1–20 MB files"
+
+[viewer_plain_bytes]
+value = 20971520
+unit = "bytes"
+why = "above this: plain text only"
+
+[viewer_plain_lines]
+value = 300000
+unit = "lines"
+why = "above this many lines: plain text only"
+
+[viewer_max_bytes]
+value = 52428800
+unit = "bytes"
+why = "above this the file is not loaded"
+
+[viewer_token_line_max]
+value = 20000
+unit = "chars"
+why = "lines longer than this are not tokenised"
+
+[viewer_wrap_line_max]
+value = 10000
+unit = "chars"
+why = "any line longer than this disables wrap"
+
+[viewer_doc_cache]
+value = 3
+unit = "docs"
+why = "most-recently-viewed document cache"
+
+[viewer_doc_cache_bytes]
+value = 4194304
+unit = "bytes"
+why = "document cache byte cap"
+
+[viewer_tab_folds_max]
+value = 256
+unit = "ranges"
+why = "folded ranges a hidden file tab keeps"
+
+[highlight_grammars_max]
+value = 25
+unit = "count"
+why = "worker recycled after loading more grammars"
+
+[highlight_idle_ms]
+value = 300000
+unit = "ms"
+why = "worker terminated after this long with no file tab visible"
+
+[highlight_chunk_lines]
+value = 1000
+unit = "lines"
+why = "lines per chunk the worker tokenises and posts after the first"
+
+[highlight_line_ms]
+value = 500
+unit = "ms"
+why = "one line's tokenising stops after this long; the rest of it shows plain"
+
+[viewer_change_ranges_max]
+value = 10000
+unit = "ranges"
+why = "changed line ranges kept for the gutter; a file with more shows no markers"
+
+[viewer_changes_max_bytes]
+value = 10485760
+unit = "bytes"
+why = "`git diff -U0` output read for the gutter's hunk headers; beyond it no markers are shown"
+
+[viewer_find_count_max]
+value = 9999
+unit = "matches"
+why = "find counts matches up to this; beyond it the count reads as more"
+
+[binary_sniff_bytes]
+value = 512
+unit = "bytes"
+why = "NUL in the first bytes → binary"
+
+[diff_max_bytes]
+value = 5242880
+unit = "bytes"
+why = "either diff side larger → not rendered"
+
+[diff_max_lines]
+value = 100000
+unit = "lines"
+why = "either diff side longer → not rendered"
+
+[diff_context_lines]
+value = 3
+unit = "lines"
+why = "unchanged lines kept around each change when the rest is collapsed"
+
+[diff_collapse_min_lines]
+value = 4
+unit = "lines"
+why = "an unchanged run shorter than this is shown, not collapsed"
+
+[image_max_bytes]
+value = 20971520
+unit = "bytes"
+why = "images above this are not decoded"
+
+[image_max_pixels]
+value = 50000000
+unit = "pixels"
+why = "images above this many pixels are not decoded"
+
+[image_header_bytes]
+value = 262144
+unit = "bytes"
+why = "bytes of an image file read to learn its pixel size before it is decoded"
+
+# ── settings ───────────────────────────────────────────────────────────────────
+
+[settings_days_max]
+value = 3650
+unit = "days"
+why = "the largest day count any retention setting accepts (ten years)"
+
+[settings_branch_prefix_max_chars]
+value = 64
+unit = "chars"
+why = "longest general.branchPrefix"
+
+[settings_font_family_max_chars]
+value = 200
+unit = "chars"
+why = "longest terminal.fontFamily"
+
+[settings_font_size_min]
+value = 6
+unit = "px"
+why = "smallest terminal.fontSize"
+
+[settings_font_size_max]
+value = 72
+unit = "px"
+why = "largest terminal.fontSize"
+
+[settings_line_height_min]
+value = 1
+unit = "ratio"
+why = "smallest terminal.lineHeight"
+
+[settings_line_height_max]
+value = 3
+unit = "ratio"
+why = "largest terminal.lineHeight"
+
+[settings_scrollback_max]
+value = 100000
+unit = "lines"
+why = "largest terminal.scrollback (the renderer keeps this many lines per open terminal)"
+
+[settings_extra_args_max]
+value = 64
+unit = "count"
+why = "most entries in agents.<id>.extraArgs"
+
+# ── palette ────────────────────────────────────────────────────────────────────
+
+[palette_recent_commands]
+value = 6
+unit = "count"
+why = "most-used commands on an empty query"
+
+[palette_recent_sessions]
+value = 8
+unit = "count"
+why = "recent sessions on an empty query, after the ones that need you"
+
+[palette_results]
+value = 50
+unit = "count"
+why = "best matches the palette lists for a query (the rest are reached by typing more)"
+
+# ── keybindings.json ───────────────────────────────────────────────────────────
+
+[keybindings_max_entries]
+value = 500
+unit = "count"
+why = "entries of keybindings.json that are read; the rest are ignored with a notice"
+
+[keybindings_max_bytes]
+value = 262144
+unit = "bytes"
+why = "a keybindings.json larger than this is not read (the defaults stay)"
+
+# ── window and sidebar ─────────────────────────────────────────────────────────
+
+[branch_copied_ms]
+value = 1000
+unit = "ms"
+why = "'Copied' shown inline on the branch chip this long after a click"
+
+[sidebar_clock_ms]
+value = 60000
+unit = "ms"
+why = "the sidebar's relative times (2m, 3h) are refreshed this often"
+
+[quit_stop_all_timeout_ms]
+value = 10000
+unit = "ms"
+why = "Stop All and Quit: how long main waits for core to stop every session before quitting anyway"
+
+[dock_rehide_after_show_ms]
+value = 1200
+unit = "ms"
+why = "a Dock hide sooner than this after the last show (Electron ignores one within a second) is made again once this has passed since the show"
+
+[menu_bar_item_remove_ms]
+value = 250
+unit = "ms"
+why = "leaving the menu bar: the item's title is cleared and the item removed this long after, once the menu bar has drawn it without one (an item removed while its title shows leaves that title's drawing in main)"
+
+[dbus_message_max_bytes]
+value = 65536
+unit = "bytes"
+why = "the largest message main's session-bus client reads (Linux: the tray host, notification service and idle monitor names); its replies and NameOwnerChanged signals are a few hundred bytes, and a bigger one ends the connection"
+
+[dbus_call_timeout_ms]
+value = 2000
+unit = "ms"
+why = "a call to the session bus (Hello, AddMatch, NameHasOwner) unanswered this long ends the connection, so a stuck bus never holds a watched name's answer (a call through busctl answers in about 2 ms)"
+
+[window_handoff_timeout_ms]
+value = 1000
+unit = "ms"
+why = "a minimized window rebuilt on Wayland is asked for its composer drafts first, and replaced without them when it has not answered in this long (it answers from memory at once)"
+
+[window_handoff_drafts_max]
+value = 200
+unit = "count"
+why = "the most composer drafts (one per project) a rebuilt window hands the next, the latest kept; more projects with a draft than anyone keeps"
+
+[desktop_entry_max_bytes]
+value = 1048576
+unit = "bytes"
+why = "a desktop entry is read whole on core's thread when editors and terminal apps are looked for (Linux); GNOME's own, with every translation, run to a few tens of KiB, and a bigger file at a user-writable entry's place is passed over as not there"
+
+# ── icons (packages/ui/src/mark.ts, tools/pack/src/icons.ts) ───────────────────────────────────────────────────
+
+[icon_samples]
+value = 4
+unit = "count"
+why = "samples per pixel side when an icon is drawn from its shapes (the mark at run time, the icon files): a pixel's alpha is the share of its samples inside"
+
+[app_icon_grid_px]
+value = 1024
+unit = "px"
+why = "the app icon is drawn on Apple's 1024 px macOS icon grid, its largest file (the ICNS's 512 pt @2x); every smaller file is this drawing averaged down"
+
+[app_icon_body_px]
+value = 824
+unit = "px"
+why = "the app icon's rounded-square body, centred on the grid, leaving the rest for its shadow (Apple's macOS 11+ icon template)"
+
+[app_icon_corner_px]
+value = 256
+unit = "px"
+why = "each corner of the body curves over this much of both edges (a quarter superellipse: macOS's continuous icon corner, fitted to its own icons' mask)"
+
+[app_icon_corner_exponent]
+value = 3
+unit = "exponent"
+why = "the corner curve is |u|^n + |v|^n = 1 with this n (2 would be a circular arc; 3 is the continuous corner macOS draws)"
+
+[app_icon_rim_px]
+value = 8
+unit = "px"
+why = "the body's outline, inside its edge: one device pixel at the Dock's usual 64 pt, so the body reads on a dark Dock or desktop"
+
+[app_icon_mark_px]
+value = 512
+unit = "px"
+why = "the mark's 16-unit grid spans this much of the app icon's grid, the K's box centred on the body"
+
+[app_icon_mark_snap_px]
+value = 32
+unit = "px"
+why = "the centred K is moved to the nearest multiple of this, so its stem, top and bottom fall on whole pixels at 32 px (the Finder's 16 pt @2x) and every larger size"
+
+[app_icon_shadow_offset_px]
+value = 8
+unit = "px"
+why = "the body's shadow falls this far below it (macOS's own icons)"
+
+[app_icon_shadow_radius_px]
+value = 16
+unit = "px"
+why = "the shadow is the body blurred by three box passes of this radius, a Gaussian of about 16.5 px (macOS's own icons)"
+
+[app_icon_shadow_opacity]
+value = 0.22
+unit = "ratio"
+why = "the shadow's black at its darkest (macOS's own icons)"
+
+# ── agent adapters ─────────────────────────────────────────────────────────────
+
+[agent_detect_timeout_ms]
+value = 10000
+unit = "ms"
+why = "each detection run of an agent CLI (--version, auth status) is killed after this long"
+
+[status_file_interrupt_grace_ms]
+value = 250
+unit = "ms"
+why = "a status-file busy→idle change waits this long for a Stop hook before it counts as an interrupted turn"
+
+[hook_connection_idle_ms]
+value = 5000
+unit = "ms"
+why = "core closes a hook socket connection that has sent no complete envelope for this long"
+
+[status_file_max_bytes]
+value = 65536
+unit = "bytes"
+why = "an agent's live status file is read whole up to this size; a larger one is not read"
+
+[hook_clock_resync_ms]
+value = 1000
+unit = "ms"
+why = "core holds the offset between the helper's clock (stops in sleep) and its own while envelopes agree within this; a larger jump means the Mac slept"
+
+[ghostty_config_max_bytes]
+value = 1048576
+unit = "bytes"
+why = "the Ghostty config is read whole up to this size; a larger one counts as no config (Kea Dark)"
+
+# ── diagnostics ────────────────────────────────────────────────────────────────
+
+[diagnostics_errors_max]
+value = 50
+unit = "count"
+why = "Copy diagnostics lists the newest warnings and errors of the processes' logs, at most this many"
+
+[diagnostics_log_tail_bytes]
+value = 262144
+unit = "bytes"
+why = "Copy diagnostics reads at most this much from the end of each process's log"
+
+[diagnostics_field_max_chars]
+value = 300
+unit = "chars"
+why = "a log line's message and each of its fields are cut to this length in Copy diagnostics"
+
+[diagnostics_scrub_readings_max]
+value = 8
+unit = "count"
+why = "Copy diagnostics' path scrub reads a line again until a reading changes nothing, at most this many times in all; a line that still changes then is replaced whole by <path>"
+
+[diagnostics_scrub_quote_depth_max]
+value = 8
+unit = "count"
+why = "the path scrub reads quotes inside quotes this deep (JSON inside a JSON string is two or three); what stands deeper is replaced whole by <path>"
+
+[hud_refresh_ms]
+value = 1000
+unit = "ms"
+why = "the dev-only performance HUD redraws its numbers this often while it is shown"
+
+[renderer_log_message_max_chars]
+value = 2000
+unit = "chars"
+why = "a console warning or error of the window is cut to this length in renderer.log"
+
+# ── Disk view ──────────────────────────────────────────────────────────────────
+
+[disk_view_rows_max]
+value = 200
+unit = "rows"
+why = "Settings › Disk lists at most this many sessions, the largest first, and as many recently deleted ones"
+
+# ── install ────────────────────────────────────────────────────────────────────
+
+[install_quit_timeout_ms]
+value = 20000
+unit = "ms"
+why = "pnpm kea:install: how long the running Kea is given to quit completely before the install stops with the old app in place"
+
+# ── supported systems and the release's install (tools/pack/src/os/install.sh) ─────────────────────────────────
+
+[git_min_major]
+value = 2
+unit = "version"
+why = "the oldest git Kea supports is 2.40: its major part. install.sh warns below it and the Linux packages recommend it"
+
+[git_min_minor]
+value = 40
+unit = "version"
+why = "the oldest git Kea supports is 2.40: its minor part"
+
+[macos_min_major]
+value = 14
+unit = "version"
+why = "the oldest macOS Kea supports: install.sh refuses an older one"
+
+[glibc_min_major]
+value = 2
+unit = "version"
+why = "Linux's glibc floor is 2.35 (Ubuntu 22.04's, the oldest image the helper is built on): its major part. The .deb depends on it and install.sh's tarball refuses below it"
+
+[glibc_min_minor]
+value = 35
+unit = "version"
+why = "Linux's glibc floor is 2.35: its minor part"

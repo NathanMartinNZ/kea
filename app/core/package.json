@@ -1,0 +1,17 @@
+{
+  "name": "@kea/core",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "dependencies": {
+    "better-sqlite3": "13.0.3",
+    "@parcel/watcher": "2.6.0",
+    "jsonc-parser": "3.3.1",
+    "fuzzysort": "4.0.2",
+    "@kea/protocol": "workspace:*",
+    "@kea/kit": "workspace:*",
+    "@kea/adapters": "workspace:*",
+    "@kea/terminal": "workspace:*"
+  }
+}

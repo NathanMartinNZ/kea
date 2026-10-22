@@ -1,0 +1,413 @@
+/* The file panel, the header's diff stat and the finder. Tokens only (DS-2). */
+
+/* ── the panel's body: a column; the list in it is the one thing that scrolls ── */
+
+.fp {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.fp-note {
+  margin: 0;
+  padding: var(--space-1) var(--space-3);
+  color: var(--text-3);
+  font-size: var(--type-secondary-size);
+  line-height: var(--type-secondary-line);
+}
+
+.fp-note.top {
+  padding-top: var(--space-2);
+}
+
+.fp-hint {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2) var(--space-1) var(--space-3);
+  border-bottom: 1px solid var(--line);
+  color: var(--text-2);
+  font-size: var(--type-secondary-size);
+  line-height: var(--type-secondary-line);
+}
+
+.fp-hint span {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ── the lists: fixed rows, --size-tree-row high, drawn only where they are on screen ── */
+
+.fp-list {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  outline: none;
+  font-size: var(--type-secondary-size);
+  line-height: var(--type-secondary-line);
+  /* the rows are replaced as the list scrolls: nothing outside it needs laying out again */
+  contain: strict;
+}
+
+.fp-sizer {
+  position: relative;
+  width: 100%;
+}
+
+.fp-rows {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  will-change: transform;
+}
+
+.fp-row {
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  height: var(--size-tree-row);
+  padding: 0 var(--space-2) 0 var(--space-1);
+  color: var(--text-2);
+  white-space: nowrap;
+  cursor: default;
+  contain: layout style;
+}
+
+.fp-row:hover {
+  background: var(--surface-2);
+}
+
+/* the tab on screen in the main area */
+.fp-row.active {
+  background: var(--surface-2);
+  color: var(--text-1);
+}
+
+/* the row the keyboard is on; stronger while the panel has the keyboard */
+.fp-row.selected {
+  background: var(--surface-2);
+}
+
+.fp-list:focus-visible .fp-row.selected,
+.fp-list:focus .fp-row.selected {
+  background: var(--surface-3);
+  color: var(--text-1);
+}
+
+/* the keyboard is in the list and on no row it draws (none chosen yet, or the row scrolled away): the ring is the
+   list's own, inside its edge, so focus always shows. `:focus` as above: ⌘⇧E brings the keyboard here from a script,
+   which `:focus-visible` alone does not count after a click */
+.fp-list:focus:not(:has(.fp-row.selected)) {
+  outline: var(--size-focus-ring) solid var(--accent);
+  outline-offset: calc(0px - var(--size-focus-ring));
+}
+
+/* indent: --space-3 a level; the guides show only while the panel is hovered */
+.ft-indent {
+  flex: none;
+  align-self: stretch;
+}
+
+.file-panel:hover .ft-indent {
+  background-image: repeating-linear-gradient(to right, transparent 0 calc(var(--space-3) / 2 - 1px), var(--line) calc(var(--space-3) / 2 - 1px) calc(var(--space-3) / 2), transparent calc(var(--space-3) / 2) var(--space-3));
+}
+
+.ft-chevron {
+  flex: none;
+  width: var(--size-glyph);
+  height: var(--size-glyph);
+  margin-right: var(--space-1);
+  color: var(--text-3);
+}
+
+/* the row's one glyph: a folder or a file, monochrome, whatever the row's git colour */
+.ft-glyph {
+  margin-right: var(--space-1);
+  color: var(--text-3);
+}
+
+.ft-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ft-more .ft-name {
+  color: var(--text-3);
+}
+
+.fp-row.ignored .ft-name {
+  color: var(--text-3);
+}
+
+/* git decorations: the name tinted, the letter right-aligned in mono; never colour alone (the letter) */
+.fp-letter {
+  flex: none;
+  min-width: var(--size-glyph);
+  margin-left: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--type-micro-size);
+  text-align: center;
+}
+
+.ft-dot {
+  flex: none;
+  width: var(--size-dot);
+  height: var(--size-dot);
+  margin: 0 calc((var(--size-glyph) - var(--size-dot)) / 2) 0 var(--space-2);
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.git-modified .ft-name,
+.git-modified .fp-letter,
+.git-modified .ft-dot {
+  color: var(--warn);
+}
+
+.git-added .ft-name,
+.git-added .fp-letter,
+.git-added .ft-dot {
+  color: var(--ok);
+}
+
+.git-deleted .ft-name,
+.git-deleted .fp-letter,
+.git-deleted .ft-dot {
+  color: var(--danger);
+}
+
+.git-renamed .ft-name,
+.git-renamed .fp-letter,
+.git-renamed .ft-dot {
+  color: var(--info);
+}
+
+.git-conflict .ft-name,
+.git-conflict .fp-letter,
+.git-conflict .ft-dot {
+  color: var(--danger);
+}
+
+.git-conflict .fp-letter {
+  font-weight: bold;
+}
+
+/* a folder with changes below it: the strongest child's colour at --opacity-folder-tint */
+.ft-dir[class*='git-'] .ft-name {
+  opacity: var(--opacity-folder-tint);
+}
+
+/* ── Changes ── */
+
+.ch-head {
+  flex: none;
+  padding: var(--space-1) var(--space-2) var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--line);
+  font-size: var(--type-secondary-size);
+  line-height: var(--type-secondary-line);
+}
+
+.ch-top {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: var(--size-row);
+}
+
+.ch-scope {
+  display: flex;
+  gap: var(--space-3);
+  flex: 1;
+  min-width: 0;
+}
+
+.ch-scope button {
+  height: var(--size-tree-row);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-3);
+  font-size: inherit;
+}
+
+.ch-scope button:hover {
+  color: var(--text-2);
+}
+
+.ch-scope button[aria-pressed='true'] {
+  color: var(--text-1);
+}
+
+.ch-totals,
+.ch-branch {
+  display: flex;
+  gap: var(--space-2);
+  min-width: 0;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.ch-branch {
+  color: var(--text-3);
+}
+
+.ch-branch .name {
+  overflow: hidden;
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  text-overflow: ellipsis;
+}
+
+.ch-branch .op {
+  color: var(--warn);
+  font-size: var(--type-micro-size);
+  font-weight: var(--type-micro-weight);
+}
+
+.ch-row .fp-letter {
+  margin: 0 var(--space-2) 0 var(--space-1);
+}
+
+.ch-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 70%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ch-name.struck {
+  text-decoration: line-through;
+}
+
+/* the folder keeps room for a letter or two and its ellipsis beside a long name: never a clipped sliver */
+.ch-dir {
+  flex: 1;
+  min-width: 3ch;
+  margin-left: var(--space-2);
+  color: var(--text-3);
+}
+
+.ch-dir:empty {
+  min-width: 0;
+}
+
+/* (a path cut in its middle, `.path-mid`: shell/window.css, with the window's other shared pieces) */
+
+.numstat {
+  flex: none;
+  margin-left: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--type-micro-size);
+}
+
+.numstat .add {
+  color: var(--ok);
+  opacity: var(--opacity-numstat);
+}
+
+.numstat .del {
+  color: var(--danger);
+  opacity: var(--opacity-numstat);
+}
+
+/* ── the header's diff stat ── */
+
+.diff-stat {
+  gap: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--type-mono-size);
+}
+
+.diff-stat .add {
+  color: var(--ok);
+}
+
+.diff-stat .del {
+  color: var(--danger);
+}
+
+/* words, not counts (only renames or binary files changed): the window's own type */
+.diff-stat .files {
+  font-family: var(--font-ui);
+  font-size: var(--type-base-size);
+}
+
+/* ── the finder's rows (the palette's file mode, the frame and the input are features/palette/palette.css) ── */
+
+.finder-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.finder-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  box-sizing: border-box;
+  height: var(--size-palette-row);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-md);
+  color: var(--text-2);
+  white-space: nowrap;
+  cursor: default;
+}
+
+.finder-row.current {
+  background: var(--surface-3);
+  color: var(--text-1);
+}
+
+.finder-row .name {
+  flex: none;
+  max-width: 60%;
+  overflow: hidden;
+  color: var(--text-1);
+  text-overflow: ellipsis;
+}
+
+.finder-row .dir {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-3);
+  font-size: var(--type-secondary-size);
+}
+
+/* what the query matched: marked as a find match is in the viewer (--warn at --opacity-find-match); the accent is
+   not decoration */
+.finder-row mark {
+  background: color-mix(in srgb, var(--warn) calc(var(--opacity-find-match) * 100%), transparent);
+  color: inherit;
+}
+
+.finder-row .changed {
+  flex: none;
+  width: var(--size-dot);
+  height: var(--size-dot);
+  border-radius: 50%;
+  background: var(--warn);
+}
+
+.finder-note {
+  flex: none;
+  margin: 0;
+  padding: var(--space-1) var(--space-2);
+  color: var(--text-3);
+  font-size: var(--type-secondary-size);
+  line-height: var(--type-secondary-line);
+}
+
+/* ── Discard Changes… (the sheet names the file) ── */
+
+.sheet-path {
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: var(--type-mono-size);
+  overflow-wrap: anywhere;
+}

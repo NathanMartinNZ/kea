@@ -1,0 +1,14 @@
+Release: Kea <version>, from https://github.com/<repository>/releases/latest/download/
+SHA256SUMS: signed by Kea's key <fingerprint> (checked with <verifier>)
+Plan: Kea's apt repository, then Kea's package from it
+File kea-app.gpg, Kea's key for /usr/share/keyrings/kea-app.gpg: kea-app.asc, checked, with its armour taken off
+File kea-app.sources, for /etc/apt/sources.list.d/kea-app.sources:
+    Types: deb
+    URIs: https://github.com/<repository>/releases/latest/download/
+    Suites: ./
+    Signed-By: /usr/share/keyrings/kea-app.gpg
+Commands that would change the system (a dry run: none runs):
++ sudo install -D -m 0644 kea-app.gpg /usr/share/keyrings/kea-app.gpg
++ sudo install -m 0644 kea-app.sources /etc/apt/sources.list.d/kea-app.sources
++ sudo apt-get update
++ sudo apt-get install -y kea-app

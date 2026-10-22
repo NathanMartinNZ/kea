@@ -1,0 +1,62 @@
+{
+  "name": "kea",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Run many coding-agent CLI sessions side by side.",
+  "license": "MIT",
+  "author": "The Kea contributors",
+  "homepage": "https://github.com/NathanMartinNZ/kea",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NathanMartinNZ/kea.git"
+  },
+  "bugs": {
+    "url": "https://github.com/NathanMartinNZ/kea/issues"
+  },
+  "type": "module",
+  "packageManager": "pnpm@11.0.8",
+  "engines": {
+    "node": ">=26"
+  },
+  "scripts": {
+    "dev": "node tools/dev.ts",
+    "build": "node tools/build.ts",
+    "codegen": "node tools/codegen/src/main.ts",
+    "codegen:check": "node tools/codegen/src/main.ts --check",
+    "lint": "node tools/lint/src/main.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit && app/renderer/node_modules/.bin/svelte-check --tsconfig ./tsconfig.svelte.json --workspace . --fail-on-warnings",
+    "test": "vitest run --project unit && vitest run --project integration --passWithNoTests",
+    "test:unit": "vitest run --project unit",
+    "test:integration": "vitest run --project integration --passWithNoTests",
+    "test:rust": "node tools/cargo.ts test --manifest-path native/kea-helper/Cargo.toml",
+    "test:e2e": "tests/node_modules/.bin/playwright test -c tests/e2e/playwright.config.ts --pass-with-no-tests",
+    "test:trace": "node tools/trace/src/main.ts",
+    "test:contract": "vitest run --project contract",
+    "test:contract:capture": "KEA_CONTRACT_CAPTURE=1 vitest run --project contract -t K-CL-",
+    "test:contract:capture:cmd": "KEA_CONTRACT_CAPTURE_CM=1 vitest run --project contract -t K-CM-",
+    "test:contract:live": "KEA_LIVE=1 vitest run --project contract-live",
+    "perf": "node tools/perf/src/main.ts",
+    "gallery": "node tools/gallery/src/main.ts",
+    "chaos": "vitest run --project chaos --passWithNoTests",
+    "test:memory": "vitest run --project memory --passWithNoTests",
+    "test:long": "node tools/test-long.ts",
+    "helper:build": "node tools/cargo.ts build --release --manifest-path native/kea-helper/Cargo.toml",
+    "fixtures:scrub": "node tools/scrubber/src/main.ts",
+    "fixture:from-report": "node tools/scrubber/src/from-report.ts",
+    "record:cassette": "node tools/recorder/src/main.ts",
+    "verify": "node tools/verify.ts",
+    "hooks:install": "git config core.hooksPath tools/git-hooks",
+    "kea:install": "node tools/install.ts",
+    "package": "node tools/package.ts",
+    "postinstall": "node tools/ensure-electron.ts"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "7.3.1",
+    "@types/node": "26.6.4",
+    "fast-check": "4.10.2",
+    "smol-toml": "1.9.0",
+    "svelte": "5.57.2",
+    "typescript": "7.0.2",
+    "vitest": "5.0.3"
+  }
+}

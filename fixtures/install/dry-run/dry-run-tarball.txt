@@ -1,0 +1,51 @@
+Release: Kea <version>, from https://github.com/<repository>/releases/latest/download/
+SHA256SUMS: not signature-checked (neither GnuPG's gpgv nor Sequoia's sqv is installed). Every file is still checked against it, and Kea's key against the fingerprint this script pins
+Plan: Kea <version> in /opt/Kea, from kea-app-<version>-linux-<arch>.tar.gz (this system has no apt, dnf or zypper)
+File install-manifest, for /opt/Kea/.install-manifest: every folder and file this install makes, which --uninstall removes and nothing else
+Commands that would change the system (a dry run: none runs):
++ sudo mkdir -m 0755 /opt
++ sudo mkdir -m 0755 /usr/local/share/applications
++ sudo mkdir -m 0755 /usr/local/share/doc/kea-app
++ sudo mkdir -m 0755 /usr/local/share/fonts
++ sudo mkdir -m 0755 /usr/local/share/fonts/kea-app
++ sudo mkdir -m 0755 /usr/local/share/icons
++ sudo mkdir -m 0755 /usr/local/share/icons/hicolor
++ sudo mkdir -m 0755 /usr/local/share/icons/hicolor/128x128
++ sudo mkdir -m 0755 /usr/local/share/icons/hicolor/128x128/apps
++ sudo mkdir -m 0755 /usr/local/share/icons/hicolor/16x16
++ sudo mkdir -m 0755 /usr/local/share/icons/hicolor/16x16/apps
++ sudo mkdir -m 0755 /usr/local/share/icons/hicolor/24x24
++ sudo mkdir -m 0755 /usr/local/share/icons/hicolor/24x24/apps
++ sudo mkdir -m 0755 /usr/local/share/icons/hicolor/256x256
++ sudo mkdir -m 0755 /usr/local/share/icons/hicolor/256x256/apps
++ sudo mkdir -m 0755 /usr/local/share/icons/hicolor/32x32
++ sudo mkdir -m 0755 /usr/local/share/icons/hicolor/32x32/apps
++ sudo mkdir -m 0755 /usr/local/share/icons/hicolor/48x48
++ sudo mkdir -m 0755 /usr/local/share/icons/hicolor/48x48/apps
++ sudo mkdir -m 0755 /usr/local/share/icons/hicolor/512x512
++ sudo mkdir -m 0755 /usr/local/share/icons/hicolor/512x512/apps
++ sudo mkdir -m 0755 /usr/local/share/icons/hicolor/64x64
++ sudo mkdir -m 0755 /usr/local/share/icons/hicolor/64x64/apps
++ sudo mkdir -m 0755 /usr/local/share/icons/hicolor/scalable
++ sudo mkdir -m 0755 /usr/local/share/icons/hicolor/scalable/apps
++ sudo mkdir /opt/Kea.new
++ sudo tar -xzf kea-app-<version>-linux-<arch>.tar.gz -C /opt/Kea.new --strip-components=3 kea-app-<version>-linux-<arch>/opt/Kea
++ sudo chown -R root:root /opt/Kea.new
++ sudo chmod 4755 /opt/Kea.new/chrome-sandbox
++ sudo install -m 0644 install-manifest /opt/Kea.new/.install-manifest
++ sudo mv /opt/Kea.new /opt/Kea
++ sudo install -m 0755 kea-app-<version>-linux-<arch>/usr/bin/kea-app /usr/local/bin/kea-app
++ sudo install -m 0644 dev.kea.app.desktop /usr/local/share/applications/dev.kea.app.desktop
++ sudo install -m 0644 kea-app-<version>-linux-<arch>/usr/share/icons/hicolor/16x16/apps/dev.kea.app.png /usr/local/share/icons/hicolor/16x16/apps/dev.kea.app.png
++ sudo install -m 0644 kea-app-<version>-linux-<arch>/usr/share/icons/hicolor/24x24/apps/dev.kea.app.png /usr/local/share/icons/hicolor/24x24/apps/dev.kea.app.png
++ sudo install -m 0644 kea-app-<version>-linux-<arch>/usr/share/icons/hicolor/32x32/apps/dev.kea.app.png /usr/local/share/icons/hicolor/32x32/apps/dev.kea.app.png
++ sudo install -m 0644 kea-app-<version>-linux-<arch>/usr/share/icons/hicolor/48x48/apps/dev.kea.app.png /usr/local/share/icons/hicolor/48x48/apps/dev.kea.app.png
++ sudo install -m 0644 kea-app-<version>-linux-<arch>/usr/share/icons/hicolor/64x64/apps/dev.kea.app.png /usr/local/share/icons/hicolor/64x64/apps/dev.kea.app.png
++ sudo install -m 0644 kea-app-<version>-linux-<arch>/usr/share/icons/hicolor/128x128/apps/dev.kea.app.png /usr/local/share/icons/hicolor/128x128/apps/dev.kea.app.png
++ sudo install -m 0644 kea-app-<version>-linux-<arch>/usr/share/icons/hicolor/256x256/apps/dev.kea.app.png /usr/local/share/icons/hicolor/256x256/apps/dev.kea.app.png
++ sudo install -m 0644 kea-app-<version>-linux-<arch>/usr/share/icons/hicolor/512x512/apps/dev.kea.app.png /usr/local/share/icons/hicolor/512x512/apps/dev.kea.app.png
++ sudo install -m 0644 kea-app-<version>-linux-<arch>/usr/share/icons/hicolor/scalable/apps/dev.kea.app.svg /usr/local/share/icons/hicolor/scalable/apps/dev.kea.app.svg
++ sudo install -m 0644 kea-app-<version>-linux-<arch>/usr/share/fonts/kea-app/JetBrainsMono-Regular.ttf /usr/local/share/fonts/kea-app/JetBrainsMono-Regular.ttf
++ sudo install -m 0644 kea-app-<version>-linux-<arch>/usr/share/fonts/kea-app/JetBrainsMono-Bold.ttf /usr/local/share/fonts/kea-app/JetBrainsMono-Bold.ttf
++ sudo install -m 0644 kea-app-<version>-linux-<arch>/usr/share/doc/kea-app/copyright /usr/local/share/doc/kea-app/copyright
++ sudo fc-cache /usr/local/share/fonts/kea-app

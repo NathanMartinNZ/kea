@@ -1,0 +1,411 @@
+// Language detection: a file's name, then its extension, then a shebang on its first line. The answer is a
+// grammar id of the highlight worker (`worker/grammars.ts`, loaded on first use) and the name the header shows. Any
+// other file is plain text. Pure, so the table is unit-tested (U-FV-3, which also holds this table and the worker's
+// grammars to the same ids).
+
+export interface Language {
+  /** A key of the worker's GRAMMARS. */
+  id: string
+  /** What the header shows. */
+  name: string
+}
+
+/** Every language the viewer names: grammar id → display name. */
+export const LANGUAGE_NAMES: Readonly<Record<string, string>> = {
+  typescript: 'TypeScript',
+  tsx: 'TypeScript JSX',
+  javascript: 'JavaScript',
+  jsx: 'JavaScript JSX',
+  json: 'JSON',
+  jsonc: 'JSON with Comments',
+  json5: 'JSON5',
+  jsonl: 'JSON Lines',
+  html: 'HTML',
+  css: 'CSS',
+  scss: 'SCSS',
+  sass: 'Sass',
+  less: 'Less',
+  markdown: 'Markdown',
+  mdx: 'MDX',
+  yaml: 'YAML',
+  toml: 'TOML',
+  xml: 'XML',
+  svelte: 'Svelte',
+  vue: 'Vue',
+  astro: 'Astro',
+  python: 'Python',
+  ruby: 'Ruby',
+  go: 'Go',
+  rust: 'Rust',
+  java: 'Java',
+  kotlin: 'Kotlin',
+  swift: 'Swift',
+  c: 'C',
+  cpp: 'C++',
+  csharp: 'C#',
+  'objective-c': 'Objective-C',
+  'objective-cpp': 'Objective-C++',
+  php: 'PHP',
+  lua: 'Lua',
+  perl: 'Perl',
+  r: 'R',
+  scala: 'Scala',
+  dart: 'Dart',
+  elixir: 'Elixir',
+  erlang: 'Erlang',
+  haskell: 'Haskell',
+  clojure: 'Clojure',
+  ocaml: 'OCaml',
+  fsharp: 'F#',
+  zig: 'Zig',
+  shellscript: 'Shell Script',
+  fish: 'Fish',
+  powershell: 'PowerShell',
+  bat: 'Batch',
+  docker: 'Dockerfile',
+  make: 'Makefile',
+  cmake: 'CMake',
+  nginx: 'NGINX',
+  ini: 'INI',
+  dotenv: 'Environment',
+  sql: 'SQL',
+  graphql: 'GraphQL',
+  prisma: 'Prisma',
+  proto: 'Protocol Buffers',
+  terraform: 'Terraform',
+  hcl: 'HCL',
+  nix: 'Nix',
+  diff: 'Diff',
+  'git-commit': 'Git Commit',
+  'git-rebase': 'Git Rebase',
+  log: 'Log',
+  csv: 'CSV',
+  tsv: 'TSV',
+  latex: 'LaTeX',
+  bibtex: 'BibTeX',
+  viml: 'Vim Script',
+  groovy: 'Groovy',
+  jinja: 'Jinja',
+  handlebars: 'Handlebars',
+  pug: 'Pug',
+  liquid: 'Liquid',
+  solidity: 'Solidity',
+  wasm: 'WebAssembly Text',
+  asm: 'Assembly',
+  glsl: 'GLSL',
+  wgsl: 'WGSL',
+  applescript: 'AppleScript',
+  http: 'HTTP',
+  'ssh-config': 'SSH Config',
+  systemd: 'systemd',
+  codeowners: 'CODEOWNERS',
+  julia: 'Julia',
+}
+
+/** Whole file names (as written; then lower-cased). */
+const BY_NAME: Readonly<Record<string, string>> = {
+  Dockerfile: 'docker',
+  Containerfile: 'docker',
+  Makefile: 'make',
+  makefile: 'make',
+  GNUmakefile: 'make',
+  'CMakeLists.txt': 'cmake',
+  Gemfile: 'ruby',
+  Rakefile: 'ruby',
+  Podfile: 'ruby',
+  Brewfile: 'ruby',
+  Fastfile: 'ruby',
+  Vagrantfile: 'ruby',
+  Jenkinsfile: 'groovy',
+  CODEOWNERS: 'codeowners',
+  COMMIT_EDITMSG: 'git-commit',
+  MERGE_MSG: 'git-commit',
+  'git-rebase-todo': 'git-rebase',
+  'nginx.conf': 'nginx',
+  'Cargo.lock': 'toml',
+  'poetry.lock': 'toml',
+  'uv.lock': 'toml',
+  'Pipfile': 'toml',
+  'tsconfig.json': 'jsonc',
+  'jsconfig.json': 'jsonc',
+  'devcontainer.json': 'jsonc',
+  'settings.json': 'jsonc',
+  'keybindings.json': 'jsonc',
+  'launch.json': 'jsonc',
+  'tasks.json': 'jsonc',
+  'ssh_config': 'ssh-config',
+  'sshd_config': 'ssh-config',
+  // dotfiles
+  '.bashrc': 'shellscript',
+  '.bash_profile': 'shellscript',
+  '.bash_aliases': 'shellscript',
+  '.bash_logout': 'shellscript',
+  '.profile': 'shellscript',
+  '.zshrc': 'shellscript',
+  '.zshenv': 'shellscript',
+  '.zprofile': 'shellscript',
+  '.zlogin': 'shellscript',
+  '.envrc': 'shellscript',
+  '.gitconfig': 'ini',
+  '.gitmodules': 'ini',
+  '.editorconfig': 'ini',
+  '.npmrc': 'ini',
+  '.yarnrc': 'yaml',
+  '.clang-format': 'yaml',
+  '.clang-tidy': 'yaml',
+  '.prettierrc': 'json',
+  '.eslintrc': 'jsonc',
+  '.babelrc': 'jsonc',
+  '.swcrc': 'jsonc',
+  '.vimrc': 'viml',
+  '.env': 'dotenv',
+  '.dockerignore': 'ini',
+}
+
+const BY_EXTENSION: Readonly<Record<string, string>> = {
+  ts: 'typescript',
+  mts: 'typescript',
+  cts: 'typescript',
+  tsx: 'tsx',
+  js: 'javascript',
+  mjs: 'javascript',
+  cjs: 'javascript',
+  jsx: 'jsx',
+  json: 'json',
+  webmanifest: 'json',
+  map: 'json',
+  jsonc: 'jsonc',
+  'code-workspace': 'jsonc',
+  json5: 'json5',
+  jsonl: 'jsonl',
+  ndjson: 'jsonl',
+  html: 'html',
+  htm: 'html',
+  xhtml: 'html',
+  css: 'css',
+  scss: 'scss',
+  sass: 'sass',
+  less: 'less',
+  md: 'markdown',
+  markdown: 'markdown',
+  mdown: 'markdown',
+  mkd: 'markdown',
+  mdx: 'mdx',
+  yaml: 'yaml',
+  yml: 'yaml',
+  toml: 'toml',
+  xml: 'xml',
+  xsd: 'xml',
+  xsl: 'xml',
+  xslt: 'xml',
+  plist: 'xml',
+  svg: 'xml',
+  csproj: 'xml',
+  storyboard: 'xml',
+  xib: 'xml',
+  svelte: 'svelte',
+  vue: 'vue',
+  astro: 'astro',
+  py: 'python',
+  pyi: 'python',
+  pyw: 'python',
+  rb: 'ruby',
+  gemspec: 'ruby',
+  rake: 'ruby',
+  go: 'go',
+  rs: 'rust',
+  java: 'java',
+  kt: 'kotlin',
+  kts: 'kotlin',
+  swift: 'swift',
+  c: 'c',
+  h: 'c',
+  cpp: 'cpp',
+  cc: 'cpp',
+  cxx: 'cpp',
+  hpp: 'cpp',
+  hh: 'cpp',
+  hxx: 'cpp',
+  cs: 'csharp',
+  m: 'objective-c',
+  mm: 'objective-cpp',
+  php: 'php',
+  lua: 'lua',
+  pl: 'perl',
+  pm: 'perl',
+  r: 'r',
+  scala: 'scala',
+  sc: 'scala',
+  dart: 'dart',
+  ex: 'elixir',
+  exs: 'elixir',
+  erl: 'erlang',
+  hrl: 'erlang',
+  hs: 'haskell',
+  clj: 'clojure',
+  cljs: 'clojure',
+  cljc: 'clojure',
+  edn: 'clojure',
+  ml: 'ocaml',
+  mli: 'ocaml',
+  fs: 'fsharp',
+  fsx: 'fsharp',
+  fsi: 'fsharp',
+  zig: 'zig',
+  sh: 'shellscript',
+  bash: 'shellscript',
+  zsh: 'shellscript',
+  ksh: 'shellscript',
+  command: 'shellscript',
+  fish: 'fish',
+  ps1: 'powershell',
+  psm1: 'powershell',
+  psd1: 'powershell',
+  bat: 'bat',
+  cmd: 'bat',
+  dockerfile: 'docker',
+  mk: 'make',
+  mak: 'make',
+  cmake: 'cmake',
+  ini: 'ini',
+  cfg: 'ini',
+  conf: 'ini',
+  properties: 'ini',
+  env: 'dotenv',
+  sql: 'sql',
+  graphql: 'graphql',
+  gql: 'graphql',
+  prisma: 'prisma',
+  proto: 'proto',
+  tf: 'terraform',
+  tfvars: 'terraform',
+  hcl: 'hcl',
+  nix: 'nix',
+  diff: 'diff',
+  patch: 'diff',
+  log: 'log',
+  csv: 'csv',
+  tsv: 'tsv',
+  tex: 'latex',
+  sty: 'latex',
+  cls: 'latex',
+  bib: 'bibtex',
+  vim: 'viml',
+  groovy: 'groovy',
+  gradle: 'groovy',
+  j2: 'jinja',
+  jinja: 'jinja',
+  jinja2: 'jinja',
+  hbs: 'handlebars',
+  handlebars: 'handlebars',
+  pug: 'pug',
+  jade: 'pug',
+  liquid: 'liquid',
+  sol: 'solidity',
+  wat: 'wasm',
+  wast: 'wasm',
+  s: 'asm',
+  asm: 'asm',
+  glsl: 'glsl',
+  vert: 'glsl',
+  frag: 'glsl',
+  wgsl: 'wgsl',
+  applescript: 'applescript',
+  http: 'http',
+  rest: 'http',
+  service: 'systemd',
+  socket: 'systemd',
+  timer: 'systemd',
+  mount: 'systemd',
+  jl: 'julia',
+}
+
+/** A shebang's interpreter → grammar id. */
+const BY_INTERPRETER: Readonly<Record<string, string>> = {
+  sh: 'shellscript',
+  bash: 'shellscript',
+  zsh: 'shellscript',
+  dash: 'shellscript',
+  ksh: 'shellscript',
+  ash: 'shellscript',
+  fish: 'fish',
+  node: 'javascript',
+  nodejs: 'javascript',
+  deno: 'typescript',
+  bun: 'typescript',
+  tsx: 'typescript',
+  'ts-node': 'typescript',
+  python: 'python',
+  ruby: 'ruby',
+  perl: 'perl',
+  php: 'php',
+  lua: 'lua',
+  pwsh: 'powershell',
+  powershell: 'powershell',
+  rscript: 'r',
+  osascript: 'applescript',
+  swift: 'swift',
+  elixir: 'elixir',
+  groovy: 'groovy',
+  julia: 'julia',
+  make: 'make',
+  nix: 'nix',
+}
+
+const named = (id: string | undefined): Language | null => (id !== undefined && Object.hasOwn(LANGUAGE_NAMES, id) ? { id, name: LANGUAGE_NAMES[id] as string } : null)
+
+/** The interpreter a first line's shebang names (`#!/usr/bin/env -S node --flag` → `node`, `python3.12` → `python`), or null. */
+export function shebangInterpreter(firstLine: string): string | null {
+  if (!firstLine.startsWith('#!')) return null
+  const words = firstLine.slice(2).trim().split(/\s+/)
+  let i = 0
+  let cmd = (words[i] ?? '').split('/').pop() ?? ''
+  if (cmd === 'env') {
+    // skip env's own flags and VAR=value assignments
+    for (i = 1; i < words.length; i++) {
+      const w = words[i] as string
+      if (w.startsWith('-') || w.includes('=')) continue
+      break
+    }
+    cmd = (words[i] ?? '').split('/').pop() ?? ''
+  }
+  // a version suffix is not part of the name: python3, python3.12, ruby2.7, lua5.4
+  const base = cmd.toLowerCase().replace(/[\d.]+$/, '')
+  return base === '' ? null : base
+}
+
+/**
+ * The language of a file. `path` may be a whole path; `firstLine` is the file's first line when it is at hand (only a
+ * file whose name says nothing is judged by it).
+ */
+export function languageOf(path: string, firstLine?: string): Language | null {
+  const name = path.slice(path.lastIndexOf('/') + 1)
+  const lower = name.toLowerCase()
+  const byName = named(Object.hasOwn(BY_NAME, name) ? BY_NAME[name] : Object.hasOwn(BY_NAME, lower) ? BY_NAME[lower] : undefined)
+  if (byName) return byName
+  // a special name with a suffix: Dockerfile.dev, Makefile.inc, .env.local
+  for (const [prefix, id] of [
+    ['Dockerfile.', 'docker'],
+    ['Containerfile.', 'docker'],
+    ['Makefile.', 'make'],
+    ['.env.', 'dotenv'],
+  ] as const)
+    if (name.startsWith(prefix)) return named(id)
+  // an extension: what follows the last dot, unless that dot only starts a dotfile's name
+  const dot = name.lastIndexOf('.')
+  if (dot > 0) {
+    const ext = lower.slice(dot + 1)
+    const byExt = named(Object.hasOwn(BY_EXTENSION, ext) ? BY_EXTENSION[ext] : undefined)
+    if (byExt) return byExt
+  }
+  if (firstLine !== undefined) {
+    const cmd = shebangInterpreter(firstLine)
+    if (cmd !== null) return named(Object.hasOwn(BY_INTERPRETER, cmd) ? BY_INTERPRETER[cmd] : undefined)
+  }
+  return null
+}
+
+/** The grammar ids this table can answer (U-FV-3 holds them to the worker's grammars). */
+export function languageIds(): string[] {
+  return [...new Set([...Object.values(BY_NAME), ...Object.values(BY_EXTENSION), ...Object.values(BY_INTERPRETER)])]
+}

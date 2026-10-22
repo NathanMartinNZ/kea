@@ -1,0 +1,863 @@
+diff --git a/scripts/build-from-source.js b/scripts/build-from-source.js
+index 170a91adff1c621046caa35c1a515424b72bfae0..b532faa5a6398b274b32384197fe7ac539031b6a 100644
+--- a/scripts/build-from-source.js
++++ b/scripts/build-from-source.js
+@@ -2,15 +2,28 @@
+ 
+ const {spawn} = require('child_process');
+ 
+-if (process.env.npm_config_build_from_source === 'true') {
++// kea: on Linux and macOS the binding is built from this patched source, since the prebuilt ones have none
++// of the patch. A machine that cannot build it (no compiler) keeps the prebuilt one: the install goes on with a warning,
++// and Kea runs without the patch's fixes (on Linux with core's interim guard). Asked for, a failure fails.
++const asked = process.env.npm_config_build_from_source === 'true';
++if (asked || process.platform === 'linux' || process.platform === 'darwin') {
+   build();
+ }
+ 
+ function build() {
+-  spawn('node-gyp', ['rebuild'], {stdio: 'inherit', shell: true}).on(
+-    'exit',
+-    function (code) {
++  spawn('node-gyp', ['rebuild'], {stdio: 'inherit'})
++    .on('exit', function (code) {
++      if (code !== 0 && !asked) {
++        console.warn('@parcel/watcher: the patched build failed; the prebuilt binding stays, without the Kea patch');
++        process.exit(0);
++      }
+       process.exit(code);
+-    },
+-  );
++    })
++    .on('error', function (err) {
++      if (!asked) {
++        console.warn(`@parcel/watcher: the patched build could not start (${err.message}); the prebuilt binding stays`);
++        process.exit(0);
++      }
++      throw err;
++    });
+ }
+diff --git a/src/Backend.cc b/src/Backend.cc
+index 09a53d54b06a048a2066da9db07d7c10c89e3b81..fc997b4efa6a1aa24a63e54769690cdb3afbb542 100644
+--- a/src/Backend.cc
++++ b/src/Backend.cc
+@@ -19,6 +19,7 @@
+ #include "shared/BruteForceBackend.hh"
+ 
+ #include "Backend.hh"
++#include <mutex>
+ #include <unordered_map>
+ 
+ static std::unordered_map<std::string, std::shared_ptr<Backend>>& getSharedBackends() {
+@@ -27,6 +28,13 @@ static std::unordered_map<std::string, std::shared_ptr<Backend>>& getSharedBacke
+   return *sharedBackends;
+ }
+ 
++// kea: the map is read and changed from the pool's threads (subscribe, unsubscribe) and the backends' own
++// (handleError), not only the JavaScript thread. Taken after a backend's mMutex, never before it.
++static std::mutex& getSharedBackendsMutex() {
++  static std::mutex* mutex = new std::mutex();
++  return *mutex;
++}
++
+ std::shared_ptr<Backend> getBackend(std::string backend) {
+   // Use FSEvents on macOS by default.
+   // Use watchman by default if available on other platforms.
+@@ -68,7 +76,7 @@ std::shared_ptr<Backend> getBackend(std::string backend) {
+   return nullptr;
+ }
+ 
+-std::shared_ptr<Backend> Backend::getShared(std::string backend) {
++static std::shared_ptr<Backend> getSharedLocked(std::string backend) {
+   auto found = getSharedBackends().find(backend);
+   if (found != getSharedBackends().end()) {
+     return found->second;
+@@ -76,15 +84,29 @@ std::shared_ptr<Backend> Backend::getShared(std::string backend) {
+ 
+   auto result = getBackend(backend);
+   if (!result) {
+-    return getShared("default");
++    return getSharedLocked("default");
+   }
+ 
++  // kea: run() throws when the backend cannot start; nothing is kept
+   result->run();
+   getSharedBackends().emplace(backend, result);
+   return result;
+ }
+ 
++std::shared_ptr<Backend> Backend::getShared(std::string backend) {
++  std::lock_guard<std::mutex> lock(getSharedBackendsMutex());
++  return getSharedLocked(backend);
++}
++
++std::shared_ptr<Backend> Backend::findShared(std::string backend) {
++  std::lock_guard<std::mutex> lock(getSharedBackendsMutex());
++  // getShared keeps the backend asked for with no name as "default"
++  auto found = getSharedBackends().find(backend.empty() ? std::string("default") : backend);
++  return found != getSharedBackends().end() ? found->second : nullptr;
++}
++
+ void removeShared(Backend *backend) {
++  std::lock_guard<std::mutex> lock(getSharedBackendsMutex());
+   for (auto it = getSharedBackends().begin(); it != getSharedBackends().end(); it++) {
+     if (it->second.get() == backend) {
+       getSharedBackends().erase(it);
+@@ -104,6 +126,16 @@ void Backend::run() {
+       try {
+         start();
+       } catch (std::exception &err) {
++        // kea: a backend that fails before it started (inotify_init1 at fs.inotify.max_user_instances) used to
++        // end this thread without a signal, and run() waited for ever on the JavaScript thread, inside subscribe()
++        if (!mDidStart) {
++          mStartError = err.what();
++          if (mStartError.empty()) {
++            mStartError = "The file watcher's backend could not start";
++          }
++          mStartedSignal.notify();
++          return;
++        }
+         handleError(err);
+       }
+     });
+@@ -111,6 +143,13 @@ void Backend::run() {
+     if (mThread.joinable()) {
+       mStartedSignal.wait();
+     }
++
++    if (!mStartError.empty()) {
++      if (mThread.joinable()) {
++        mThread.join();
++      }
++      throw std::runtime_error(mStartError);
++    }
+   #else
+     try {
+       start();
+@@ -121,6 +160,7 @@ void Backend::run() {
+ }
+ 
+ void Backend::notifyStarted() {
++  mDidStart = true;
+   mStartedSignal.notify();
+ }
+ 
+@@ -142,8 +182,13 @@ Backend::~Backend() {
+   #endif
+ }
+ 
+-void Backend::watch(WatcherRef watcher) {
++bool Backend::watch(WatcherRef watcher) {
+   std::unique_lock<std::mutex> lock(mMutex);
++  // kea: a backend out of the map runs on only until its last holder lets go, so a watcher added to it now
++  // would never be heard. The caller takes the map's backend instead.
++  if (mRemoved) {
++    return false;
++  }
+   auto res = mSubscriptions.find(watcher);
+   if (res == mSubscriptions.end()) {
+     try {
+@@ -154,6 +199,7 @@ void Backend::watch(WatcherRef watcher) {
+       throw;
+     }
+   }
++  return true;
+ }
+ 
+ void Backend::unwatch(WatcherRef watcher) {
+@@ -167,6 +213,7 @@ void Backend::unwatch(WatcherRef watcher) {
+ 
+ void Backend::unref() {
+   if (mSubscriptions.size() == 0) {
++    mRemoved = true;
+     removeShared(this);
+   }
+ }
+@@ -182,5 +229,6 @@ void Backend::handleError(std::exception &err) {
+     (*it)->notifyError(err);
+   }
+ 
++  mRemoved = true;
+   removeShared(this);
+ }
+diff --git a/src/Backend.hh b/src/Backend.hh
+index d673bd1a19a7f6115245a8223bf3b15462ed1de2..6cc685039ae21c5fe404d6ce30cf541c13c44a9b 100644
+--- a/src/Backend.hh
++++ b/src/Backend.hh
+@@ -4,6 +4,7 @@
+ #include "Event.hh"
+ #include "Watcher.hh"
+ #include "Signal.hh"
++#include <atomic>
+ #include <thread>
+ 
+ class Backend {
+@@ -17,10 +18,15 @@ public:
+   virtual void getEventsSince(WatcherRef watcher, std::string *snapshotPath) = 0;
+   virtual void subscribe(WatcherRef watcher) = 0;
+   virtual void unsubscribe(WatcherRef watcher) = 0;
++  // kea: the entries a subscribed tree holds, or -1 where the backend keeps no tree
++  virtual long entryCount(WatcherRef watcher) { return -1; }
+ 
+   static std::shared_ptr<Backend> getShared(std::string backend);
++  // kea: the running backend of that name, or null (an unsubscribe never starts one)
++  static std::shared_ptr<Backend> findShared(std::string backend);
+ 
+-  void watch(WatcherRef watcher);
++  // kea: false, with nothing done, once the backend is out of the map (its last watcher went, or it failed)
++  bool watch(WatcherRef watcher);
+   void unwatch(WatcherRef watcher);
+   void unref();
+   void handleWatcherError(WatcherError &err);
+@@ -30,6 +36,12 @@ public:
+ private:
+   std::unordered_set<WatcherRef> mSubscriptions;
+   Signal mStartedSignal;
++  // kea: set on the backend's thread by notifyStarted(); a start() that throws before it never signalled
++  bool mDidStart = false;
++  // kea: why start() ended before it signalled, read by run() once the signal came
++  std::string mStartError;
++  // kea: taken out of the map; set by unref() and handleError(), read by watch()
++  std::atomic<bool> mRemoved{false};
+ 
+   void handleError(std::exception &err);
+ };
+diff --git a/src/DirTree.cc b/src/DirTree.cc
+index b7eddd8cd659b7447c37724ec50066e7ef66bc4f..865fe83c59b511acc1f8aaeceecf40d25c2f3f27 100644
+--- a/src/DirTree.cc
++++ b/src/DirTree.cc
+@@ -110,6 +110,11 @@ void DirTree::remove(std::string path) {
+   entries.erase(path);
+ }
+ 
++size_t DirTree::size() {
++  std::lock_guard<std::mutex> lock(mDirCacheMutex());
++  return entries.size();
++}
++
+ void DirTree::write(FILE *f) {
+   std::lock_guard<std::mutex> lock(mDirCacheMutex());
+ 
+diff --git a/src/DirTree.hh b/src/DirTree.hh
+index 328f469965d3bc248c99e8a50752c549c631e20a..ed33f2930406d0682810173237d1036009e07a47 100644
+--- a/src/DirTree.hh
++++ b/src/DirTree.hh
+@@ -35,6 +35,8 @@ public:
+   DirEntry *find(std::string path);
+   DirEntry *update(std::string path, uint64_t mtime);
+   void remove(std::string path);
++  // kea: entries held, files and directories
++  size_t size();
+   void write(FILE *f);
+   void getChanges(DirTree *snapshot, EventList &events);
+ 
+diff --git a/src/Event.hh b/src/Event.hh
+index 8d09712e5032cee44450f6ed2de10f6df1b113d6..18e0d3142bfbd9834341efdeecd2da636d699f9e 100644
+--- a/src/Event.hh
++++ b/src/Event.hh
+@@ -61,9 +61,13 @@ public:
+     std::lock_guard<std::mutex> l(mMutex);
+     std::vector<Event> eventsCloneVector;
+     for(auto it = mEvents.begin(); it != mEvents.end(); ++it) {
+-      if (!(it->second.isCreated && it->second.isDeleted)) {
+-        eventsCloneVector.push_back(it->second);
++      // kea: a path created and then deleted within one batch is reported as deleted (it was left out): whoever
++      // read the tree between the two, as Kea does when a worktree is shown, still holds it
++      Event event = it->second;
++      if (event.isCreated && event.isDeleted) {
++        event.isCreated = false;
+       }
++      eventsCloneVector.push_back(event);
+     }
+     return eventsCloneVector;
+   }
+diff --git a/src/Watcher.cc b/src/Watcher.cc
+index a58ff3722d0d4a85dbef822f7cd4a078cb4278ff..2e1e92cf7973f8c6efd2ef2d01fcaa7f5b563fc7 100644
+--- a/src/Watcher.cc
++++ b/src/Watcher.cc
+@@ -69,7 +69,8 @@ void Watcher::notify() {
+   std::unique_lock<std::mutex> lk(mMutex);
+   mCond.notify_all();
+ 
+-  if (mCallbacks.size() > 0 && mEvents.size() > 0) {
++  // kea: an error alone is delivered too (inotify's overflow, a directory that could not be watched)
++  if (mCallbacks.size() > 0 && (mEvents.size() > 0 || mEvents.hasError())) {
+     // We must release our lock before calling into the debouncer
+     // to avoid a deadlock: the debouncer thread itself will require
+     // our lock from its thread when calling into `triggerCallbacks`
+diff --git a/src/binding.cc b/src/binding.cc
+index 057b61b83385793a2f13c7adc8c2e983bef67538..828c6d2a77c39b027a419a333dad033cd367d59d 100644
+--- a/src/binding.cc
++++ b/src/binding.cc
+@@ -53,14 +53,25 @@ std::unordered_set<Glob> getIgnoreGlobs(Env env, Value opts) {
+   return result;
+ }
+ 
+-std::shared_ptr<Backend> getBackend(Env env, Value opts) {
++std::string getBackendName(Env env, Value opts) {
+   Value b = opts.As<Object>().Get(String::New(env, "backend"));
+   std::string backendName;
+   if (b.IsString()) {
+     backendName = std::string(b.As<String>().Utf8Value().c_str());
+   }
+ 
+-  return Backend::getShared(backendName);
++  return backendName;
++}
++
++// kea: the backend, started if it is not running; null with `error` set when it cannot start (the runner's
++// promise rejects with it on the worker, where it used to wait for ever on the JavaScript thread)
++std::shared_ptr<Backend> getBackend(Env env, Value opts, std::string &error) {
++  try {
++    return Backend::getShared(getBackendName(env, opts));
++  } catch (std::exception &err) {
++    error = err.what();
++    return nullptr;
++  }
+ }
+ 
+ class WriteSnapshotRunner : public PromiseRunner {
+@@ -74,19 +85,21 @@ public:
+       getIgnoreGlobs(env, opts)
+     );
+ 
+-    backend = getBackend(env, opts);
++    backend = getBackend(env, opts, startError);
+   }
+ 
+   ~WriteSnapshotRunner() {
+     watcher->unref();
+-    backend->unref();
++    if (backend) backend->unref();
+   }
+ private:
+   std::shared_ptr<Backend> backend;
++  std::string startError;
+   WatcherRef watcher;
+   std::string snapshotPath;
+ 
+   void execute() override {
++    if (!backend) throw std::runtime_error(startError);
+     backend->writeSnapshot(watcher, &snapshotPath);
+   }
+ };
+@@ -102,19 +115,21 @@ public:
+       getIgnoreGlobs(env, opts)
+     );
+ 
+-    backend = getBackend(env, opts);
++    backend = getBackend(env, opts, startError);
+   }
+ 
+   ~GetEventsSinceRunner() {
+     watcher->unref();
+-    backend->unref();
++    if (backend) backend->unref();
+   }
+ private:
+   std::shared_ptr<Backend> backend;
++  std::string startError;
+   WatcherRef watcher;
+   std::string snapshotPath;
+ 
+   void execute() override {
++    if (!backend) throw std::runtime_error(startError);
+     backend->getEventsSince(watcher, &snapshotPath);
+     if (watcher->mEvents.hasError()) {
+       throw std::runtime_error(watcher->mEvents.getError());
+@@ -171,23 +186,37 @@ public:
+       getIgnoreGlobs(env, opts)
+     );
+ 
+-    backend = getBackend(env, opts);
++    // kea: the backend is taken on the worker, when the watcher is added to it (execute). One taken here
++    // could be emptied by an unsubscribe queued before this runs, and the watcher would land on it after it left the map.
++    backendName = getBackendName(env, opts);
+     watcher->watch(fn.As<Function>());
+   }
+ 
+ private:
+   WatcherRef watcher;
+   std::shared_ptr<Backend> backend;
++  std::string backendName;
+   FunctionReference callback;
++  long entries = -1;
+ 
+   void execute() override {
+     try {
+-      backend->watch(watcher);
++      // kea: the map's backend, started if none is running (one that cannot start throws, and the
++      // promise rejects); taken again if it left the map before the watcher was added
++      do {
++        backend = Backend::getShared(backendName);
++      } while (!backend->watch(watcher));
++      entries = backend->entryCount(watcher);
+     } catch (std::exception&) {
+       watcher->destroy();
+       throw;
+     }
+   }
++
++  // kea: resolves with the entries the subscribed tree holds where the backend keeps one, else null as before
++  Value getResult() override {
++    return entries >= 0 ? Number::New(env, (double) entries) : env.Null();
++  }
+ };
+ 
+ class UnsubscribeRunner : public PromiseRunner {
+@@ -199,17 +228,28 @@ public:
+       getIgnoreGlobs(env, opts)
+     );
+ 
+-    backend = getBackend(env, opts);
++    // kea: an unsubscribe never starts a backend (one started for it would run on with nothing to watch)
++    backendName = getBackendName(env, opts);
++    backend = Backend::findShared(backendName);
+     shouldUnwatch = watcher->unwatch(fn.As<Function>());
+   }
+ 
+ private:
+   WatcherRef watcher;
+   std::shared_ptr<Backend> backend;
++  std::string backendName;
+   bool shouldUnwatch;
+ 
+   void execute() override {
+-    if (shouldUnwatch) {
++    if (!shouldUnwatch) {
++      return;
++    }
++    // kea: the backend the watcher is on may have taken the place of the one seen when this was queued
++    auto current = Backend::findShared(backendName);
++    if (current) {
++      current->unwatch(watcher);
++    }
++    if (backend && backend != current) {
+       backend->unwatch(watcher);
+     }
+   }
+@@ -262,6 +302,11 @@ Object Init(Env env, Object exports) {
+     String::New(env, "unsubscribe"),
+     Function::New(env, unsubscribe)
+   );
++  // kea: this binding was built from Kea's patch; the number is the patch's revision
++  exports.Set(
++    String::New(env, "keaPatch"),
++    Number::New(env, 3)
++  );
+   return exports;
+ }
+ 
+diff --git a/src/linux/InotifyBackend.cc b/src/linux/InotifyBackend.cc
+index 949f49853befb3325eaddaac59c84a441247c13d..7693028d204b675bf5c9cc38345dad9f40ec375a 100644
+--- a/src/linux/InotifyBackend.cc
++++ b/src/linux/InotifyBackend.cc
+@@ -2,29 +2,70 @@
+ #include <poll.h>
+ #include <unistd.h>
+ #include <fcntl.h>
++#include <dirent.h>
++#include <errno.h>
++#include <string.h>
++#include <thread>
++#include <vector>
+ #include <sys/stat.h>
+ #include "InotifyBackend.hh"
+ 
++// Kea's patch: what this file does beyond @parcel/watcher 2.6.0 is marked "kea".
++//   · IN_Q_OVERFLOW is reported to every subscription as a "must be re-scanned" error (it was dropped without a word)
++//   · a directory created or moved into a subscribed tree is walked: watched with everything below it, and what it
++//     already holds reported as creations (only the directory itself was watched, nothing below it ever heard)
++//   · a directory moved out of the tree, or deleted, takes the watches of everything below it with it
++//   · a subscribe that fails takes back the watches it added (they stayed held while any other subscription lived)
++//   · a backend that cannot start makes subscribe reject (Backend.cc; this file closes and signals so nothing hangs)
++//   · a subscribe never lands on a backend its process's last unsubscribe has just emptied (Backend.cc, binding.cc:
++//     the backend left the map and stopped once its last holder let go, and the subscription heard nothing)
++//   · a path created and deleted within one batch is reported as deleted, not left out (Event.hh)
++
+ #define INOTIFY_MASK \
+   IN_ATTRIB | IN_CREATE | IN_DELETE | \
+   IN_DELETE_SELF | IN_MODIFY | IN_MOVE_SELF | IN_MOVED_FROM | \
+   IN_MOVED_TO | IN_DONT_FOLLOW | IN_ONLYDIR | IN_EXCL_UNLINK
+ #define BUFFER_SIZE 8192
+ #define CONVERT_TIME(ts) ((uint64_t)ts.tv_sec * 1000000000 + ts.tv_nsec)
++#define ISDOT(a) (a[0] == '.' && (!a[1] || (a[1] == '.' && !a[2])))
++
++// kea: matched by "must be re-scanned", as FSEvents' dropped-event errors are
++#define OVERFLOW_ERROR "Events were dropped by the kernel (the inotify queue overflowed). File system must be re-scanned."
+ 
+ void InotifyBackend::start() {
+   // Create a pipe that we will write to when we want to end the thread.
+   int err = pipe2(mPipe, O_CLOEXEC | O_NONBLOCK);
+   if (err == -1) {
+-    throw std::runtime_error(std::string("Unable to open pipe: ") + strerror(errno));
++    int e = errno;
++    mPipe[0] = mPipe[1] = -1;
++    // kea: the destructor waits for this signal; a backend that never started must not hang it
++    mEndedSignal.notify();
++    throw std::runtime_error(std::string("Unable to open pipe: ") + strerror(e));
+   }
+ 
+   // Init inotify file descriptor.
+   mInotify = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
+   if (mInotify == -1) {
+-    throw std::runtime_error(std::string("Unable to initialize inotify: ") + strerror(errno));
++    int e = errno;
++    mEndedSignal.notify(); // kea
++    throw std::runtime_error(std::string("Unable to initialize inotify: ") + strerror(e));
+   }
+ 
++  notifyStarted();
++
++  try {
++    loop();
++  } catch (...) {
++    // kea: the loop ended with an error (Backend::run reports it): the destructor must still not wait for ever
++    mEndedSignal.notify();
++    throw;
++  }
++
++  mEndedSignal.notify();
++}
++
++// kea: the loop of start(), until the pipe says to end; the descriptors are closed by the destructor
++void InotifyBackend::loop() {
+   pollfd pollfds[2];
+   pollfds[0].fd = mPipe[0];
+   pollfds[0].events = POLLIN;
+@@ -33,12 +74,14 @@ void InotifyBackend::start() {
+   pollfds[1].events = POLLIN;
+   pollfds[1].revents = 0;
+ 
+-  notifyStarted();
+-
+   // Loop until we get an event from the pipe.
+   while (true) {
+     int result = poll(pollfds, 2, 500);
+     if (result < 0) {
++      // kea: a signal delivered to this thread is no reason to end every subscription
++      if (errno == EINTR) {
++        continue;
++      }
+       throw std::runtime_error(std::string("Unable to poll: ") + strerror(errno));
+     }
+ 
+@@ -50,17 +93,22 @@ void InotifyBackend::start() {
+       handleEvents();
+     }
+   }
+-
+-  close(mPipe[0]);
+-  close(mPipe[1]);
+-  close(mInotify);
+-
+-  mEndedSignal.notify();
+ }
+ 
+ InotifyBackend::~InotifyBackend() {
+-  write(mPipe[1], "X", 1);
+-  mEndedSignal.wait();
++  if (mPipe[1] != -1) {
++    // ends the loop
++    (void) !write(mPipe[1], "X", 1);
++  }
++
++  // kea: a backend whose start failed was joined already, and one destroyed on its own thread cannot wait for itself
++  if (mThread.joinable() && mThread.get_id() != std::this_thread::get_id()) {
++    mEndedSignal.wait();
++  }
++
++  if (mPipe[0] != -1) close(mPipe[0]);
++  if (mPipe[1] != -1) close(mPipe[1]);
++  if (mInotify != -1) close(mInotify);
+ }
+ 
+ // This function is called by Backend::watch which takes a lock on mMutex
+@@ -68,22 +116,55 @@ void InotifyBackend::subscribe(WatcherRef watcher) {
+   // Build a full directory tree recursively, and watch each directory.
+   std::shared_ptr<DirTree> tree = getTree(watcher);
+ 
++  // kea: the directories first, so that one that went away meanwhile can leave the tree while it is not iterated
++  std::vector<std::string> dirs;
+   for (auto it = tree->entries.begin(); it != tree->entries.end(); it++) {
+     if (it->second.isDir) {
+-      bool success = watchDir(watcher, it->second.path, tree);
++      dirs.push_back(it->second.path);
++    }
++  }
++
++  try {
++    for (auto it = dirs.begin(); it != dirs.end(); it++) {
++      bool success = watchDir(watcher, *it, tree);
+       if (!success) {
+-        throw WatcherError(std::string("inotify_add_watch on '") + it->second.path + std::string("' failed: ") + strerror(errno), watcher);
++        int e = errno;
++        // kea: a directory removed or replaced since the tree was read is not the subscription's failure
++        if ((e == ENOENT || e == ENOTDIR) && *it != watcher->mDir) {
++          tree->remove(*it);
++          continue;
++        }
++        throw WatcherError(std::string("inotify_add_watch on '") + *it + std::string("' failed: ") + strerror(e), watcher);
+       }
+     }
++  } catch (...) {
++    // kea: the watches this subscribe added go with it (Backend::watch never asks to unsubscribe what failed, and they
++    // stayed held, against fs.inotify.max_user_watches, for as long as any other subscription lived)
++    unsubscribe(watcher);
++    throw;
+   }
+ }
+ 
++// kea: what the subscribed tree holds, files and directories (the memory the backend keeps for it)
++long InotifyBackend::entryCount(WatcherRef watcher) {
++  std::unique_lock<std::mutex> lock(mMutex);
++  return (long) getTree(watcher, false)->size();
++}
++
+ bool InotifyBackend::watchDir(WatcherRef watcher, std::string path, std::shared_ptr<DirTree> tree) {
+   int wd = inotify_add_watch(mInotify, path.c_str(), INOTIFY_MASK);
+   if (wd == -1) {
+     return false;
+   }
+ 
++  // kea: a directory reached twice (its creation heard while the walk of its parent found it too) is one subscription
++  auto range = mSubscriptions.equal_range(wd);
++  for (auto it = range.first; it != range.second; it++) {
++    if (it->second->watcher == watcher && it->second->path == path) {
++      return true;
++    }
++  }
++
+   std::shared_ptr<InotifySubscription> sub = std::make_shared<InotifySubscription>();
+   sub->tree = tree;
+   sub->path = path;
+@@ -93,6 +174,89 @@ bool InotifyBackend::watchDir(WatcherRef watcher, std::string path, std::shared_
+   return true;
+ }
+ 
++// kea: a directory created or moved into a subscribed tree. inotify reports nothing that was in it before its
++// own watch was added, so it is walked: each directory is watched first and then read, and what it holds is reported
++// as creations; whatever appears after a watch was added comes as events of its own, coalesced with these by path.
++// A watch that cannot be added is the subscription's error (`failed`, the first one), unless its directory went away.
++void InotifyBackend::walkNewDir(std::shared_ptr<InotifySubscription> sub, const std::string &root, std::string &failed) {
++  WatcherRef watcher = sub->watcher;
++  std::vector<std::string> todo;
++  todo.push_back(root);
++
++  while (!todo.empty()) {
++    std::string dir = todo.back();
++    todo.pop_back();
++
++    if (!watchDir(watcher, dir, sub->tree)) {
++      int e = errno;
++      sub->tree->remove(dir);
++      if ((e != ENOENT && e != ENOTDIR) && failed.empty()) {
++        failed = std::string("inotify_add_watch on '") + dir + std::string("' failed: ") + strerror(e);
++      }
++      continue;
++    }
++
++    int fd = open(dir.c_str(), O_RDONLY | O_CLOEXEC | O_DIRECTORY | O_NOCTTY | O_NONBLOCK | O_NOFOLLOW);
++    if (fd == -1) {
++      continue;
++    }
++
++    DIR *d = fdopendir(fd);
++    if (!d) {
++      close(fd);
++      continue;
++    }
++
++    while (struct dirent *ent = readdir(d)) {
++      if (ISDOT(ent->d_name)) continue;
++
++      std::string path = dir + DIR_SEP + ent->d_name;
++      if (watcher->isIgnored(path)) continue;
++
++      struct stat st;
++      if (fstatat(fd, ent->d_name, &st, AT_SYMLINK_NOFOLLOW) != 0) continue;
++
++      bool isDir = S_ISDIR(st.st_mode);
++      sub->tree->add(path, CONVERT_TIME(st.st_mtim), isDir);
++      watcher->mEvents.create(path);
++      if (isDir) {
++        todo.push_back(path);
++      }
++    }
++
++    closedir(d);
++  }
++}
++
++// kea: a directory that left the tree (moved out, renamed, deleted): its subscriptions and those of everything below
++// it go, and a watch that no other subscription uses is removed (one moved out would otherwise stay watched, and
++// counted against fs.inotify.max_user_watches, for as long as the backend ran)
++void InotifyBackend::forgetDir(WatcherRef watcher, const std::string &dir) {
++  std::string below = dir + DIR_SEP;
++  std::vector<int> wds;
++  for (auto it = mSubscriptions.begin(); it != mSubscriptions.end();) {
++    const std::string &p = it->second->path;
++    if (it->second->watcher == watcher && (p == dir || p.compare(0, below.size(), below) == 0)) {
++      wds.push_back(it->first);
++      it = mSubscriptions.erase(it);
++    } else {
++      it++;
++    }
++  }
++
++  dropWatches(wds);
++}
++
++// kea: remove each watch no subscription uses any more; one the kernel removed already (its directory deleted) is
++// EINVAL, which is no error
++void InotifyBackend::dropWatches(const std::vector<int> &wds) {
++  for (auto it = wds.begin(); it != wds.end(); it++) {
++    if (mSubscriptions.count(*it) == 0) {
++      inotify_rm_watch(mInotify, *it);
++    }
++  }
++}
++
+ void InotifyBackend::handleEvents() {
+   char buf[BUFFER_SIZE] __attribute__ ((aligned(__alignof__(struct inotify_event))));;
+   struct inotify_event *event;
+@@ -107,6 +271,11 @@ void InotifyBackend::handleEvents() {
+         break;
+       }
+ 
++      // kea: as poll's
++      if (errno == EINTR) {
++        continue;
++      }
++
+       throw std::runtime_error(std::string("Error reading from inotify: ") + strerror(errno));
+     }
+ 
+@@ -118,7 +287,19 @@ void InotifyBackend::handleEvents() {
+       event = (struct inotify_event *)ptr;
+ 
+       if ((event->mask & IN_Q_OVERFLOW) == IN_Q_OVERFLOW) {
+-        // overflow
++        // kea: the kernel dropped events, for every watch of this instance: each subscription is told to read
++        // its whole tree again (the subscription goes on)
++        std::unordered_set<WatcherRef> all;
++        {
++          std::unique_lock<std::mutex> lock(mMutex);
++          for (auto it = mSubscriptions.begin(); it != mSubscriptions.end(); it++) {
++            all.insert(it->second->watcher);
++          }
++        }
++        for (auto it = all.begin(); it != all.end(); it++) {
++          (*it)->mEvents.error(OVERFLOW_ERROR);
++          watchers.insert(*it);
++        }
+         continue;
+       }
+ 
+@@ -176,10 +357,11 @@ bool InotifyBackend::handleSubscription(struct inotify_event *event, std::shared
+     DirEntry *entry = sub->tree->add(path, CONVERT_TIME(st.st_mtim), S_ISDIR(st.st_mode));
+ 
+     if (entry->isDir) {
+-      bool success = watchDir(watcher, path, sub->tree);
+-      if (!success) {
+-        sub->tree->remove(path);
+-        return false;
++      // kea: the directory and everything already in it
++      std::string failed;
++      walkNewDir(sub, path, failed);
++      if (!failed.empty()) {
++        watcher->mEvents.error(failed);
+       }
+     }
+   } else if (event->mask & (IN_MODIFY | IN_ATTRIB)) {
+@@ -200,13 +382,8 @@ bool InotifyBackend::handleSubscription(struct inotify_event *event, std::shared
+     // If the entry being deleted/moved is a directory, remove it from the list of subscriptions
+     // XXX: self events don't have the IN_ISDIR mask
+     if (isSelfEvent || isDir) {
+-      for (auto it = mSubscriptions.begin(); it != mSubscriptions.end();) {
+-        if (it->second->path == path) {
+-          it = mSubscriptions.erase(it);
+-        } else {
+-          ++it;
+-        }
+-      }
++      // kea: with everything below it (was: the directory's own subscription only)
++      forgetDir(watcher, path);
+     }
+ 
+     watcher->mEvents.remove(path);
+@@ -219,18 +396,17 @@ bool InotifyBackend::handleSubscription(struct inotify_event *event, std::shared
+ // This function is called by Backend::unwatch which takes a lock on mMutex
+ void InotifyBackend::unsubscribe(WatcherRef watcher) {
+   // Find any subscriptions pointing to this watcher, and remove them.
++  // kea: every one first, then each watch no other subscription uses; a watch the kernel removed already (its
++  // directory deleted) no longer ends the loop half-way with an error
++  std::vector<int> wds;
+   for (auto it = mSubscriptions.begin(); it != mSubscriptions.end();) {
+     if (it->second->watcher.get() == watcher.get()) {
+-      if (mSubscriptions.count(it->first) == 1) {
+-        int err = inotify_rm_watch(mInotify, it->first);
+-        if (err == -1) {
+-          throw WatcherError(std::string("Unable to remove watcher: ") + strerror(errno), watcher);
+-        }
+-      }
+-
++      wds.push_back(it->first);
+       it = mSubscriptions.erase(it);
+     } else {
+       it++;
+     }
+   }
++
++  dropWatches(wds);
+ }
+diff --git a/src/linux/InotifyBackend.hh b/src/linux/InotifyBackend.hh
+index f34cd1f00702a70c21b3c7fe8362b3acc258d206..daff99ff940fe92785ab6fdcb9c8efa9db7007c7 100644
+--- a/src/linux/InotifyBackend.hh
++++ b/src/linux/InotifyBackend.hh
+@@ -19,13 +19,19 @@ public:
+   ~InotifyBackend();
+   void subscribe(WatcherRef watcher) override;
+   void unsubscribe(WatcherRef watcher) override;
++  long entryCount(WatcherRef watcher) override;
+ private:
+-  int mPipe[2];
+-  int mInotify;
++  // kea: -1 until opened; closed by the destructor once the loop has ended (or never ran)
++  int mPipe[2] = {-1, -1};
++  int mInotify = -1;
+   std::unordered_multimap<int, std::shared_ptr<InotifySubscription>> mSubscriptions;
+   Signal mEndedSignal;
+ 
+   bool watchDir(WatcherRef watcher, std::string path, std::shared_ptr<DirTree> tree);
++  void walkNewDir(std::shared_ptr<InotifySubscription> sub, const std::string &root, std::string &failed);
++  void forgetDir(WatcherRef watcher, const std::string &dir);
++  void dropWatches(const std::vector<int> &wds);
++  void loop();
+   void handleEvents();
+   void handleEvent(struct inotify_event *event, std::unordered_set<WatcherRef> &watchers);
+   bool handleSubscription(struct inotify_event *event, std::shared_ptr<InotifySubscription> sub);
+diff --git a/src/unix/legacy.cc b/src/unix/legacy.cc
+index 60490c637c4cabfc2825ec3ec970d9eab53252e7..83c0e72552cdaf814265c7706cf20a674d6ef90a 100644
+--- a/src/unix/legacy.cc
++++ b/src/unix/legacy.cc
+@@ -1,4 +1,5 @@
+ #include <string>
++#include <string.h>
+ 
+ // weird error on linux
+ #ifdef __THROW
+@@ -32,6 +33,13 @@ void iterateDir(WatcherRef watcher, const std::shared_ptr <DirTree> tree, const
+             return; // ignore insufficient permissions
+         }
+ 
++        // kea: a directory removed or replaced while the tree is read (an install under way) is not the subscription's
++        // failure; the root's own is
++        if ((errno == ENOENT || errno == ENOTDIR) && strcmp(relative, ".") != 0) {
++            errno = 0;
++            return;
++        }
++
+         throw WatcherError(strerror(errno), watcher);
+     }
+ 

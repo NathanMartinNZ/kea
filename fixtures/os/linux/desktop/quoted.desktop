@@ -1,0 +1,7 @@
+# a hand-made entry: quotes, escapes and field codes as the specification writes them
+[Desktop Entry]
+Type=Application
+Name=Quoted
+Name[fr]=Entre guillemets
+Exec="/opt/My Editor/editor" --title "a \\"quoted\\" \\$word" --x=%u 100%% %F
+Exec=/second/value/is/ignored

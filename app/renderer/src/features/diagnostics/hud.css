@@ -1,0 +1,65 @@
+/* The dev-only performance HUD: a small panel over the bottom-left corner of the window. Tokens only (DS-2). */
+
+.hud {
+  position: fixed;
+  left: var(--space-4);
+  bottom: var(--space-4);
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  max-width: var(--size-palette);
+  max-height: 50%;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-lg);
+  background: var(--surface-4);
+  box-shadow: var(--shadow-float);
+  color: var(--text-2);
+  font-size: var(--type-secondary-size);
+  line-height: var(--type-secondary-line);
+}
+
+.hud-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.hud-title {
+  margin-right: auto;
+  color: var(--text-1);
+  font-weight: var(--type-emphasis-weight);
+}
+
+.hud-rows {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0 var(--space-3);
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.hud-rows > dt {
+  color: var(--text-3);
+}
+
+.hud-rows > dd {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  color: var(--text-1);
+}
+
+.hud-rate > code,
+.hud-report {
+  font-family: var(--font-mono);
+  font-size: var(--type-mono-size);
+}
+
+.hud-report {
+  min-height: 0;
+  margin: 0;
+  overflow: auto;
+  color: var(--text-2);
+  user-select: text;
+}

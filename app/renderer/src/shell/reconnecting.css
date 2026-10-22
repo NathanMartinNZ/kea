@@ -1,0 +1,21 @@
+/* The Reconnecting bar. Tokens only (DS-2). Laid over the tab strip of the terminal pane it is in, exactly its
+   size, so the layout never moves and no terminal is resized while it shows. */
+
+.reconnecting-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--size-tab-strip);
+  box-sizing: border-box;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  padding: 0 var(--space-3);
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--line);
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

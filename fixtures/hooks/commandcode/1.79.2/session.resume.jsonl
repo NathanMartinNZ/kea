@@ -1,0 +1,8 @@
+{"sessionId":"ca2d172d-d61f-47f0-a566-9f33505fd0ff","source":"resume","transcript":"/tmp/kea-world/home/.commandcode/projects/private-tmp-kea-fixture-xxxxxx-demo/ca2d172d-d61f-47f0-a566-9f33505fd0ff.jsonl","type":"session_start"}
+{"sessionId":"ca2d172d-d61f-47f0-a566-9f33505fd0ff","type":"run_start"}
+{"model":"deepseek/deepseek-v4-flash","sessionId":"ca2d172d-d61f-47f0-a566-9f33505fd0ff","type":"model_request_start"}
+{"error":{"message":"Local-only mode: refused a Command Code API call (/alpha/generate). This CLI was started with --local-only, CMD_LOCAL_ONLY, or \"localOnly\": true in ~/.commandcode/config.json, so nothing is sent to Command Code — backend features (gateway models, /share, /usage, web tools) are unavailable.","name":"LocalOnlyError"},"sessionId":"ca2d172d-d61f-47f0-a566-9f33505fd0ff","type":"run_error"}
+{"result":{"finalText":"","stopReason":"run_error"},"sessionId":"ca2d172d-d61f-47f0-a566-9f33505fd0ff","type":"run_end"}
+{"sessionId":"ca2d172d-d61f-47f0-a566-9f33505fd0ff","type":"run_start"}
+{"error":{"message":"Local-only mode: refused a Command Code API call (/alpha/generate). This CLI was started with --local-only, CMD_LOCAL_ONLY, or \"localOnly\": true in ~/.commandcode/config.json, so nothing is sent to Command Code — backend features (gateway models, /share, /usage, web tools) are unavailable.","name":"LocalOnlyError"},"sessionId":"ca2d172d-d61f-47f0-a566-9f33505fd0ff","type":"run_error"}
+{"result":{"finalText":"","stopReason":"run_error"},"sessionId":"ca2d172d-d61f-47f0-a566-9f33505fd0ff","type":"run_end"}

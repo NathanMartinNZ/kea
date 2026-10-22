@@ -1,0 +1,50 @@
+// The commands that belong to no feature: Keyboard Shortcuts, Open Reports Folder, the three main runs itself (Open
+// Kea, Close to Menu Bar, Quit Kea Completely: their menu items work with no window, and from the palette they are
+// asked of main), and Copy and Paste, which are the Edit menu's native roles: a key or a menu click never comes through
+// here, the palette's pick does. `App.svelte` calls this once for the window.
+//
+// The Command Palette's own command is the palette's (`features/palette/commands.ts`).
+
+import { MAIN_COMMANDS, NATIVE_ROLES } from '@kea/protocol'
+import type { Disposable } from '@kea/terminal'
+import { disposeAll } from '@kea/terminal'
+import { editRole, openHomeItem, runMainCommand } from '../../lib/bridge.ts'
+import { call } from '../../lib/rpc.ts'
+import { showToast, ui } from '../sessions/state.svelte.ts'
+import { activeView } from '../terminal/views.ts'
+import { commands } from './registry.ts'
+
+/** "Open keybindings.json": core makes sure the file is there, main opens it. */
+export async function openKeybindingsFile(): Promise<void> {
+  try {
+    await call('keybindings.ensureFile', {})
+    openHomeItem('keybindings')
+  } catch (e) {
+    showToast({ message: `Couldn't open keybindings.json: ${e instanceof Error ? e.message : String(e)}` })
+  }
+}
+
+/** Something is selected: in the terminal on screen, or in the page. */
+function hasSelection(): boolean {
+  return activeView()?.xterm.hasSelection() === true || (window.getSelection()?.isCollapsed === false && window.getSelection()?.toString() !== '')
+}
+
+export function registerAppCommands(): Disposable {
+  const ds: Disposable[] = [
+    commands.register('app.shortcuts', {
+      run: () => {
+        ui.sheet = { kind: 'shortcuts' }
+      },
+    }),
+    commands.register('app.openReports', { run: () => openHomeItem('reports') }),
+    ...MAIN_COMMANDS.map((id) => commands.register(id, { run: () => runMainCommand(id) })),
+    ...Object.entries(NATIVE_ROLES).map(([id, role]) =>
+      commands.register(id, {
+        run: () => editRole(role),
+        when: () => (role === 'copy' ? hasSelection() : true),
+        unavailableReason: () => 'Nothing is selected',
+      }),
+    ),
+  ]
+  return { dispose: () => disposeAll(ds) }
+}

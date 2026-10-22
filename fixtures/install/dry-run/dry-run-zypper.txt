@@ -1,0 +1,19 @@
+Release: Kea <version>, from https://github.com/<repository>/releases/latest/download/
+SHA256SUMS: signed by Kea's key <fingerprint> (checked with <verifier>)
+Plan: Kea's zypper repository, then Kea's package from it
+File kea-app.repo, for /etc/zypp/repos.d/kea-app.repo:
+    [kea-app]
+    name=Kea
+    enabled=1
+    autorefresh=1
+    baseurl=https://<owner>.github.io/<name>/rpm/$basearch
+    type=rpm-md
+    gpgcheck=1
+    repo_gpgcheck=1
+    pkg_gpgcheck=1
+    gpgkey=https://github.com/<repository>/releases/latest/download/kea-app.asc
+Commands that would change the system (a dry run: none runs):
++ sudo rpm --import kea-app.asc
++ sudo install -m 0644 kea-app.repo /etc/zypp/repos.d/kea-app.repo
++ sudo zypper --non-interactive refresh kea-app
++ sudo zypper --non-interactive install kea-app

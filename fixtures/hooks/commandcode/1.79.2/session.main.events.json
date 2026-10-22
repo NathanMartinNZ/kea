@@ -1,0 +1,170 @@
+[
+  {
+    "t": "session.started",
+    "agentSessionId": "ca2d172d-d61f-47f0-a566-9f33505fd0ff",
+    "source": "startup"
+  },
+  {
+    "t": "turn.started"
+  },
+  {
+    "t": "meta",
+    "model": "mock/mock-model"
+  },
+  {
+    "t": "tool.started",
+    "name": "shell_command",
+    "summary": "echo kea-probe"
+  },
+  {
+    "t": "tool.finished",
+    "name": "shell_command",
+    "summary": "echo kea-probe",
+    "ok": true
+  },
+  {
+    "t": "tool.started",
+    "name": "read_file",
+    "summary": "/private/tmp/kea-fixture-xxxxxx/demo/missing.txt"
+  },
+  {
+    "t": "tool.finished",
+    "name": "read_file",
+    "summary": "/private/tmp/kea-fixture-xxxxxx/demo/missing.txt",
+    "ok": false
+  },
+  {
+    "t": "session.started",
+    "agentSessionId": "ca2d172d-d61f-47f0-a566-9f33505fd0ff",
+    "transcriptPath": "/tmp/kea-world/home/.commandcode/projects/private-tmp-kea-fixture-xxxxxx-demo/ca2d172d-d61f-47f0-a566-9f33505fd0ff.jsonl",
+    "source": "startup",
+    "repeated": true
+  },
+  {
+    "t": "turn.finished",
+    "lastMessage": "This repository is a small demo project: a few JavaScript modules with tests. It exists to exercise tools.",
+    "backgroundWork": false
+  },
+  {
+    "t": "meta",
+    "title": "ok",
+    "titleSource": "agent"
+  },
+  {
+    "t": "turn.started"
+  },
+  {
+    "t": "attention.permission",
+    "key": "toolu_mock_5_0",
+    "tool": "write_file",
+    "summary": "/private/tmp/kea-fixture-xxxxxx/demo/notes/todo.md"
+  },
+  {
+    "t": "attention.cleared",
+    "key": "toolu_mock_5_0"
+  },
+  {
+    "t": "tool.started",
+    "name": "write_file",
+    "summary": "/private/tmp/kea-fixture-xxxxxx/demo/notes/todo.md"
+  },
+  {
+    "t": "tool.finished",
+    "name": "write_file",
+    "summary": "/private/tmp/kea-fixture-xxxxxx/demo/notes/todo.md",
+    "ok": true
+  },
+  {
+    "t": "turn.finished",
+    "lastMessage": "Created notes/todo.md with three placeholder items.",
+    "backgroundWork": false
+  },
+  {
+    "t": "turn.started"
+  },
+  {
+    "t": "attention.permission",
+    "key": "toolu_mock_7_1",
+    "tool": "write_file",
+    "summary": "/private/tmp/kea-fixture-xxxxxx/demo/.gitignore"
+  },
+  {
+    "t": "attention.cleared",
+    "key": "toolu_mock_7_1"
+  },
+  {
+    "t": "turn.finished",
+    "backgroundWork": false
+  },
+  {
+    "t": "turn.started"
+  },
+  {
+    "t": "turn.interrupted"
+  },
+  {
+    "t": "meta",
+    "permissionMode": "accept-edits"
+  },
+  {
+    "t": "meta",
+    "permissionMode": "plan"
+  },
+  {
+    "t": "meta",
+    "permissionMode": "yolo"
+  },
+  {
+    "t": "meta",
+    "permissionMode": "default"
+  },
+  {
+    "t": "turn.started"
+  },
+  {
+    "t": "turn.finished",
+    "lastMessage": "ok",
+    "backgroundWork": false
+  },
+  {
+    "t": "turn.started"
+  },
+  {
+    "t": "turn.failed",
+    "error": "invalid x-api-key",
+    "kind": "auth"
+  },
+  {
+    "t": "session.started",
+    "agentSessionId": "dccf2a7d-d3f9-4f9f-a4c0-31ffa65bf13e",
+    "source": "clear"
+  },
+  {
+    "t": "turn.started"
+  },
+  {
+    "t": "meta",
+    "model": "mock/mock-model"
+  },
+  {
+    "t": "session.started",
+    "agentSessionId": "dccf2a7d-d3f9-4f9f-a4c0-31ffa65bf13e",
+    "transcriptPath": "/tmp/kea-world/home/.commandcode/projects/private-tmp-kea-fixture-xxxxxx-demo/dccf2a7d-d3f9-4f9f-a4c0-31ffa65bf13e.jsonl",
+    "source": "clear",
+    "repeated": true
+  },
+  {
+    "t": "turn.finished",
+    "lastMessage": "There are four files: README.md, package.json, src/math.js and test/math.test.js.",
+    "backgroundWork": false
+  },
+  {
+    "t": "meta",
+    "title": "ok",
+    "titleSource": "agent"
+  },
+  {
+    "t": "session.ended",
+    "reason": "shutdown"
+  }
+]

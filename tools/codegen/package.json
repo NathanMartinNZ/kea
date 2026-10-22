@@ -1,0 +1,10 @@
+{
+  "name": "@kea-tools/codegen",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "dependencies": {
+    "smol-toml": "1.9.0"
+  }
+}

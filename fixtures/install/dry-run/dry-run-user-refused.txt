@@ -1,0 +1,3 @@
+Release: Kea <version>, from https://github.com/<repository>/releases/latest/download/
+SHA256SUMS: not signature-checked (neither GnuPG's gpgv nor Sequoia's sqv is installed). Every file is still checked against it, and Kea's key against the fingerprint this script pins
+install.sh: Kea could not start without root here: this system lets only programs an AppArmor profile names make the user namespaces its window's sandbox needs (Ubuntu 23.10 and later), and only root can install that profile. Install without --user

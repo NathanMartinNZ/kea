@@ -1,0 +1,37 @@
+{
+ "format": 1,
+ "id": "20261010-185025-674-01K00000000000000000000S02",
+ "agent": "claude",
+ "expected": "needsMe",
+ "note": "a parallel tool and a subagent finishing while a prompt waits must not clear it",
+ "reported": {
+  "lifecycle": "live",
+  "phase": "blocked"
+ },
+ "start": {
+  "base": {
+   "phase": "idle",
+   "attention": [],
+   "background": false,
+   "backgroundFromFile": false,
+   "unread": false,
+   "failureKind": null,
+   "compacting": false,
+   "source": null,
+   "at": null,
+   "lastActivityAt": 1791658225673,
+   "exactMono": null,
+   "sawHeuristic": false,
+   "typedMono": null,
+   "turnMono": null,
+   "model": null,
+   "effort": null,
+   "permissionMode": null,
+   "costUsd": null,
+   "contextPct": null
+  },
+  "baseMono": "157230550737583",
+  "prompt": true,
+  "noTurns": false
+ }
+}

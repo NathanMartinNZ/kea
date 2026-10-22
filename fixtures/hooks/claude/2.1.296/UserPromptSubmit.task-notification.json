@@ -1,0 +1,9 @@
+{
+  "session_id": "af557cb1-921d-4ece-8f20-f71c5e120a3e",
+  "transcript_path": "/tmp/kea-world/home/.claude/projects/-private-tmp-kea-fixture-xxxxxx-demo/af557cb1-921d-4ece-8f20-f71c5e120a3e.jsonl",
+  "cwd": "/private/tmp/kea-fixture-xxxxxx/demo",
+  "prompt_id": "6d63fbbf-a264-4f5c-bbf6-6e5cea4692c2",
+  "permission_mode": "default",
+  "hook_event_name": "UserPromptSubmit",
+  "prompt": "<task-notification>\n<task-id>a1780d131dbd1949d</task-id>\n<tool-use-id>toolu_mock_14_0</tool-use-id>\n<output-file>/private/tmp/claude-501/-private-tmp-kea-fixture-xxxxxx-demo/af557cb1-921d-4ece-8f20-f71c5e120a3e/tasks/a1780d131dbd1949d.output</output-file>\n<status>completed</status>\n<summary>Agent \"Read the readme\" finished</summary>\n<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>\n<result>SUB-DONE the readme is short.</result>\n<usage><subagent_tokens>2900</subagent_tokens><tool_uses>1</tool_uses><duration_ms>75</duration_ms></usage>\n</task-notification>"
+}

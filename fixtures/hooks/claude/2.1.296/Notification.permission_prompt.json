@@ -1,0 +1,9 @@
+{
+  "session_id": "c97301d0-0e2a-4a81-97db-64e6664c3832",
+  "transcript_path": "/tmp/kea-world/home/.claude/projects/-private-tmp-kea-fixture-xxxxxx-demo/c97301d0-0e2a-4a81-97db-64e6664c3832.jsonl",
+  "cwd": "/private/tmp/kea-fixture-xxxxxx/demo",
+  "prompt_id": "aec15331-3b68-4bfa-b249-d9aa9ea6a1d6",
+  "hook_event_name": "Notification",
+  "message": "Claude needs your permission",
+  "notification_type": "permission_prompt"
+}
