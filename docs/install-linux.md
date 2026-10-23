@@ -24,7 +24,7 @@ system's updates. On openSUSE, add the zypper repository below.
 
 ## Kea's repository
 
-First download Kea's signing key and check that its fingerprint is `<fingerprint>`:
+First download Kea's signing key and check that its fingerprint is `4F668273606382634A0B69F11416F8FD96068E8A`:
 
 ```sh
 curl -fsSLO https://github.com/NathanMartinNZ/kea/releases/latest/download/kea-app.asc

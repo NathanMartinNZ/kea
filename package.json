@@ -48,6 +48,7 @@
     "hooks:install": "git config core.hooksPath tools/git-hooks",
     "kea:install": "node tools/install.ts",
     "package": "node tools/package.ts",
+    "release:sums": "node tools/pack/src/releaseSums.ts",
     "postinstall": "node tools/ensure-electron.ts"
   },
   "devDependencies": {
