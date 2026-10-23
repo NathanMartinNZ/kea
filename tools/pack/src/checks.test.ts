@@ -101,5 +101,8 @@ describe('package checks', () => {
     for (const a of [...ACCEPTED_LINTIAN, ...ACCEPTED_RPMLINT]) expect(a.why.length, a.tag).toBeGreaterThan(20)
     const rpmlint = ['kea-app.aarch64: E: statically-linked-binary /opt/Kea/kea-helper', 'kea-app.aarch64: W: no-documentation', '1 packages and 0 specfiles checked; 1 errors, 1 warnings, 0 badness; has taken 1.2 s'].join('\n')
     expect(lintProblems(rpmlint, [{ tag: 'no-documentation', why: 'x' }])).toEqual(['kea-app.aarch64: E: statically-linked-binary /opt/Kea/kea-helper'])
+    // a release is built on Ubuntu 22.04, whose lintian 2.114 and rpmlint 2.2 say these of the release packages too
+    expect(lintProblems('E: kea-app: copyright-not-using-common-license-for-gpl', acceptedFor(ACCEPTED_LINTIAN, true))).toEqual([])
+    expect(lintProblems('kea-app.aarch64: W: invalid-license MIT', acceptedFor(ACCEPTED_RPMLINT, true))).toEqual([])
   })
 })

@@ -52,8 +52,9 @@ const PACKAGES = path.join(root, 'dist', 'pack-app.packages.json')
 const RELEASE_KEY = path.join(root, 'assets', 'release', 'kea-app.gpg')
 /** The terminal's font on Linux: Ubuntu's build of JetBrains Mono 2.304, regular and bold, with its licence (assets/fonts/README.md). */
 const FONTS = path.join(root, 'assets', 'fonts', 'jetbrains-mono')
-/** Who the Linux packages name as their maintainer, for now: no person, no real address. */
-const MAINTAINER = 'Kea <kea-app@invalid>'
+/** Who the Linux packages name as their maintainer: the repository owner's GitHub noreply address (no mailbox; people
+ * reach Kea through its GitHub issues). */
+const MAINTAINER = 'Kea <20147925+NathanMartinNZ@users.noreply.github.com>'
 /** Kea's licence as an SPDX id: the rpm's `License` tag. The licences file quotes the repository's LICENSE. */
 const LICENCE = 'MIT'
 

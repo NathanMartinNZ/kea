@@ -22,6 +22,7 @@ export const ACCEPTED_LINTIAN: readonly Accepted[] = [
   { tag: 'no-changelog', why: NOTES },
   { tag: 'no-manual-page', why: '/usr/bin/kea-app starts a desktop app; it has no command-line interface to document' },
   { tag: 'copyright-not-using-common-license-for-apache2', why: "the licences file is the same on every system and quotes each licence in full" },
+  { tag: 'copyright-not-using-common-license-for-gpl', why: "the licences file is the same on every system and quotes each licence in full (lintian 2.114, Ubuntu 22.04's, also says it of the GPL text)" },
   { tag: 'duplicate-font-file', why: FONT },
   { tag: 'bogus-mail-host', why: 'the maintainer address is a placeholder until a release names a real one (tools/package.ts MAINTAINER)', untilRelease: true },
 ]
@@ -43,6 +44,7 @@ export const ACCEPTED_RPMLINT: readonly Accepted[] = [
   { tag: 'no-manual-page-for-binary', why: '/usr/bin/kea-app starts a desktop app; it has no command-line interface to document' },
   { tag: 'spelling-error', why: "the description's words are git's (worktree)" },
   { tag: 'no-signature', why: "a release signs the rpm after these checks (rpmsign)" },
+  { tag: 'invalid-license', why: "rpmlint 2.2 (Ubuntu 22.04, where releases are built) does not list MIT, Kea's SPDX licence id; rpmlint 2.5 accepts it" },
 ]
 
 /** What a run accepts: everything above for a test build; for a release, not the placeholders (`untilRelease`). */
