@@ -22,8 +22,12 @@ import { sysAccel, sysKey, sysLabel, TERMINAL_TEXT_KEYS } from '../support/keys.
 /** A fake agent's screen: its mark, the prompt, then `lines` (YAML flow sequence). */
 const frame = (...lines: string[]) => `frame: ${JSON.stringify([AGENT_MARK, '', '> {{prompt}}', '', ...lines])}`
 
-/** An agent at its prompt: every line entered there is written back, so a test sees what reached it. */
-const AT_PROMPT = ['steps:', `  - ${frame()}`, 'onLine:', '  - print: "GOT {{line}}\\r\\n"'].join('\n')
+/**
+ * An agent at its prompt: every line entered there is written back, so a test sees what reached it. The answer is part
+ * of the frame, as a real agent's transcript is: a resize that reaches the agent late (a palette command that hid the
+ * sidebar, on a slow machine) redraws the frame, which would wipe an answer printed below it.
+ */
+const AT_PROMPT = ['steps:', `  - ${frame()}`, 'onLine:', `  - ${frame('GOT {{line}}', '')}`].join('\n')
 
 const NESTED = { 'packages/app/src/main.ts': 'export const main = 1\n', 'packages/app/src/util.ts': 'export const util = 2\n' }
 
@@ -544,6 +548,10 @@ test('E-KB-2 · keyboard details: the app’s shortcuts act from the sidebar, th
   const row = await waitPalette(kea, 'Toggle Sidebar leads', (r) => r[0]?.id === 'view.toggleSidebar')
   expect(row[0]!.shortcut).toBe(MY_SIDEBAR.label)
   await page.keyboard.press('Escape')
+  await expect(palette(page)).toHaveCount(0)
+  // the keyboard back in the terminal before the pointer goes to the button: arriving there during the tip's delay,
+  // it would rightly cancel the tip
+  await until('the keyboard in the terminal', () => inTerminal(kea))
   const add = page.getByRole('tablist', { name: 'Terminals' }).getByRole('button', { name: `New Shell Tab (${RESTART})` })
   await add.hover()
   await expect(tooltip(page).locator('kbd')).toHaveText(RESTART)

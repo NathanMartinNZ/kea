@@ -15,8 +15,9 @@
 //   quits). `Kea.assertUnfocused` checks it after every launch, reload and fault.
 // · A KEA_HOME is a fresh `kea-test-app-*` temp directory; ~/.kea and ~/.kea-dev are never named.
 // · A signal goes only to a process this run started, after its pid, start time and executable were checked again.
-// · Shells are zsh with a ZDOTDIR inside the KEA_HOME (prompt `kea$ `, history there too), so neither the user's rc
-//   files nor their history are touched, and the screen is predictable.
+// · Shells are zsh with a ZDOTDIR inside the KEA_HOME (prompt `kea$ `, history there too, no global compinit:
+//   launch.ts `TEST_ZSHENV`), so neither the user's rc files nor their history are touched, and the screen is
+//   predictable.
 // · Git is hermetic: no system config, and a global config inside the KEA_HOME with a test identity and nothing else
 //   (`GIT_CONFIG_GLOBAL`), so the user's identity, hooks or signing never reach a test repository (sessions' git and
 //   "Initialise git…" run with the login shell's environment).
@@ -47,7 +48,7 @@ import { childArgv, L, parseRingHeader, readRing } from '@kea/protocol'
 import { zooCommand } from '@kea-tools/process-zoo/src/index.ts'
 import { isSameHolder, userDataDir } from '../../tools/perf/src/holders.ts'
 import { harnessOs } from '../../tools/perf/src/os/index.ts'
-import { assertLoginShellAgents, cleanupRun, descendants, electronBinary, frontmostPid, harnessUserHome, launchEnv, launchKea, loginShellLookup, pathWithoutAgents, processInfo, processTable, repoRoot, runAppProcesses, signalKnown, stillSame, writeAgentShims, type CleanupReport, type ProcInfo } from '../../tools/perf/src/launch.ts'
+import { assertLoginShellAgents, cleanupRun, descendants, electronBinary, frontmostPid, harnessUserHome, launchEnv, launchKea, loginShellLookup, pathWithoutAgents, processInfo, processTable, repoRoot, runAppProcesses, signalKnown, stillSame, TEST_ZSHENV, writeAgentShims, type CleanupReport, type ProcInfo } from '../../tools/perf/src/launch.ts'
 import { webglOn, webglState } from '../../app/main/src/platformLines.ts'
 import { APP_TEST_HOME_PREFIX } from './helpers.ts'
 import { sysKey } from './keys.ts'
@@ -224,6 +225,7 @@ export class KeaRun {
     this.zdotdir = path.join(home, 'zdotdir')
     fs.mkdirSync(this.zdotdir, { mode: 0o700 })
     this.agentBin = path.join(home, 'agent-bin')
+    fs.writeFileSync(path.join(this.zdotdir, '.zshenv'), TEST_ZSHENV)
     fs.writeFileSync(path.join(this.zdotdir, '.zprofile'), shimFirst(this.agentBin))
     fs.writeFileSync(path.join(this.zdotdir, '.zshrc'), `${ZSHRC}${shimFirst(this.agentBin)}`)
     this.gitConfig = path.join(home, 'gitconfig')

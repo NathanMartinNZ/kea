@@ -3,7 +3,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 
-/** Semver, `0.2.0` at the first public release, release candidates `-rc.<n>`. */
+/** Semver, and release candidates `-rc.<n>`. */
 export const VERSION_RE = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(-rc\.(0|[1-9]\d*))?$/
 
 /** The helper's version as its Cargo.toml says it (its `[package]` table's `version`). */
@@ -20,6 +20,21 @@ export function versionProblems(root: string): string[] {
   const helper = cargoVersion(fs.readFileSync(path.join(root, 'native/kea-helper/Cargo.toml'), 'utf8'))
   if (helper !== version) problems.push(`native/kea-helper/Cargo.toml's version is ${helper ?? 'missing'}, not package.json's ${version}`)
   return problems
+}
+
+/** The package step's `install.sh`: built, left out with a note, or a release refused for want of it. */
+export type InstallScriptStep = { kind: 'build' } | { kind: 'skip'; note: string } | { kind: 'refuse'; reason: string }
+
+/**
+ * What the package step does about `install.sh`: it pins the repository's key, so it needs the repository and the key.
+ * Until the key exists a macOS release goes without it (its zip is installed by hand), as `releaseProblems` allows; a
+ * Linux release cannot, since its packages install the key for apt.
+ */
+export function installScriptStep(o: { system: 'darwin' | 'linux'; release: boolean; repository: string | null; key: boolean }): InstallScriptStep {
+  if (o.repository !== null && o.key) return { kind: 'build' }
+  if (o.release && o.system === 'linux') return { kind: 'refuse', reason: "install.sh needs the repository's key (assets/release/kea-app.gpg): it pins its fingerprint" }
+  if (o.release) return { kind: 'skip', note: "not built: there is no repository key yet (assets/release/kea-app.gpg), so this release is the zip alone, installed by hand; publish no install.sh or SHA256SUMS with it" }
+  return { kind: 'skip', note: 'not built: it needs the repository and its key (assets/release/kea-app.gpg); tests build one with --test-repository and --test-key' }
 }
 
 /** `--release`: what stops a build from being published. */

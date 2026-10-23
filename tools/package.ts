@@ -8,7 +8,7 @@
 //   --formats   macOS `zip`; Linux any of `deb,rpm,tar.gz` (default: all of the target's)
 //   --out       where the files go (default dist/package); each target's working folder is removed at the end
 //   --release   a build to publish: refused while Kea's repository is not named (packages/protocol/src/release.ts) or,
-//               on Linux, its key is missing; never with --adhoc
+//               on Linux, its key is missing; never with --adhoc. A macOS release without the key has no install.sh
 //   --adhoc     macOS: sign ad hoc, to check the pipeline without the certificate (never published, never installed)
 //   --test-repository, --test-key
 //               a build for the install tests' stand-in release (E-DST-3): the packages, the feed and install.sh name
@@ -41,7 +41,7 @@ import { packOs, type PackTool } from './pack/src/os/index.ts'
 import { afterInstall, afterRemove, APPARMOR_ABI_4, beforeRemove, artifactNames, debControl, md5sums, ownsFolder, PROFILE_SOURCE, rootFiles, rpmSpec, stageRoot, type PackageMeta } from './pack/src/os/linuxPackage.ts'
 import { acceptedFor, ACCEPTED_LINTIAN, ACCEPTED_RPMLINT, lintProblems } from './pack/src/os/linuxLint.ts'
 import { keyFingerprint, writeInstallScript } from './pack/src/os/installScript.ts'
-import { CERTIFICATE_LEAF, releaseProblems, releaseRequirement, versionProblems } from './pack/src/release.ts'
+import { CERTIFICATE_LEAF, installScriptStep, releaseProblems, releaseRequirement, versionProblems } from './pack/src/release.ts'
 import { APP_ID } from './pack/src/target.ts'
 import { applicationsFolderOf } from './pack/src/target.ts'
 
@@ -344,14 +344,15 @@ async function main(): Promise<void> {
       : packageLinux(target, formats, { app, out: o.out, work, version, release: o.release, licences, fuses, wire: await fuses.getCurrentFuseWire(fuseTarget(target, app)) })
 
   step('install.sh')
-  if (REPOSITORY !== null && KEY_FILE !== null) {
-    const script = path.join(o.out, 'install.sh')
+  const script = installScriptStep({ system: target.system, release: o.release, repository: REPOSITORY, key: KEY_FILE !== null })
+  if (script.kind === 'build') {
+    const file = path.join(o.out, 'install.sh')
     const fingerprint = must(() => keyFingerprint(fs.readFileSync(KEY_FILE as string)))
-    must(() => writeInstallScript(script, { repository: REPOSITORY as string, fingerprint, leaf: CERTIFICATE_LEAF }))
+    must(() => writeInstallScript(file, { repository: REPOSITORY as string, fingerprint, leaf: CERTIFICATE_LEAF }))
     check('install.sh', [], `for ${REPOSITORY}, key ${fingerprint}, leaf ${CERTIFICATE_LEAF}`)
-    made.push(script)
-  } else if (o.release) fail("install.sh needs the repository's key (assets/release/kea-app.gpg): it pins its fingerprint")
-  else console.log('not built: it needs the repository and its key (assets/release/kea-app.gpg); tests build one with --test-repository and --test-key')
+    made.push(file)
+  } else if (script.kind === 'refuse') fail(script.reason)
+  else console.log(script.note)
 
   fs.rmSync(work, { recursive: true, force: true })
   console.log(`\nKea ${version} for ${target.name}${o.adhoc ? ' (ad hoc: never published)' : ''}, ${((performance.now() - started) / 1000).toFixed(1)} s`)

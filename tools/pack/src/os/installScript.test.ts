@@ -1,7 +1,7 @@
 // install.sh: the build that writes a release's values into the template, and the script's safety as a
 // download: cut anywhere, it runs nothing. Its behaviour on real systems is tested by install-e2e.sh (containers) and
 // install-macos.sh (a macOS VM).
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -22,6 +22,20 @@ const V6_FPR = 'CB186C4F0609A697E4D52DFA6C722B0C1F1E27C18A56708F6525EC27BAD9ACC9
 const template = fs.readFileSync(TEMPLATE, 'utf8')
 const values = { repository: 'some-owner/kea', fingerprint: V4_FPR, leaf: CERTIFICATE_LEAF }
 const SHELLS = ['/bin/sh', '/bin/dash', '/bin/bash'].filter((s) => fs.existsSync(s))
+
+/** `f` over `items`, at most `limit` at a time; the results in the items' order. */
+async function inParallel<T, R>(items: readonly T[], limit: number, f: (item: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = new Array<R>(items.length)
+  let next = 0
+  const worker = async (): Promise<void> => {
+    while (next < items.length) {
+      const k = next++
+      out[k] = await f(items[k] as T)
+    }
+  }
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, worker))
+  return out
+}
 
 describe('install.sh', () => {
   const dirs: string[] = []
@@ -101,21 +115,33 @@ describe('install.sh', () => {
   // A download cut short anywhere runs nothing (checked here, not in the end-to-end test, so every verify runs it): the
   // script cut after every line, and inside its last line at every byte, run by each shell present with a PATH of
   // tripwires only: no tripwire fires and no command is looked for. The whole script does reach commands (the tripwires
-  // work). The template refuses to run, and options are refused before anything runs.
-  it('U-PACK-43 · cut after any line or inside the last one, it runs nothing; the template and bad options run nothing either', () => {
+  // work). The template refuses to run, and options are refused before anything runs. The cuts are thousands of shell
+  // runs, one per core at a time: one after another they took longer than a unit test may on a slow shared machine.
+  it('U-PACK-43 · cut after any line or inside the last one, it runs nothing; the template and bad options run nothing either', async () => {
     const d = tmp()
     const trip = path.join(d, 'trip')
     fs.mkdirSync(trip)
-    const log = path.join(d, 'log')
     const commands = new Set(['uname', 'id', 'mktemp', 'curl', 'sudo', 'rm', 'mkdir', 'mv', 'install', 'tar', 'chmod', 'chown', 'apt-get', 'dnf', 'zypper', 'rpm', 'dpkg-query', 'ditto', 'codesign', 'xattr', 'plutil', 'pgrep', 'sysctl', 'sw_vers', 'git', 'xcode-select', 'gpgv', 'sed', 'awk', 'grep', 'tr', 'base64', 'sha256sum', 'shasum', 'cat', 'find', 'sort', 'comm', 'cmp', 'dirname', 'readlink', 'getconf', 'fc-cache', 'apparmor_parser', 'unshare', 'rmdir', 'ls', 'od', 'sha1sum', 'sqv'])
     for (const c of commands) fs.writeFileSync(path.join(trip, c), `#!/bin/sh\necho "${c}" >> "$KEA_CUT_LOG"\n`, { mode: 0o755 })
     const s = buildInstallScript(template, values)
-    const env = { PATH: trip, HOME: d, KEA_CUT_LOG: log }
-    const run = (sh: string, text: string, args: string[] = ['--dry-run']) => {
-      fs.writeFileSync(path.join(d, 'cut.sh'), text)
+    let runs = 0
+    /** One run of `text` by `sh`, with a script and a tripwire log of its own, so that runs can overlap. */
+    const run = async (sh: string, text: string, args: string[] = ['--dry-run']) => {
+      const n = runs++
+      const script = path.join(d, `cut-${n}.sh`)
+      const log = path.join(d, `log-${n}`)
+      fs.writeFileSync(script, text)
+      const r = await new Promise<{ status: number | null; stderr: string }>((resolve, reject) => {
+        const child = spawn(sh, [script, ...args], { env: { PATH: trip, HOME: d, KEA_CUT_LOG: log }, cwd: d, stdio: ['ignore', 'ignore', 'pipe'] })
+        let stderr = ''
+        child.stderr.setEncoding('utf8').on('data', (chunk: string) => (stderr += chunk))
+        child.on('error', reject)
+        child.on('close', (status) => resolve({ status, stderr }))
+      })
+      const ran = fs.existsSync(log) ? fs.readFileSync(log, 'utf8').trim().split('\n') : []
+      fs.rmSync(script)
       fs.rmSync(log, { force: true })
-      const r = spawnSync(sh, [path.join(d, 'cut.sh'), ...args], { encoding: 'utf8', env, cwd: d })
-      return { ran: fs.existsSync(log) ? fs.readFileSync(log, 'utf8').trim().split('\n') : [], err: r.stderr, status: r.status }
+      return { ran, err: r.stderr, status: r.status }
     }
 
     const lines = s.split('\n')
@@ -124,13 +150,15 @@ describe('install.sh', () => {
     for (let n = 0; n < last; n++) cuts.push(lines.slice(0, n).join('\n') + (n ? '\n' : ''))
     const before = lines.slice(0, last).join('\n') + '\n'
     for (let b = 0; b < (lines[last] as string).length; b++) cuts.push(before + (lines[last] as string).slice(0, b))
+    const jobs = SHELLS.flatMap((sh) => cuts.map((text, i) => ({ sh, i, text })))
+    const results = await inParallel(jobs, os.availableParallelism(), (j) => run(j.sh, j.text))
+    for (const [k, j] of jobs.entries()) {
+      const r = results[k]!
+      expect(r.ran, `${j.sh}, cut ${j.i}: ran ${r.ran.join(' ')}`).toEqual([])
+      expect(r.err, `${j.sh}, cut ${j.i}: looked for a command`).not.toMatch(/not found/)
+    }
     for (const sh of SHELLS) {
-      for (const [i, text] of cuts.entries()) {
-        const r = run(sh, text)
-        expect(r.ran, `${sh}, cut ${i}: ran ${r.ran.join(' ')}`).toEqual([])
-        expect(r.err, `${sh}, cut ${i}: looked for a command`).not.toMatch(/not found/)
-      }
-      const whole = run(sh, s)
+      const whole = await run(sh, s)
       expect(whole.ran[0], `${sh}: the whole script reaches its first command`).toBe('uname')
       expect(whole.status).not.toBe(0)
     }
@@ -145,12 +173,12 @@ describe('install.sh', () => {
       [s, ['--version'], /needs a version/],
       [s, ['--uninstall', '--no-repo'], /--uninstall takes only --user and --dry-run/],
     ] as const) {
-      const r = run('/bin/sh', text, [...args])
+      const r = await run('/bin/sh', text, [...args])
       expect(r.ran, `${args.join(' ')}: ran ${r.ran.join(' ')}`).toEqual([])
       expect(r.status).toBe(1)
       expect(r.err).toMatch(why)
     }
-    const help = run('/bin/sh', s, ['--help'])
+    const help = await run('/bin/sh', s, ['--help'])
     expect(help.ran).toEqual([])
     expect(help.status).toBe(0)
   })

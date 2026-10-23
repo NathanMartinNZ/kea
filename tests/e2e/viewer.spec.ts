@@ -22,6 +22,8 @@ import { changeMarker, commitAll, gitIn, gutterLines, loginSource, png, sessionW
 import { expect, test } from './fixtures.ts'
 import { sysKey, textKey } from '../support/keys.ts'
 import { protocolOs } from '../../packages/protocol/src/os/index.ts'
+import { harnessOs } from '../../tools/perf/src/os/index.ts'
+import { TIMING_NOT_JUDGED } from '../support/skip.ts'
 
 /** The file manager's name in a title: Finder, or File Manager on Linux. */
 const FILE_MANAGER = protocolOs.words.fileManager
@@ -513,7 +515,8 @@ test('E-FV-5 · large files: a 15 MB minified bundle shows at once and says wher
 
   const frames = await page.evaluate(() => (globalThis as unknown as { __keaPerf: { framesStop(): { maxGapMs: number; frames: number } } }).__keaPerf.framesStop())
   expect(frames.frames).toBeGreaterThan(60)
-  expect(frames.maxGapMs, 'the longest frame (the app stays responsive)').toBeLessThanOrEqual(100)
+  if (TIMING_NOT_JUDGED === null) expect(frames.maxGapMs, 'the longest frame (the app stays responsive)').toBeLessThanOrEqual(100)
+  else test.info().annotations.push({ type: 'timing', description: `the longest frame took ${Math.round(frames.maxGapMs)} ms; not judged on ${harnessOs.system}: ${TIMING_NOT_JUDGED}` })
 })
 
 test('E-FV-6 · a file in a language not used yet shows as plain text first and its colours follow; an unknown type stays plain text; pinning a ninth file tab closes the least recently viewed pinned one; a tab shown again is where it was left', async ({ run, launch }) => {
@@ -727,6 +730,39 @@ test('E-FV-8 · another session comes on screen: the viewer keeps nothing of the
   expect(await viewerText(kea)).toBe(source(2))
   await until('followed again', async () => ((await viewerRows(kea)).viewerFollows === 1 && (await coreFollows()) === 1) || undefined)
   expect(await served(url, 3)).toBe('served')
+})
+
+// The window asks core for a file and for its gutter's changed lines at the same time, and the two answers come in
+// either order: on a slow machine the lines can come first, before there is a document to mark.
+test('E-FV-10 · the gutter’s changed lines answered before the file itself: once the file is shown it carries their markers', async ({ run, launch }) => {
+  const kea = await launch()
+  const page = await kea.page()
+  const base = 'export function add(a, b) {\n  return a + b\n}\n\nexport function sub(a, b) {\n  return a - b\n}\n'
+  const { worktree } = await sessionWith(kea, run, { 'src/calc.js': base })
+  // line 2 modified and a function added after the last line: two changed regions
+  const changed = `${base.replace('a + b', 'a + b // sum')}\nexport function mul(a, b) {\n  return a * b\n}\n`
+  writeFiles(worktree, { 'src/calc.js': changed })
+  // git has listed the change before the file is opened: nothing about it is news afterwards, so nothing reads the
+  // gutter's lines again
+  await until('the change counted', async () => (await panelModes(kea)).some((m) => m.label === 'Changes 1') || undefined, GIT_MS)
+  type Probe = { holdAnswers(methods: string[]): void; heldAnswers(): Record<string, number>; releaseAnswers(method?: string): void }
+  const probe = (): Probe => (globalThis as unknown as { __keaProbe: Probe }).__keaProbe
+  await page.evaluate(`(${probe.toString()})().holdAnswers(['viewer.changes', 'viewer.read'])`)
+  try {
+    await clickFile(kea, 'src/calc.js')
+    await until('both answers held', async () => {
+      const held = (await page.evaluate(`(${probe.toString()})().heldAnswers()`)) as Record<string, number>
+      return ((held['viewer.changes'] ?? 0) > 0 && (held['viewer.read'] ?? 0) > 0) || undefined
+    })
+    // the changed lines first; the file once the window has taken them
+    await page.evaluate(`(${probe.toString()})().releaseAnswers('viewer.changes')`)
+  } finally {
+    await page.evaluate(`(${probe.toString()})().releaseAnswers()`)
+  }
+  await waitBody(kea, 'src/calc.js', 'text')
+  expect(await viewerText(kea)).toBe(changed)
+  await waitViewer(kea, 'two changed regions', (v) => v.ui.changes === 2)
+  expect([await changeMarker(kea, 1), await changeMarker(kea, 2), await changeMarker(kea, 9)], 'a marker on the changed and the added lines only').toEqual([null, 'modified', 'added'])
 })
 
 test('E-DF-1 · a changed file clicked in Changes is its diff against the branch’s base; ] and [ step through the changed files and around; after the agent commits it is still listed and still a diff in Branch scope; a click on Uncommitted in the Changes header empties the list and the open diff together, a new edit shows in both, and a click on Branch puts both back on the branch’s base', async ({ run, launch }) => {

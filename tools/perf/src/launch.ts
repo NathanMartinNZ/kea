@@ -90,6 +90,16 @@ unset kea_shim
 `
 }
 
+/**
+ * A test shell's `.zshenv`, the only file of its ZDOTDIR that zsh reads before the system's zshrc. Ubuntu's
+ * /etc/zsh/zshrc runs compinit unless `skip_global_compinit` is set, and where zsh's function folders are
+ * group-writable (GitHub's runners) compinit stops to ask "Ignore insecure directories and continue [y] or abort
+ * compinit [n]?", so the shell never shows its prompt.
+ */
+export const TEST_ZSHENV = `# tools/perf/src/launch.ts: no global compinit (Ubuntu's system zshrc can stop to ask a question)
+skip_global_compinit=1
+`
+
 /** This process's PATH without the directories that hold an agent CLI: a harness run's PATH, after its fake agents. */
 export function pathWithoutAgents(): string {
   const dirs = (process.env.PATH ?? '/usr/bin:/bin').split(':').filter(Boolean)

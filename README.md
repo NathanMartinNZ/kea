@@ -25,7 +25,8 @@ pre-1.0 and maintained by one person.
 ## Install
 
 > [!NOTE]
-> No release has been published yet. Until the first one, [build Kea from source](docs/building.md).
+> Releases are published for macOS as a signed zip for now: [install it by hand](#macos). The install command below
+> and the Linux packages come with a later release; until then, on Linux, [build Kea from source](docs/building.md).
 
 Kea needs macOS 14 or later on Apple silicon (Intel Macs are not supported), or Linux on x64 or arm64 with
 glibc 2.35 or later. It also needs git 2.40 or later and a signed-in agent CLI (see [Requirements](#requirements)).

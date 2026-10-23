@@ -28,7 +28,9 @@ unit tests, the Rust tests and the first tier of the integration, contract, chao
 five minutes and ends with a table of what passed. `pnpm hooks:install` runs it before every `git push`.
 
 CI (`.github/workflows/ci.yml`) runs `pnpm verify` on macOS and on Linux (x64 and arm64) for every push and pull
-request, and the e2e suite on Linux. The pre-push hook stays: it is the same gate, before the push rather than after.
+request. It leaves out the chaos and memory steps, and it does not run the e2e suite: their timings are set for a
+person's machine, and shared runners are too slow and too uneven for them. So the pre-push hook stays: it runs the
+whole gate, those two steps included, before the push. Run `pnpm test:e2e` yourself for a change to the window.
 
 The chaos and memory suites start Kea with a window that never takes the keyboard; on Linux they run it on an Xvfb
 display of their own (install `xvfb` and `zsh`; on Ubuntu 23.10 and later they also need Electron's `chrome-sandbox`

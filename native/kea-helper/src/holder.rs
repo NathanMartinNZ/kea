@@ -788,8 +788,14 @@ impl<P: PeerCheck> Holder<P> {
         let fg = self.pty.as_ref().map(|p| unsafe { libc::tcgetpgrp(p.master.as_raw_fd()) }).filter(|&p| p > 0).unwrap_or(0);
         let mut name = [0u8; NAME_BUF];
         let mut cwd = [0u8; PATH_BUF];
-        let name_len = crate::os::name_into(fg, &mut name);
-        let cwd_len = crate::os::cwd_into(fg, &mut cwd);
+        let mut name_len = crate::os::name_into(fg, &mut name);
+        let mut cwd_len = crate::os::cwd_into(fg, &mut cwd);
+        let mut own = [0u8; NAME_BUF];
+        let own_len = crate::os::name_into(self.my_pid, &mut own);
+        if not_execed_yet(fg, self.child_pid, &name[..name_len], &own[..own_len]) {
+            name_len = 0;
+            cwd_len = 0;
+        }
         if self.exit.is_none() {
             self.scan.descendants_into(self.child_pid, &mut self.stat_pids);
         } else {
@@ -986,6 +992,12 @@ pub fn run_holder(args: PtyArgs) -> i32 {
     drop(holder);
     let _ = wake_wr.into_raw_fd(); // the signal handler may still write to it until exit
     code
+}
+
+/// Is the terminal's foreground the holder's own child before its `exec`? From `TIOCSCTTY` to `execvp` the child
+/// is still a copy of the holder (its name, its folder), and nothing runs in the terminal yet.
+fn not_execed_yet(fg: i32, child: i32, fg_name: &[u8], own_name: &[u8]) -> bool {
+    fg == child && !own_name.is_empty() && fg_name == own_name
 }
 
 #[cfg(test)]

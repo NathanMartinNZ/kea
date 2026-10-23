@@ -32,8 +32,46 @@ function ready(): Promise<Peer> {
   return new Promise((resolve) => waiters.push(resolve))
 }
 
+type Hold = { released: Promise<void>; release: () => void; waiting: number }
+/**
+ * The test probes' holds (`__keaProbe.holdAnswers`, only under `--kea-perf`): core's answers to a held method reach
+ * their callers once it is released, as from a slow core, so a test can put answers in the order a slow machine gives
+ * them. Empty in normal use.
+ */
+const holds = new Map<string, Hold>() // bounded: one per core method, and only while a test probe holds it
+
 export async function call<K extends keyof CoreApi & string>(method: K, args: ArgsOf<CoreApi, K>): Promise<ResultOf<CoreApi, K>> {
-  return (await ready()).call(method, args)
+  const answer = await (await ready()).call(method, args)
+  const hold = holds.get(method)
+  if (hold) {
+    hold.waiting++
+    await hold.released
+  }
+  return answer
+}
+
+/** Hold core's answers to each of `methods` until it is released. Test probes only. */
+export function holdAnswers(methods: readonly string[]): void {
+  for (const m of methods) {
+    if (holds.has(m)) continue
+    let release = (): void => undefined
+    const released = new Promise<void>((resolve) => (release = resolve))
+    holds.set(m, { released, release, waiting: 0 })
+  }
+}
+
+/** How many answers wait at each hold. */
+export function heldAnswers(): Record<string, number> {
+  return Object.fromEntries([...holds].map(([m, h]) => [m, h.waiting]))
+}
+
+/** Let the answers held for `method` through and hold it no more; every hold when no method is named. */
+export function releaseAnswers(method?: string): void {
+  for (const [m, h] of [...holds]) {
+    if (method !== undefined && m !== method) continue
+    h.release()
+    holds.delete(m)
+  }
 }
 
 /**

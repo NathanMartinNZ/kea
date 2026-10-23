@@ -22,6 +22,9 @@
 //               left first), or null before any decision (E-PTY-3 waits on it instead of on time)
 //   rpcPending() the window's calls still waiting for core's answer: 0 once an overlay that asked core for something
 //               as it opened has it (L-MEM-18 closes each sheet only then, so every cycle draws the same things)
+//   holdAnswers() core's answers to the methods named reach the window only when each is released
+//               (`releaseAnswers()`; `heldAnswers()` counts the answers waiting), as from a slow core: a test puts
+//               answers in the order a slow machine gives them (E-FV-10: a file's gutter lines before the file)
 //   focus()     a stand-in for the window's keyboard focus (true / false; null follows the window): a test window can
 //               never take it, and whether the user is viewing a session depends on it (E-ST-2). `viewing()` is what
 //               the window reports to core as viewed
@@ -51,7 +54,7 @@ import { Terminal, type ITheme } from '@xterm/xterm'
 import { SearchAddon } from '@xterm/addon-search'
 import { WebglAddon } from '@xterm/addon-webgl'
 import { commands } from '../features/commands/registry.ts'
-import { call, rpcStats, subscribe } from './rpc.ts'
+import { call, heldAnswers, holdAnswers, releaseAnswers, rpcStats, subscribe } from './rpc.ts'
 import { activeView, terminals } from '../features/terminal/views.ts'
 import type { TerminalView } from '../features/terminal/view.ts'
 import { ui } from '../features/sessions/state.svelte.ts'
@@ -238,6 +241,9 @@ export function installTestProbes(): void {
     call: (method: string, args: unknown): Promise<unknown> => call(method as never, args as never),
     /** The window's calls still waiting for core's answer (a sheet's preview, the composer's bases): 0 at rest. */
     rpcPending: (): number => rpcStats().pendingCalls,
+    holdAnswers: (methods: string[]): void => holdAnswers(methods),
+    heldAnswers: (): Record<string, number> => heldAnswers(),
+    releaseAnswers: (method?: string): void => releaseAnswers(method),
     store: (name: string) => storeProbe(name),
     dropStore(name: string): void {
       followed.get(name)?.off()

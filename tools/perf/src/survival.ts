@@ -32,7 +32,7 @@ import type { ElectronApplication, Page } from '@playwright/test'
 import { CURRENT_HELPER_DIR } from '../../../app/ptyhost/src/holder/launch.ts'
 import { unregisterGiven } from '../../pack/src/unregister.ts'
 import { parentPid } from './holders.ts'
-import { assertLoginShellAgents, cleanupRun, launchEnv, launchKea, pathWithoutAgents, runAppProcesses, shimFirstRc, signalKnown, writeAgentShims, type ProcInfo } from './launch.ts'
+import { assertLoginShellAgents, cleanupRun, launchEnv, launchKea, pathWithoutAgents, runAppProcesses, shimFirstRc, signalKnown, TEST_ZSHENV, writeAgentShims, type ProcInfo } from './launch.ts'
 
 const root = path.resolve(import.meta.dirname, '..', '..', '..')
 const dist = path.join(root, 'dist/app')
@@ -118,6 +118,7 @@ export function harnessEnv(home: string, zshrc: string): Record<string, string> 
   fs.mkdirSync(zdotdir, { recursive: true })
   const shims = agentShims(home)
   writeAgentShims(shims)
+  fs.writeFileSync(path.join(zdotdir, '.zshenv'), TEST_ZSHENV)
   fs.writeFileSync(path.join(zdotdir, '.zprofile'), shimFirstRc(shims))
   // before the caller's lines: the packaged mode's rc never returns in the shell tab
   fs.writeFileSync(path.join(zdotdir, '.zshrc'), `${shimFirstRc(shims)}${zshrc}`)

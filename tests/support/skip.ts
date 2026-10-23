@@ -17,6 +17,12 @@ export function skipWhere(ctx: Pick<TestContext, 'skip'>, reason: string | null)
   if (reason !== null) ctx.skip(skipNote(reason))
 }
 
+/**
+ * Null where a test judges its timing against a budget; elsewhere why it reports the time instead: the budgets are the
+ * macOS reference machine's, and `pnpm perf` judges none on another system either.
+ */
+export const TIMING_NOT_JUDGED: string | null = harnessOs.system === 'darwin' ? null : 'the timing budgets are the macOS reference machine’s'
+
 /** The note a skip shows. */
 export function skipNote(reason: string): string {
   return `not on ${harnessOs.system}: ${reason}`

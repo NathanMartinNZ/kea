@@ -460,19 +460,16 @@ export class ViewerController {
 
   private async loadFile(gen: number, what: { file: boolean; git: boolean }): Promise<void> {
     const source = otherView.has(this.key) && imageExtension(this.path) === 'svg'
-    // the gutter's lines are asked for at the same time, and arrive when they arrive
-    const changes = call('viewer.changes', this.args()).then(
-      (c) => {
-        if (gen === this.gen) this.gotChanges(c)
-      },
-      () => undefined,
-    )
+    // the gutter's lines are asked for at the same time but marked only once the file is shown: they can be answered
+    // first, before there is a document to mark
+    const changes = call('viewer.changes', this.args()).catch(() => null)
     if (what.file) {
       const r = await call('viewer.read', { ...this.args(), ...(source ? { source: true } : {}) })
       if (gen !== this.gen) return
       this.gotFile(r)
     }
-    await changes
+    const c = await changes
+    if (c && gen === this.gen) this.gotChanges(c)
   }
 
   private gotFile(r: FileRead): void {

@@ -13,6 +13,7 @@ import { L } from '@kea/protocol'
 import { resolveCargo } from '../../tools/cargo.ts'
 import { agentCommands } from '@kea/adapters'
 import { assertLoginShellAgents, fallbackLookup, harnessUserHome, launchKea, loginShellLookup, runAppProcesses, writeAgentShims } from '../../tools/perf/src/launch.ts'
+import { harnessEnv } from '../../tools/perf/src/survival.ts'
 import { assertNoRealAgentOnPath } from '../support/agent-guard.ts'
 import { FRONT_LOG as MAIN_FRONT_LOG } from '../../app/main/src/frontGuard.ts'
 import { FRONT_LOG, frontSteps, KeaRun, LAUNCHES_KEA, pathWithoutAgents, STEP_MS, WATCHDOG_LOG, watchdogTriggers } from '../support/app.ts'
@@ -113,6 +114,25 @@ describe('the environment Kea is launched with', () => {
     fs.appendFileSync(path.join(run.zdotdir, '.zshrc'), `path=(${other} $path)\n`)
     expect(() => assertLoginShellAgents(env, run.agentBin)).toThrow(`finds \`claude\` at ${path.join(other, 'claude')}`)
     expect(() => assertLoginShellAgents(run.launchEnv({ PATH: pathWithoutAgents() }), null)).toThrow(`finds \`claude\` at ${path.join(other, 'claude')}`)
+  })
+
+  // Ubuntu's /etc/zsh/zshrc runs compinit unless skip_global_compinit is set. On a machine whose zsh function folders
+  // are group-writable (GitHub's runners), compinit stops at "Ignore insecure directories and continue [y] or abort
+  // compinit [n]?" and the test shell never shows its prompt. Of the files the run's ZDOTDIR holds, only `.zshenv` is
+  // read before that one.
+  it.runIf(LAUNCHES_KEA)('I-HARN-18 · the test shells of KeaRun and of the survival harness skip Ubuntu’s global compinit: skip_global_compinit is set before any zshrc is read', async () => {
+    const run = KeaRun.create()
+    cleanup.push(() => run.dispose())
+    const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'kea-harn-survival-')))
+    cleanup.push(() => fs.rmSync(home, { recursive: true, force: true }))
+    const seen: Record<string, string> = {}
+    for (const [what, env] of [['KeaRun', run.launchEnv()], ['survival harness', harnessEnv(home, '')]] as const) {
+      // `zsh -c` reads /etc/zshenv and $ZDOTDIR/.zshenv and no other rc file
+      const r = await runProcess(env.SHELL!, ['-c', 'print -r -- ${skip_global_compinit-unset}'], { pool: 'other', env, timeoutMs: STEP_MS })
+      expect(r.code, `${what}: ${r.stderr}`).toBe(0)
+      seen[what] = r.stdout!.toString('utf8').trim()
+    }
+    expect(seen).toEqual({ KeaRun: '1', 'survival harness': '1' })
   })
 })
 

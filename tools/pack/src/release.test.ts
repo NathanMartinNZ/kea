@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { parseRepository, RELEASE_REPOSITORY, releaseUrls } from '../../../packages/protocol/src/release.ts'
 import { crates, licenceFiles, licencesText, repositoryOf, type Dependency } from './licences.ts'
 import { latestMacYml, zipName } from './macZip.ts'
-import { cargoVersion, releaseProblems, VERSION_RE, versionProblems } from './release.ts'
+import { cargoVersion, installScriptStep, releaseProblems, VERSION_RE, versionProblems } from './release.ts'
 
 const root = path.resolve(import.meta.dirname, '..', '..', '..')
 
@@ -61,6 +61,23 @@ describe('licences, versions and releases', () => {
   // tree). A release build is refused while the repository is not named, the key is missing, or it is signed ad hoc.
   // The repository's URLs, and macOS's feed naming the zip by its versioned release URL (by its name while no
   // repository is named).
+  // install.sh pins the repository's key. Until the key exists a release is the macOS zip alone, installed by hand,
+  // as the release check allows; a Linux release cannot go without it (its packages install the key for apt).
+  it('U-PACK-47 · install.sh is built once the repository and its key are named; without the key a build and a macOS release go without it, a Linux release is refused', () => {
+    const repository = 'some-owner/kea'
+    for (const system of ['darwin', 'linux'] as const) {
+      expect(installScriptStep({ system, release: true, repository, key: true }), system).toEqual({ kind: 'build' })
+      expect(installScriptStep({ system, release: false, repository, key: false }).kind, system).toBe('skip')
+    }
+    const mac = installScriptStep({ system: 'darwin', release: true, repository, key: false })
+    expect(mac).toMatchObject({ kind: 'skip' })
+    expect(mac.kind === 'skip' ? mac.note : '').toMatch(/installed by hand/)
+    expect(installScriptStep({ system: 'linux', release: true, repository, key: false })).toMatchObject({ kind: 'refuse' })
+    // the release check before the build agrees: a macOS release asks for no key, a Linux release does
+    expect(releaseProblems({ repository, key: true, adhoc: false, version: '1.0.0' })).toEqual([])
+    expect(releaseProblems({ repository, key: false, adhoc: false, version: '1.0.0' })).toHaveLength(1)
+  })
+
   it('U-PACK-40 · one version; a release needs the repository, its key and the certificate; the feed names the zip by its release URL', () => {
     for (const v of ['0.1.0', '0.2.0', '0.2.0-rc.1', '10.20.30-rc.12']) expect(VERSION_RE.test(v), v).toBe(true)
     for (const v of ['0.2', '0.2.0-beta.1', '01.2.3', '0.2.0-rc.01', '0.2.0+meta', 'v0.2.0']) expect(VERSION_RE.test(v), v).toBe(false)

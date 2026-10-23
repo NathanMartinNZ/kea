@@ -503,3 +503,15 @@ fn r_plt_3_a_holders_footprint_stays_flat_while_its_ring_fills() {
     println!("footprint {before} → {after} (+{grown}) with a {RING}-byte ring filled twice");
     assert!(grown < SLACK, "the footprint grew by {grown} bytes ({before} → {after}) while a {RING}-byte ring filled twice");
 }
+
+// A new terminal's child between `fork` and `exec` is still the holder under another pid: asked then, the holder
+// reports no foreground name or folder, so a tab is never titled after Kea's own helper. A program of that name
+// started in the terminal later is its own process group, and the shell that `exec`s it has its own name by then.
+#[test]
+fn r_hld_13_the_child_before_its_exec_is_never_reported_as_what_runs() {
+    use super::not_execed_yet;
+    assert!(not_execed_yet(4242, 4242, b"kea-helper", b"kea-helper"), "the child, still under the holder's name");
+    assert!(!not_execed_yet(4242, 4242, b"zsh", b"kea-helper"), "the child after its exec");
+    assert!(!not_execed_yet(4300, 4242, b"kea-helper", b"kea-helper"), "a kea-helper started in the terminal");
+    assert!(!not_execed_yet(4242, 4242, b"", b""), "no name known on either side");
+}
