@@ -15,8 +15,7 @@ live file tree with the session's changes, and a dev server one click away. The 
 working, which are waiting for you and which have finished. Sessions keep running when Kea quits, crashes or is
 updated.
 
-Kea has no account, no server and no telemetry. It runs the agent CLIs you already use, signed in as you. It is
-pre-1.0 and maintained by one person.
+Kea has no account, no server and no telemetry. It runs the agent CLIs you already use, signed in as you.
 
 <!-- screenshot:
 ![Kea with projects and sessions in the sidebar, a session's changes and its agent terminal](docs/screenshot.png)
