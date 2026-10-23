@@ -25,8 +25,8 @@ pre-1.0 and maintained by one person.
 ## Install
 
 > [!NOTE]
-> Releases are published for macOS only for now. On Linux the install command stops before it changes anything: the
-> Linux packages come with a later release, and until then you can [build Kea from source](docs/building.md).
+> Kea's dnf and zypper repositories are not published yet. On Fedora and openSUSE, add `--no-repo`
+> (`… | sh -s -- --no-repo`): Kea then installs from the release itself, and running the command again updates it.
 
 Kea needs macOS 14 or later on Apple silicon (Intel Macs are not supported), or Linux on x64 or arm64 with
 glibc 2.35 or later. It also needs git 2.40 or later and a signed-in agent CLI (see [Requirements](#requirements)).

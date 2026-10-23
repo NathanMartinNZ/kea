@@ -51,6 +51,9 @@ sudo apt-get install -y kea-app
 
 ### Fedora
 
+The dnf and zypper repositories (this section and the next) are not published yet. Until they are, install the
+downloaded `.rpm` above, or run the install command with `--no-repo`.
+
 ```sh
 cat >kea-app.repo <<'EOF'
 [kea-app]
