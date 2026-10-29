@@ -1,15 +1,27 @@
 <!--
 Small layers over the terminal: "Jump to bottom", the multi-line paste confirmation (a sheet at the top of the main
-pane whose default button is the safe one), the link target on hover and the "Copy link" menu for targets that are
-never opened.
+pane whose default button is the safe one), the link target on hover, the "Copy link" menu for targets that are
+never opened, and Linux's one-time copy hint (plain Ctrl+C over a selection interrupted; its action turns on
+`terminal.ctrlCopyPaste`). The hint never takes the keyboard.
 -->
 <script lang="ts">
+  import { Icon, Menu, type MenuItem } from '@kea/ui'
+  import { call } from '../../lib/rpc.ts'
+  import { shortcut } from '../commands/bindings.svelte.ts'
   import { commands } from '../commands/registry.ts'
+  import { failed } from '../sessions/state.svelte.ts'
   import { terminalUi, uiState } from './ui.svelte.ts'
   import { terminals } from './views.ts'
 
+  const keepFocus = (e: MouseEvent) => e.preventDefault()
+  const LINK_ITEMS: MenuItem[] = [{ id: 'copyLink', label: 'Copy link' }]
+
+  function useCtrlCopy(): void {
+    terminalUi.copyHint(false)
+    call('settings.set', { key: 'terminal.ctrlCopyPaste', value: true }).catch((e: unknown) => failed("Couldn't change the setting", e))
+  }
+
   let pasteCancel: HTMLButtonElement | undefined = $state()
-  let linkItem: HTMLButtonElement | undefined = $state()
 
   // the paste sheet opens with its safe button focused
   $effect(() => {
@@ -25,32 +37,20 @@ never opened.
     v?.focus()
   }
 
-  // "Copy link" takes focus; Esc, a press elsewhere or leaving the window closes it
-  $effect(() => {
-    const m = uiState.linkMenu
-    const item = linkItem
-    if (!m) return
-    item?.focus()
-    const close = () => terminalUi.linkMenu(null)
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && close()
-    const onDown = (e: MouseEvent) => !(e.target instanceof Node && item?.parentElement?.contains(e.target)) && close()
-    window.addEventListener('keydown', onKey)
-    window.addEventListener('mousedown', onDown, true)
-    window.addEventListener('blur', close)
-    return () => {
-      window.removeEventListener('keydown', onKey)
-      window.removeEventListener('mousedown', onDown, true)
-      window.removeEventListener('blur', close)
-    }
-  })
-
-  function copyLink(target: string): void {
+  /** "Copy link", for the target the menu was opened on (the menu closes before its pick runs). */
+  const copyLink = (target: string) => (): void => {
     void navigator.clipboard.writeText(target).catch((e: unknown) => console.warn('copy link failed', e))
-    terminalUi.linkMenu(null)
     terminals.shown()?.focus()
   }
 </script>
 
+{#if uiState.copyHint}
+  <div class="copy-hint" role="status">
+    <span>Ctrl+C sent an interrupt. Copy is {shortcut('terminal.copy') ?? 'Ctrl+Shift+C'}.</span>
+    <button class="link-button" onmousedown={keepFocus} onclick={useCtrlCopy}>Use Ctrl+C to copy</button>
+    <button class="quiet-button icon" aria-label="Dismiss" data-tip="Dismiss" onmousedown={keepFocus} onclick={() => terminalUi.copyHint(false)}><Icon name="close" /></button>
+  </div>
+{/if}
 {#if uiState.scrolledUp}
   <button class="jump-bottom" onmousedown={(e) => e.preventDefault()} onclick={() => commands.run('terminal.jumpToBottom')}>Jump to bottom</button>
 {/if}
@@ -79,7 +79,6 @@ never opened.
 {/if}
 {#if uiState.linkMenu}
   {@const m = uiState.linkMenu}
-  <div class="menu" role="menu" style:left="{m.x}px" style:top="{m.y}px">
-    <button bind:this={linkItem} role="menuitem" class="menu-item" onclick={() => copyLink(m.target)}>Copy link</button>
-  </div>
+  <!-- a menu like any other: one at a time, Esc, a press elsewhere or the window losing focus closes it -->
+  <Menu label="Link menu" items={LINK_ITEMS} at={{ x: m.x, y: m.y }} onPick={copyLink(m.target)} onClose={() => terminalUi.linkMenu(null)} />
 {/if}

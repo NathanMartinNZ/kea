@@ -63,7 +63,7 @@ describe('holders hidden by /proc', () => {
 
     const report = linux.report
     if (!('platform' in report)) throw new Error('the Linux platform report is missing')
-    const line = report.platform({ version: '6.8.0', arch: process.arch, resourcesDir: h.home, execPath: process.execPath, webgl2: 'enabled', trayHost: null, notificationService: null, rendererPid: null, corePid: null, idle: 'system', watchLimitHeld: null, display: 'x11', desktopId: 'dev.kea.app.dev' }).lines.find((l) => l.id === 'holderVisibility')
+    const line = report.platform({ version: '6.8.0', arch: process.arch, resourcesDir: h.home, execPath: process.execPath, webgl2: 'enabled', trayHost: null, notificationService: null, rendererPid: null, corePid: null, idle: 'system', watchLimitHeld: null, display: 'x11', desktopId: 'dev.kea.app.dev', displayScale: null }).lines.find((l) => l.id === 'holderVisibility')
     expect(line?.value).toMatch(/^hidden by \/proc's hidepid=/)
     expect(line?.fix).toMatch(/^Mount \/proc without hidepid/)
   })

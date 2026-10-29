@@ -162,6 +162,8 @@ describe('command table', () => {
     expect(surfaceMenu('session ⌃').slice(0, 4)).toEqual(['session.rename', 'session.openInEditor', 'session.reveal', 'session.copyBranch'])
     expect(surfaceMenu('editor ▾')).toEqual(['session.reveal', 'session.copyWorktreePath', 'view.openIn', 'view.openInTerminalApp'])
     expect(surfaceMenu('menu-bar item')).toEqual(['app.openKea', 'app.quit'])
+    // a terminal's menu reads as a terminal app's: the clipboard first, then Find and Clear
+    expect(surfaceMenu('terminal ⌃')).toEqual(['terminal.copy', 'terminal.paste', 'terminal.selectAll', 'terminal.find', 'terminal.clear'])
     expect(surfaceMenu('header ⋯', (id) => id !== 'session.rename')[0]).toBe('session.resume')
   })
 

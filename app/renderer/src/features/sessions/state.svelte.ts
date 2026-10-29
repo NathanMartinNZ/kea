@@ -24,9 +24,9 @@ export function sessionRows(): SessionView[] {
 }
 /**
  * Every PTY of the window's sessions and of the `shells` pseudo-session (the tab strips read it). What a tab shows is
- * its structure: its kind and state, its program's title and its foreground process's name.
+ * its structure: its kind, state and number, its program's title and its foreground process's name.
  */
-export const terminalsList = new FrameStore<PtyInfo>({ schedule: nextFrame, structure: (t) => `${t.sessionId}|${t.state}|${t.kind}|${t.title ?? ''}|${t.foreground ?? ''}` })
+export const terminalsList = new FrameStore<PtyInfo>({ schedule: nextFrame, structure: (t) => `${t.sessionId}|${t.state}|${t.kind}|${t.number ?? ''}|${t.title ?? ''}|${t.foreground ?? ''}` })
 
 /** The setting `general.sessionOrder`, followed live. */
 export function sessionOrder(): SessionOrder {
@@ -64,6 +64,8 @@ export interface MenuRequest {
   kind: 'session' | 'project' | 'header'
   id: string
   at: { x: number; y: number }
+  /** The button it hangs from (`menuTrigger`), when a button opened it: a click there closes it. */
+  trigger?: string
 }
 
 export interface SessionsUi {

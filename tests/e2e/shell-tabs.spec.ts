@@ -1,25 +1,34 @@
-// An extra shell tab, its title and closing it: Kea launched through tests/e2e/fixtures.ts and driven with
-// the keyboard, as a person does: `⌘T`, a command, `⌃D`, `⌘W`. The command is `cat`, which waits on its terminal until
-// its input ends.
+// An extra shell tab, its name and tooltip, and closing it: Kea launched through tests/e2e/fixtures.ts and driven
+// with the keyboard, as a person does: `⌘T`, a command, `⌃D`, `⌘W`. The command is `cat`, which waits on its terminal
+// until its input ends.
 
 import { PROMPT, STEP_MS, until, type Kea } from '../support/app.ts'
 import { addProject, agentTerminal, demoRepo, paneSession, selectSession, startSession, waitForeground, waitLive } from '../support/app-sessions.ts'
 import { expect, test } from './fixtures.ts'
 import { sysKey } from '../support/keys.ts'
 import { NO_DOCK } from '../support/app-menubar.ts'
+import { tooltip } from '../support/app-palette.ts'
 
-test('E-TERM-1 · ⌘T opens a shell tab titled with what runs in it: a command started later renames the tab, and the shell’s name is back when it ends; ⌘W on an idle shell closes it at once; with a program running in the foreground ⌘W asks first, names the program, and Cancel keeps the tab and the program; Close Tab ends both', async ({ run, launch }) => {
+test('E-TERM-1 · ⌘T opens a shell tab named Terminal n, its tooltip what runs in it: a command started later names the tooltip, and the shell’s name is back when it ends, while the tab keeps its name; ⌘W on an idle shell closes it at once; with a program running in the foreground ⌘W asks first, names the program, and Cancel keeps the tab and the program; Close Tab ends both', async ({ run, launch }) => {
   const kea = await launch()
   const page = await kea.page()
   const first = (await kea.shown()) as string
   await kea.waitScreen('the first shell prompt', (s) => s.includes(PROMPT))
   const tab = (ptyId: string) => page.locator(`[role=tab][data-pty="${ptyId}"]`)
+  /** The tab's name and what its tooltip and accessible description say runs in it. */
+  const says = async (ptyId: string, name: string, running: string, o: { timeout?: number } = {}) => {
+    await expect(tab(ptyId)).toHaveText(name)
+    await expect(tab(ptyId)).toHaveAttribute('data-tip', running, o)
+    await expect(tab(ptyId)).toHaveAccessibleDescription(running, o)
+  }
   const sheet = page.getByRole('alertdialog', { name: 'Close tab' })
+  // the first shell of the shells pane is its Terminal 1
+  await says(first, 'Terminal 1', 'zsh')
 
-  // ⌘T: a new shell tab, on screen, titled with the process in its foreground: the shell
+  // ⌘T: a new shell tab, on screen, numbered after the first; its tooltip is the process in its foreground: the shell
   const idle = await kea.newTab()
   await expect(tab(idle)).toHaveAttribute('data-kind', 'shell')
-  await expect(tab(idle)).toHaveText('zsh')
+  await says(idle, 'Terminal 2', 'zsh')
   await expect(tab(idle)).toHaveAttribute('aria-selected', 'true')
   // an idle shell closes at once: nothing is asked
   await page.keyboard.press(sysKey('Meta+w'))
@@ -27,22 +36,26 @@ test('E-TERM-1 · ⌘T opens a shell tab titled with what runs in it: a command 
   await expect(sheet).toHaveCount(0)
   await until('its holder gone', () => !run.holders().some((h) => h.ptyId === idle && run.holderAlive(h)) || undefined)
 
-  // a command started later renames its tab (core asks the holder what runs in the foreground when something happens
-  // in the tab), and when it ends the tab has the shell's name again
+  // the closed tab was the highest: the next one takes its number again. A command started later is named in its
+  // tooltip (core asks the holder what runs in the foreground when something happens in the tab), and when it ends the
+  // tooltip has the shell's name again; the tab's name stays
   const busy = await kea.newTab()
-  await expect(tab(busy)).toHaveText('zsh')
+  await says(busy, 'Terminal 2', 'zsh')
   await kea.enter('cat')
   await waitForeground(run, busy, 'cat')
-  await expect(tab(busy)).toHaveText('cat', { timeout: STEP_MS })
-  await expect(tab(first), 'the other shell tab keeps its own').toHaveText('zsh')
+  await says(busy, 'Terminal 2', 'cat', { timeout: STEP_MS })
+  await tab(busy).hover()
+  await expect(tooltip(page), 'the tooltip shows it').toHaveText('cat', { timeout: STEP_MS })
+  await page.locator('.terminal-host.shown').hover()
+  await says(first, 'Terminal 1', 'zsh')
   await kea.press('Control+d') // end of input: cat exits, the shell has the terminal again
-  await expect(tab(busy)).toHaveText('zsh', { timeout: STEP_MS })
+  await says(busy, 'Terminal 2', 'zsh', { timeout: STEP_MS })
   await kea.echo('after-cat')
 
   // a program running in the foreground: ⌘W asks first, naming it
   await kea.enter('cat')
   await waitForeground(run, busy, 'cat')
-  await expect(tab(busy)).toHaveText('cat', { timeout: STEP_MS })
+  await says(busy, 'Terminal 2', 'cat', { timeout: STEP_MS })
   const cat = run.holder(busy)
   await page.keyboard.press(sysKey('Meta+w'))
   await expect(sheet).toBeVisible({ timeout: STEP_MS })

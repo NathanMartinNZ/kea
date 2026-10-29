@@ -3,7 +3,8 @@ The window's one tooltip: micro type on `--surface-4`, after `--motion-tooltip-d
 once. Controls carry `data-tip` (with `data-tip-key` for a key no command owns), and buttons `data-command`
 (tooltip.ts); this listens on the document, so no control has a listener of its own and a control that goes leaves
 nothing behind. The pointer resting on such a control, or the keyboard arriving on one, shows its tip after the delay;
-leaving it, any key, any press, a scroll or the window losing focus hides it. `resolve(command)` gives a command's title
+leaving it (to outside it, or out of the window), any key, any press, a scroll, a resize or the window losing focus
+hides it. A control whose menu is open (`aria-expanded="true"`) shows none. `resolve(command)` gives a command's title
 and its key now, read when the tip shows.
 
 It is a hint for the eye: the control's own accessible name already says what it does and its key, so the tip is
@@ -11,7 +12,7 @@ hidden from assistive technology. Locatable as `.kea-tooltip` (its text, and the
 -->
 <script lang="ts">
   import { SPACE_PX } from './generated/tokens.ts'
-  import { cssDurationMs, tipOf, tipPlace, TooltipDelay, type Tip } from './tooltip.ts'
+  import { cssDurationMs, leavesAnchor, TIP_SELECTOR, tipNow, tipPlace, tipWanted, TooltipDelay, type Tip, type TipControl } from './tooltip.ts'
 
   let { resolve }: { resolve(command: string): { title: string; shortcut?: string | undefined } | undefined } = $props()
 
@@ -22,9 +23,14 @@ hidden from assistive technology. Locatable as `.kea-tooltip` (its text, and the
   let anchor: Element | null = null
   const GAP = SPACE_PX[0]
 
-  // a control that names its command; rows that carry `data-command` for other reasons (a menu's items, the keyboard
-  // list) say their key themselves
-  const SELECTOR = '[data-tip], button[data-command]:not([role=menuitem])'
+  const read = (el: HTMLElement): TipControl => ({
+    connected: el.isConnected,
+    disabled: el instanceof HTMLButtonElement && el.disabled,
+    expanded: el.getAttribute('aria-expanded'),
+    tip: el.dataset.tip ?? null,
+    command: el.dataset.command ?? null,
+    key: el.dataset.tipKey ?? null,
+  })
 
   // placed once laid out (before paint): under its control, inside the window
   $effect(() => {
@@ -38,8 +44,8 @@ hidden from assistive technology. Locatable as `.kea-tooltip` (its text, and the
     const delay = new TooltipDelay<Element>({
       delayMs: () => cssDurationMs(getComputedStyle(document.documentElement).getPropertyValue('--motion-tooltip-delay')) ?? 0,
       show: (target) => {
-        // read when it shows: the key is the one now, and a control that went in the meantime shows nothing
-        const t = target.isConnected && target instanceof HTMLElement ? tipOf({ tip: target.dataset.tip ?? null, command: target.dataset.command ?? null, key: target.dataset.tipKey ?? null }, resolve) : null
+        // read when it shows: the key is the one now, and a control that went or opened its menu meanwhile shows nothing
+        const t = target instanceof HTMLElement ? tipNow(read(target), resolve) : null
         anchor = t ? target : null
         tip = t
       },
@@ -50,11 +56,14 @@ hidden from assistive technology. Locatable as `.kea-tooltip` (its text, and the
       timers: { set: (fn, ms) => setTimeout(fn, ms), clear: (h) => clearTimeout(h as ReturnType<typeof setTimeout>) },
     })
     const on = (target: EventTarget | null): void => {
-      const c = target instanceof Element ? target.closest(SELECTOR) : null
-      if (c && !(c instanceof HTMLButtonElement && c.disabled)) delay.enter(c)
+      const c = target instanceof Element ? target.closest(TIP_SELECTOR) : null
+      if (c instanceof HTMLElement && tipWanted(read(c))) delay.enter(c)
       else delay.leave()
     }
     const over = (e: PointerEvent): void => on(e.target)
+    const out = (e: PointerEvent): void => {
+      if (leavesAnchor(delay.current, e.relatedTarget)) delay.leave()
+    }
     // the keyboard arriving on a control shows its tip too; a click's focus does not (the press hid it)
     const focusIn = (e: FocusEvent): void => {
       if (e.target instanceof Element && e.target.matches(':focus-visible')) on(e.target)
@@ -62,22 +71,24 @@ hidden from assistive technology. Locatable as `.kea-tooltip` (its text, and the
     const leave = (): void => delay.leave()
     const opts = { capture: true, passive: true } as const
     document.addEventListener('pointerover', over, opts)
+    document.addEventListener('pointerout', out, opts)
     document.addEventListener('focusin', focusIn, opts)
     document.addEventListener('focusout', leave, opts)
     document.addEventListener('pointerdown', leave, opts)
     document.addEventListener('keydown', leave, opts)
     document.addEventListener('scroll', leave, opts)
-    document.documentElement.addEventListener('pointerleave', leave, opts)
+    window.addEventListener('resize', leave)
     window.addEventListener('blur', leave)
     return () => {
       delay.leave()
       document.removeEventListener('pointerover', over, opts)
+      document.removeEventListener('pointerout', out, opts)
       document.removeEventListener('focusin', focusIn, opts)
       document.removeEventListener('focusout', leave, opts)
       document.removeEventListener('pointerdown', leave, opts)
       document.removeEventListener('keydown', leave, opts)
       document.removeEventListener('scroll', leave, opts)
-      document.documentElement.removeEventListener('pointerleave', leave, opts)
+      window.removeEventListener('resize', leave)
       window.removeEventListener('blur', leave)
     }
   })

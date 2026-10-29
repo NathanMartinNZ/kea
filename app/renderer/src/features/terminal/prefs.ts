@@ -9,6 +9,8 @@ import type { Appearance, TerminalTheme } from '@kea/terminal'
 
 export type TerminalPrefs = TerminalSettings & {
   copyOnSelect: boolean
+  /** Linux: plain Ctrl+C copies a selection the person made and Ctrl+V pastes, in a terminal (the key router reads it). */
+  ctrlCopyPaste: boolean
   confirmMultilinePaste: boolean
   clipboardWrite: (typeof CLIPBOARD_WRITE)[number]
   /**
@@ -26,6 +28,7 @@ export function terminalPrefs(v: SettingsValues): TerminalPrefs {
   return {
     ...terminalSettings(v),
     copyOnSelect: v.get('terminal.copyOnSelect'),
+    ctrlCopyPaste: v.get('terminal.ctrlCopyPaste'),
     confirmMultilinePaste: v.get('terminal.confirmMultilinePaste'),
     clipboardWrite: v.get('terminal.clipboardWrite'),
     screenReader: v.get('terminal.screenReader'),

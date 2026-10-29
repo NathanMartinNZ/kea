@@ -3,7 +3,7 @@ import { bindings, COMMANDS, MAIN_COMMANDS, NATIVE_ROLES, parseShortcut, type Ke
 import { darwin } from '@kea/protocol/os/darwin'
 import { linux } from '@kea/protocol/os/linux'
 import { selectorFor } from '../composer/keys.ts'
-import { chordOf, modClick, primaryHeld, primaryLabel, routeKey, scopedBinding, setBindings, terminalKeyOverride, type KeyLike, type RouteContext } from './keys.ts'
+import { chordOf, copyHintDue, ctrlCopyPasteKeys, ctrlKeyRole, modClick, primaryHeld, primaryLabel, routeKey, scopedBinding, setBindings, terminalKeyOverride, type KeyLike, type RouteContext } from './keys.ts'
 
 /** A keydown as Chromium reports it on a US layout; `mac`: ⌥ composes another character, as on a Mac (⌥⌘Q → œ). */
 function key(spec: string, mac = true): KeyLike {
@@ -118,8 +118,11 @@ describe('key routing on macOS', () => {
     expect(routeKey(key('cmd+c'), term)).toEqual({ do: 'native', id: 'terminal.copy' })
     expect(routeKey(key('cmd+v'), term)).toEqual({ do: 'native', id: 'terminal.paste' })
     expect(Object.keys(NATIVE_ROLES).sort()).toEqual(['terminal.copy', 'terminal.paste'])
-    // unbound (⌘A, ⌘H), main's own (⌥⌘Q, ⌘Q), or bound but not built yet
-    expect(routeKey(key('cmd+a'), term)).toEqual({ do: 'swallow' })
+    // ⌘A in a terminal selects the terminal's text, prevented so the Edit menu's role does not act; with no
+    // terminal command built yet it is kept from the PTY like any ⌘ key
+    expect(routeKey(key('cmd+a'), term)).toEqual({ do: 'command', id: 'terminal.selectAll' })
+    expect(routeKey(key('cmd+a'), { inTerminal: true, has: () => false })).toEqual({ do: 'swallow' })
+    // unbound (⌘H), main's own (⌥⌘Q, ⌘Q), or bound but not built yet
     expect(routeKey(key('cmd+h'), term)).toEqual({ do: 'swallow' })
     expect(routeKey(key('cmd+alt+q'), term)).toEqual({ do: 'swallow' })
     expect(routeKey(key('cmd+q'), term)).toEqual({ do: 'swallow' })
@@ -304,3 +307,51 @@ describe('key routing on Linux', () => {
     expect([modClick({ metaKey: true, ctrlKey: false }, darwin.keys), modClick({ metaKey: false, ctrlKey: true }, darwin.keys)]).toEqual([true, false])
   })
 })
+
+describe('plain Ctrl+C and Ctrl+V on Linux', () => {
+  const route = routing(linux.keys)
+  const k = (spec: string) => key(spec, false)
+  const on = { ...term, ctrlCopyPaste: true }
+
+  it('U-PLT-58 · with the setting on, Ctrl+C copies text the person selected in a terminal and Ctrl+V pastes; with nothing selected, or the find bar’s match, Ctrl+C interrupts', () => {
+    expect(route(k('ctrl+c'), { ...on, userSelection: true })).toEqual({ do: 'edit', id: 'terminal.copy', role: 'copy', plain: true })
+    expect(route(k('ctrl+c'), { ...on, userSelection: false })).toEqual({ do: 'pass' }) // none, or the find bar's
+    expect(route(k('ctrl+c'), on)).toEqual({ do: 'pass' })
+    expect(route(k('ctrl+v'), on)).toEqual({ do: 'edit', id: 'terminal.paste', role: 'paste', plain: true })
+    expect(route(k('ctrl+v'), { ...on, userSelection: true })).toEqual({ do: 'edit', id: 'terminal.paste', role: 'paste', plain: true })
+    // the shifted keys are the same with it on or off, and plain: false
+    expect(route(k('ctrl+shift+c'), { ...on, userSelection: true })).toEqual({ do: 'edit', id: 'terminal.copy', role: 'copy' })
+    expect(route(k('ctrl+shift+v'), on)).toEqual({ do: 'edit', id: 'terminal.paste', role: 'paste' })
+    // other Ctrl keys stay the terminal's
+    for (const s of ['ctrl+x', 'ctrl+z', 'ctrl+d', 'ctrl+alt+c', 'ctrl+alt+v']) expect(route(k(s), { ...on, userSelection: true }), s).toEqual({ do: 'pass' })
+  })
+
+  it('U-PLT-58 · with the setting off, or outside a terminal, or on macOS, Ctrl+C and Ctrl+V are not Kea’s', () => {
+    for (const s of ['ctrl+c', 'ctrl+v']) {
+      expect(route(k(s), { ...term, userSelection: true }), s).toEqual({ do: 'pass' })
+      expect(route(k(s), { ...term, ctrlCopyPaste: false, userSelection: true }), s).toEqual({ do: 'pass' })
+      // a field keeps its own Ctrl+C and Ctrl+V
+      expect(route(k(s), { ...outside, ctrlCopyPaste: true, userSelection: true }), s).toEqual({ do: 'pass' })
+      expect(ctrlKeyRole(s, { ...on, userSelection: true }, darwin.keys), s).toBeNull() // macOS copies with ⌘C
+    }
+    expect(ctrlKeyRole('ctrl+c', { ...on, userSelection: true }, linux.keys)).toBe('copy')
+    // the key lists show the extra keys while it is on, on Linux only
+    expect([ctrlCopyPasteKeys('terminal.copy', true, linux.keys), ctrlCopyPasteKeys('terminal.paste', true, linux.keys)]).toEqual([['Ctrl+C'], ['Ctrl+V']])
+    expect(ctrlCopyPasteKeys('terminal.copy', false, linux.keys)).toEqual([])
+    expect(ctrlCopyPasteKeys('terminal.copy', true, darwin.keys)).toEqual([])
+    expect(ctrlCopyPasteKeys('session.new', true, linux.keys)).toEqual([])
+  })
+
+  it('U-TERM-55 · the copy hint’s moment: Ctrl+C over text the person selected in a terminal, on Linux, with the setting off', () => {
+    const sel = { ...term, userSelection: true }
+    expect(copyHintDue('ctrl+c', sel, linux.keys)).toBe(true)
+    expect(copyHintDue('ctrl+c', { ...sel, userSelection: false }, linux.keys)).toBe(false) // nothing to copy: an interrupt was meant
+    expect(copyHintDue('ctrl+c', term, linux.keys)).toBe(false)
+    expect(copyHintDue('ctrl+c', { ...sel, ctrlCopyPaste: true }, linux.keys)).toBe(false) // it copied
+    expect(copyHintDue('ctrl+c', { ...outside, userSelection: true }, linux.keys)).toBe(false)
+    expect(copyHintDue('ctrl+c', sel, darwin.keys)).toBe(false)
+    expect(copyHintDue('ctrl+v', sel, linux.keys)).toBe(false)
+    expect(copyHintDue(null, sel, linux.keys)).toBe(false)
+  })
+})
+

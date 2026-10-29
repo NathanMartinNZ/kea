@@ -14,7 +14,7 @@
 import path from 'node:path'
 import { defaultRegistry, type AdapterRegistry } from '@kea/adapters'
 import { resources, setGitBinary, type Logger } from '@kea/kit'
-import { coreApi, GHOSTTY_THEME, RpcPeer, SimpleStoreRegistry, type Channel, type EndReason, type Handlers, type NotificationOp } from '@kea/protocol'
+import { coreApi, GHOSTTY_THEME, hintShownKey, RpcPeer, SimpleStoreRegistry, type Channel, type EndReason, type Handlers, type NotificationOp } from '@kea/protocol'
 import { colorThemeOf } from '@kea/terminal'
 import { AgentService, identifyAgent } from './agents/agents.ts'
 import { HelperCopies, type RunningExecutables } from './agents/helper.ts'
@@ -626,6 +626,8 @@ export function createCore(o: CoreOptions): Core {
     ...files.handlers(),
     ...diagnostics.handlers(),
     ...disk.handlers(),
+    // a window's one-time hint, once per KEA_HOME, kept with the banners' own
+    'hints.once': ({ hint }) => ({ show: onceForHome({ get: (k) => kvGet(db, k), set: (k, v) => kvSet(db, k, v) }, hintShownKey(hint), (o.now ?? Date.now)()) }),
     // the window's connection scope (its peer) carries the session it shows
     'visible.set': ({ sessionId }, { peer }) => {
       visible.set(peer, sessionId)

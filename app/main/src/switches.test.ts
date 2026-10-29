@@ -7,7 +7,7 @@ const probes = { packaged: true, perfProbes: true }
 const dev = { packaged: false, perfProbes: false }
 
 const DEBUGGERS = ['--remote-debugging-port=9222', '--remote-debugging-pipe', '-remote-debugging-port=0', '--remote-debugging-address=0.0.0.0', '--inspect', '--inspect=127.0.0.1:9229', '--inspect-brk', '--inspect-port=0', '-inspect', '--Remote-Debugging-Port=1']
-const PERF = ['--kea-perf', '--kea-perf-busy=30:100', '-kea-perf']
+const PERF = ['--kea-perf', '--kea-perf-busy=30:100', '--kea-perf-clipboard', '-kea-perf']
 
 describe('refusedSwitches', () => {
   it('U-SEC-1 · a packaged build refuses debugger switches in every spelling and the perf probes; a dev build refuses nothing', () => {

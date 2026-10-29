@@ -17,7 +17,7 @@ Locatable as the group "Dev server" with `data-server-state`.
 <script lang="ts">
   import { untrack } from 'svelte'
   import { serverExitLabel, serverHintText } from '@kea/protocol'
-  import { Icon, Menu, StatusGlyph, type MenuItem } from '@kea/ui'
+  import { Icon, Menu, menuTrigger, StatusGlyph, type MenuItem } from '@kea/ui'
   import { copyUrl, dismissHint, openInBrowser, restartServer, runServer, showServerLog, stopServer, takeOverPort } from './actions.ts'
   import { controlShown, portLinks } from './model.ts'
   import { scanPorts, serverOf } from './state.svelte.ts'
@@ -70,6 +70,7 @@ Locatable as the group "Dev server" with `data-server-state`.
         aria-label={`Open ${primary.url} in the browser`}
         aria-haspopup={links.length > 1 ? 'menu' : undefined}
         aria-expanded={links.length > 1 ? menu !== null : undefined}
+        data-menu-trigger="server-ports"
         data-command="server.openBrowser"
         data-tip={primary.url}
         data-url={primary.url}
@@ -102,6 +103,6 @@ Locatable as the group "Dev server" with `data-server-state`.
     {/if}
   </div>
   {#if menu}
-    <Menu label="Dev server ports" items={menu.items} at={menu.at} align="end" onPick={pick} onClose={() => (menu = null)} />
+    <Menu label="Dev server ports" items={menu.items} at={menu.at} align="end" trigger={menuTrigger('server-ports')} onPick={pick} onClose={() => (menu = null)} />
   {/if}
 {/if}

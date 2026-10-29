@@ -27,6 +27,7 @@ export const darwin: MainOs = {
     options: (o) => ({ titleBarStyle: 'hiddenInset', trafficLightPosition: o.trafficLights }),
     createShown: false,
     restoresPosition: () => true,
+    nativeTheme: null,
   },
   raise: { display: () => 'quartz', how: () => 'focus' },
   menu: {

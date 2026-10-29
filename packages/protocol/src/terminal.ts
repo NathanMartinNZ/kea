@@ -78,6 +78,13 @@ export const zPtyInfo = z.object({
    * on screen, not asked yet). It is the process's own name: shown as data, like a title.
    */
   foreground: z.string().nullable().optional(),
+  /**
+   * In core's `terminals` store only (ptyhost's list never has it): a shell tab's number in its session, or in the
+   * `shells` pane, which the tab shows as `Terminal n`. Core gives it as it makes the tab's record and never changes it
+   * while it runs; it is kept in core's memory only (never on a record), so a restarted core numbers its shells again.
+   * Absent for every other kind.
+   */
+  number: z.number().int().min(1).optional(),
 })
 export type PtyInfo = z.infer<typeof zPtyInfo>
 

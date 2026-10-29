@@ -27,5 +27,5 @@ The context menus generated from the command table, and the header's overflow me
 
 {#if open}
   <!-- the header's ⋯ sits at the window's right edge: its menu opens leftwards from it -->
-  <Menu label={MENU_LABEL[open.req.kind]} items={open.items} at={open.req.at} align={open.req.kind === 'header' ? 'end' : 'start'} onClose={close} onPick={runWith(open.args)} />
+  <Menu label={MENU_LABEL[open.req.kind]} items={open.items} at={open.req.at} align={open.req.kind === 'header' ? 'end' : 'start'} trigger={open.req.trigger} onClose={close} onPick={runWith(open.args)} />
 {/if}

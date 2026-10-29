@@ -45,13 +45,14 @@ test('V-6 · terminal chrome', async ({ run, launch }) => {
   await waitServer(kea, 'running')
   const shell = await kea.newTab()
   await kea.enter('sleep 600')
-  await expect(page.locator(`[role=tab][data-pty="${shell}"]`)).toHaveText('sleep', { timeout: STEP_MS })
+  await expect(page.locator(`[role=tab][data-pty="${shell}"]`)).toHaveText('Terminal 1')
+  await expect(page.locator(`[role=tab][data-pty="${shell}"]`)).toHaveAttribute('data-tip', 'sleep', { timeout: STEP_MS })
   await openFile(kea, { sessionId: id, path: 'README.md', mode: 'file' })
   await pinFileTab(kea, 'README.md')
   await openFile(kea, { sessionId: id, path: 'src/hello.js', mode: 'file' })
   await kea.clickTab(shell)
   await page.mouse.move(1000, 700)
-  await set.shot(kea, 'tabs-all', 'Agent, Server, a shell titled with what runs in it (active), +, then the file tabs: one pinned, one preview (italic)', 'Terminal', { rect: TOP })
+  await set.shot(kea, 'tabs-all', 'Agent, Server, Terminal 1 (active; its tooltip names what runs in it), +, then the file tabs: one pinned, one preview (italic)', 'Terminal', { rect: TOP })
 
   // the agent needs you while another tab is on screen: the dot on the Agent tab
   await status(kea, id, 'needsYou', ...permission('npm test'))

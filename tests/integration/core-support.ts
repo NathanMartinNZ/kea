@@ -29,24 +29,35 @@ export interface CoreUnderTest {
   touched(ptyId: string): string[]
   /** Call one of core's renderer-facing handlers. */
   call<T = unknown>(method: string, args: object): Promise<T>
+  /**
+   * Ptyhost restarted under the running core (`h.restart()` first): core is handed a new control port to the
+   * harness's current ptyhost, as main hands it one, and reconciles again.
+   */
+  reconnect(): void
   /** Core goes away (crash, quit or restart); ptyhost and the holders stay. */
   dispose(): void
 }
 
 export function startCore(h: Harness, o: { env?: Env; records?: TerminalRecords; opts?: Partial<TerminalsOptions> } = {}): CoreUnderTest {
-  const [coreSide, ptyhostSide] = channelPair()
   const calls: CoreUnderTest['calls'] = []
-  const served = h.manager.handlers() as Record<string, (a: unknown, ctx: CallContext) => unknown>
-  const spied = Object.fromEntries(
-    Object.entries(served).map(([m, fn]) => [
-      m,
-      (a: Record<string, unknown>, ctx: CallContext) => {
-        calls.push({ m, a })
-        return fn(a, ctx)
-      },
-    ]),
-  )
-  const peer = new RpcPeer(ptyhostSide, { name: 'ptyhost', api: ptyhostApi, handlers: spied as never })
+  let peer!: RpcPeer
+  /** A control port to the harness's current ptyhost: core's end. */
+  const connect = () => {
+    const [coreSide, ptyhostSide] = channelPair()
+    const served = h.manager.handlers() as Record<string, (a: unknown, ctx: CallContext) => unknown>
+    const spied = Object.fromEntries(
+      Object.entries(served).map(([m, fn]) => [
+        m,
+        (a: Record<string, unknown>, ctx: CallContext) => {
+          calls.push({ m, a })
+          return fn(a, ctx)
+        },
+      ]),
+    )
+    peer = new RpcPeer(ptyhostSide, { name: 'ptyhost', api: ptyhostApi, handlers: spied as never })
+    return coreSide
+  }
+  const coreSide = connect()
   // the harness's ptyhost reports notes into `h.notes`; forward them over the control port as ptyhost's main does
   const push = h.notes.push
   h.notes.push = (...ns: PtyhostNote[]) => {
@@ -81,6 +92,10 @@ export function startCore(h: Harness, o: { env?: Env; records?: TerminalRecords;
     },
     touched: (ptyId) => calls.filter((c) => c.a.ptyId === ptyId || (c.a.ptyIds as string[] | undefined)?.includes(ptyId)).map((c) => c.m),
     call: <T>(method: string, args: object) => handlers[method]!(args, { signal: new AbortController().signal } as never) as Promise<T>,
+    reconnect() {
+      peer.dispose() // the old ptyhost's end of the port went with it
+      t.setControl(connect())
+    },
     dispose() {
       t.dispose()
       peer.dispose()

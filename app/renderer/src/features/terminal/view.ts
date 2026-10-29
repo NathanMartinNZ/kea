@@ -9,6 +9,9 @@
 // (`commands/keys.ts`); no `⌘` key reaches xterm's encoder; `⇧↵` sends `\n` while the program has not enabled the kitty
 // keyboard protocol. Output is untrusted: OSC 52 writes go through `osc52.ts`, links through `links.ts`, titles through
 // `text.ts`.
+//
+// The terminal menu opens on a right-click (`contextMenu.ts` decides whether the program that captures the mouse keeps
+// the button) and on the keyboard's Menu key, at the text cursor.
 
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
@@ -16,12 +19,14 @@ import { SearchAddon } from '@xterm/addon-search'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { WebglAddon } from '@xterm/addon-webgl'
 import { WebLinksAddon } from '@xterm/addon-web-links'
-import { L, fromDomPort, type Channel, type StreamToRenderer } from '@kea/protocol'
+import { L, fromDomPort, protocolOs, type Channel, type StreamToRenderer } from '@kea/protocol'
 import { applyAppearance, createTerminalOptions, installRendererSwallow, ModeTracker, rendererTerminalOptions, type Disposable } from '@kea/terminal'
 import { COLOR } from '@kea/ui/tokens'
 import { onStreamsReset, openExternal, openStream } from '../../lib/bridge.ts'
 import { modClick, terminalKeyOverride } from '../commands/keys.ts'
 import { AtlasGuard, followAtlas, type AtlasCanvas, type AtlasClearReason } from './atlas.ts'
+import { cursorPoint, listenForMenu } from './contextMenu.ts'
+import { ClearOnCopy, isUserSelection, selectionKey } from './ctrlCopy.ts'
 import { disposeParts } from './dispose.ts'
 import { blend, FindSession, type FindToggles } from './find.ts'
 import { installFileLinks, openFileUrl } from './fileLinks.ts'
@@ -55,6 +60,8 @@ export interface ViewHost {
    * view shows when its stream finds no terminal; null when none was kept.
    */
   lastScreen?(ptyId: string, cols: number, rows: number): Promise<{ cols: number; rows: number; data: string } | null>
+  /** The tab's agent captures the mouse but has nothing on the right button, which then opens Kea's menu. */
+  rightButtonMenu?(ptyId: string): boolean
 }
 
 /**
@@ -93,6 +100,10 @@ export class TerminalView {
   private wantGl = false
   private readonly atlas: AtlasGuard
   private search: FindSession | null = null
+  /** Where the find bar's last search left its match selected (`selectionKey`): that selection is not the person's. */
+  private findSelection: string | null = null
+  /** A plain Ctrl+C copy clears the selection once the terminal's own copy event has run. */
+  private readonly clearOnCopy = new ClearOnCopy()
   private ch: Channel | null = null
   private opened = false
   private disposed = false
@@ -163,7 +174,26 @@ export class TerminalView {
     this.ds.push({ dispose: onStreamsReset(() => void this.attach()) })
     this.ds.push({ dispose: prefs.subscribe(() => this.applyPrefs()) })
     this.ds.push(listen(this.el, 'paste', (e) => this.onPaste(e), true))
-    this.ds.push(listen(this.el, 'mouseup', () => this.copyOnSelect()))
+    // the left button's release: a right-click that opens the menu copies nothing
+    this.ds.push(listen(this.el, 'mouseup', (e) => e.button === 0 && this.copyOnSelect()))
+    this.ds.push(
+      listenForMenu(this.el, {
+        system: protocolOs.system,
+        tracking: () => this.term.modes.mouseTrackingMode !== 'none',
+        // the find bar's match, which stays selected after it closes, is not the person's: it keeps no button from a program
+        hasSelection: () => this.userSelection(),
+        agentGivesButton: () => this.host.rightButtonMenu?.(this.ptyId) ?? false,
+        focus: () => this.focus(),
+        open: (at) => terminalUi.openMenu({ ptyId: this.ptyId, at }),
+      }),
+    )
+    // bubbling, so xterm's own handler on its textarea has filled the clipboard first
+    this.ds.push(
+      listen(this.el, 'copy', () => {
+        if (this.clearOnCopy.copied()) this.term.clearSelection()
+      }),
+    )
+    this.ds.push(this.term.onSelectionChange(() => this.clearOnCopy.selectionChanged()))
     this.attached = new Promise((r) => (this.resolveAttached = r))
   }
 
@@ -405,6 +435,30 @@ export class TerminalView {
 
   find(query: string, t: FindToggles, dir: 'incremental' | 'next' | 'previous'): void {
     this.openFind().search(query, t, dir)
+    this.findSelection = selectionKey(this.term.getSelectionPosition())
+  }
+
+  /** Text the person selected is selected here: not the find bar's match, which stays selected after it closes. */
+  userSelection(): boolean {
+    return isUserSelection(this.term.hasSelection(), selectionKey(this.term.getSelectionPosition()), this.findSelection)
+  }
+
+  /** The text cursor's place in the window: under its cell, from the buffer and the screen's size. */
+  private textCursorPoint(): { x: number; y: number } {
+    const screen = this.term.element?.querySelector('.xterm-screen') ?? this.el
+    const r = screen.getBoundingClientRect()
+    const b = this.term.buffer.active
+    return cursorPoint({ cursorX: b.cursorX, cursorY: b.cursorY, baseY: b.baseY, viewportY: b.viewportY, cols: this.term.cols, rows: this.term.rows }, { left: r.left, top: r.top, width: r.width, height: r.height })
+  }
+
+  /** Select All: every line the terminal holds, scrollback included. */
+  selectAll(): void {
+    this.term.selectAll()
+  }
+
+  /** A copy is about to run from plain Ctrl+C: the selection goes once the terminal's copy event has run. */
+  clearSelectionAfterCopy(): void {
+    this.clearOnCopy.arm()
   }
 
   closeFind(): void {
@@ -558,6 +612,14 @@ export class TerminalView {
     // ⌘ keys are routed before they get here; none of them may be encoded for the PTY (with the kitty protocol, ⌘
     // would be sent as the super modifier)
     if (e.metaKey) return false
+    // the keyboard's Menu key opens the terminal menu at the text cursor; Shift+F10 stays the program's
+    if (e.key === 'ContextMenu' && !e.shiftKey && !e.ctrlKey && !e.altKey) {
+      if (e.type === 'keydown') {
+        e.preventDefault()
+        terminalUi.openMenu({ ptyId: this.ptyId, at: this.textCursorPoint() })
+      }
+      return false
+    }
     const data = terminalKeyOverride(e, this.modes.state().kitty.flags)
     if (data === null) return true
     if (e.type === 'keydown') {

@@ -5,7 +5,8 @@ scrolls it.
 
 Above the list: "Open keybindings.json", and what is wrong with the file when something is — where it does not parse
 (the keys in use are then the last good ones), the entries that were left out and why, and the conflicts (two commands
-on one key: the file's entry has it). The list follows the file live (`bindings.svelte.ts`).
+on one key: the file's entry has it). The list follows the file live (`bindings.svelte.ts`). On Linux, with
+`terminal.ctrlCopyPaste` on, Copy and Paste list Ctrl+C and Ctrl+V after their own keys.
 
 Locatable as `region` "Keyboard shortcuts": `button` "Open keybindings.json"; `alert` for a file that does not parse;
 `list` "Entries left out" and `list` "Conflicts"; one `list` per category, named by it, its rows carrying
@@ -14,11 +15,17 @@ from the file.
 -->
 <script lang="ts">
   import { CATEGORIES, conflictText } from '@kea/protocol'
+  import { External } from '../../lib/reactive.svelte.ts'
+  import { settings } from '../settings/store.ts'
   import { keybindingsFile, keyboardRows } from './bindings.svelte.ts'
   import { openKeybindingsFile } from './commands.ts'
+  import { ctrlCopyPasteKeys, selectAllKeys } from './keys.ts'
   import './keyboard.css'
 
-  const rows = $derived(keyboardRows())
+  // Linux's Ctrl+C and Ctrl+V in a terminal, while the setting is on
+  const ctrlCopy = new External(settings.subscribe, () => settings.get<boolean>('terminal.ctrlCopyPaste'))
+  // the keys the router gives commands beside their bindings: Linux's plain Ctrl+C and Ctrl+V when on, ⌘A's Select All
+  const rows = $derived(keyboardRows((id) => [...ctrlCopyPasteKeys(id, ctrlCopy.current), ...selectAllKeys(id)]))
   const file = $derived(keybindingsFile())
   const groups = $derived(CATEGORIES.map((category) => ({ category, rows: rows.filter((r) => r.category === category) })))
   /** A notice's place in the file, as a person counts (the first entry is 1). */

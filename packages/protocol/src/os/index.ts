@@ -53,6 +53,11 @@ export interface KeyLabels {
    * the router asks main for the role (Linux).
    */
   readonly clipboard: 'menu' | 'router'
+  /**
+   * The system's Select All key, which in a terminal selects the terminal's text (`terminal.selectAll`): `⌘A` on
+   * macOS. Null on Linux, where `Ctrl+A` is the shell's (the start of the line) and Select All is in the menus only.
+   */
+  readonly terminalSelectAll: string | null
   /** A click holds the modifier that asks for its other action (a terminal link, a palette or finder row): `⌘` on macOS, `Ctrl` on Linux, where Super belongs to the desktop. */
   modClick(e: { metaKey: boolean; ctrlKey: boolean }): boolean
 }
@@ -69,6 +74,8 @@ export interface SystemWords {
   readonly onQuitHelp: string
   /** `general.onQuit`'s first choice: stay in the menu bar, or keep running in the background with the tray icon. */
   readonly stayRunning: string
+  /** The machine in a message (`No editor was found on this Mac`): `this Mac`, or `this computer` on Linux. */
+  readonly machine: string
 }
 
 /** `window`: what the window has of the system's own, as the renderer draws it. */

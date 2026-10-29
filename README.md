@@ -161,7 +161,7 @@ background where the desktop has a tray. Sessions keep running either way.
 | Jump to the next session that needs you | `⌘J` | `Ctrl+Shift+J` |
 | Jump to a session by its place in the sidebar | `⌘1` … `⌘9` | `Ctrl+Shift+1` … `9` |
 | Next · previous session, most recently used first | `⌃Tab` · `⌃⇧Tab` | `Ctrl+Tab` · `Ctrl+Shift+Tab` |
-| New Shell Tab · Close Tab | `⌘T` · `⌘W` | `Ctrl+Shift+T` · `Ctrl+Shift+W` |
+| New Terminal · Close Tab | `⌘T` · `⌘W` | `Ctrl+Shift+T` · `Ctrl+Shift+W` |
 | Go to File… | `⌘P` | `Ctrl+Shift+P` |
 | Show Files · Show Changes | `⇧⌘E` · `⇧⌘G` | `Ctrl+Shift+E` · `Ctrl+Shift+G` |
 | Run or stop · restart the dev server | `⌘R` · `⇧⌘R` | `Ctrl+Shift+R` · `Ctrl+Shift+F5` |

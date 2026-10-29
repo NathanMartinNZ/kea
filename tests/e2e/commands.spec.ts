@@ -12,12 +12,13 @@ import { counterCommand, counterNumbers, PROMPT, shq, STEP_MS, until, type Kea, 
 import { AGENT_MARK, claudeByDefault, fakeAgentTerminal, gate, startFakeSession } from '../support/app-fake-agent.ts'
 import { finder, finderRows, waitChanges, waitTree } from '../support/app-files.ts'
 import { chooseMenuItem, focusIn, keyboardList, keyboardRows, menuBar, menuItem, openPalette, palette, paletteInput, paletteRows, tooltip, waitMenuItem, waitPalette, writeKeybindings } from '../support/app-palette.ts'
-import { clipboard, commitFiles, EditorWorld, listening, opened, recordClipboard, serverAddress, serverScript, waitServer, worktreesOf } from '../support/app-server.ts'
+import { cellOf, clipboard, commitFiles, EditorWorld, listening, opened, recordClipboard, serverAddress, serverScript, waitServer, worktreesOf } from '../support/app-server.ts'
 import { addProject, demoRepo, paneSession, projectRow, rowState, sessionIds, tabKinds, tabOf, waitRow } from '../support/app-sessions.ts'
 import { fileTabs, viewerShown } from '../support/app-tabs.ts'
 import { commitAll, writeFiles } from '../support/app-viewer.ts'
 import { expect, test } from './fixtures.ts'
 import { sysAccel, sysKey, sysLabel, TERMINAL_TEXT_KEYS } from '../support/keys.ts'
+import { skipNote } from '../support/skip.ts'
 
 /** A fake agent's screen: its mark, the prompt, then `lines` (YAML flow sequence). */
 const frame = (...lines: string[]) => `frame: ${JSON.stringify([AGENT_MARK, '', '> {{prompt}}', '', ...lines])}`
@@ -533,7 +534,7 @@ test('E-KB-2 · keyboard details: the app’s shortcuts act from the sidebar, th
   expect(await sidebarShown(page), '⌘B no longer toggles it').toBe(false)
   await page.keyboard.press(MY_SIDEBAR.press)
   await until('the sidebar back', async () => (await sidebarShown(page)) || undefined)
-  // the conflict: ⇧⌘R is New Shell Tab's now
+  // the conflict: ⇧⌘R is New Terminal's now
   await page.keyboard.press(sysKey('Meta+Shift+r'))
   const second = await until('a shell tab opened by ⇧⌘R', async () => {
     const id = await kea.shown()
@@ -552,10 +553,10 @@ test('E-KB-2 · keyboard details: the app’s shortcuts act from the sidebar, th
   // the keyboard back in the terminal before the pointer goes to the button: arriving there during the tip's delay,
   // it would rightly cancel the tip
   await until('the keyboard in the terminal', () => inTerminal(kea))
-  const add = page.getByRole('tablist', { name: 'Terminals' }).getByRole('button', { name: `New Shell Tab (${RESTART})` })
+  const add = page.getByRole('tablist', { name: 'Terminals' }).getByRole('button', { name: `New Terminal (${RESTART})` })
   await add.hover()
   await expect(tooltip(page).locator('kbd')).toHaveText(RESTART)
-  await expect(tooltip(page).locator('span')).toHaveText('New Shell Tab')
+  await expect(tooltip(page).locator('span')).toHaveText('New Terminal')
   await page.locator('.terminal-host.shown').hover()
 
   // the keyboard list (the Keyboard Shortcuts sheet; the same list is Settings › Keyboard)
@@ -573,7 +574,7 @@ test('E-KB-2 · keyboard details: the app’s shortcuts act from the sidebar, th
   expect(of('session.archive')).toMatchObject({ keys: [], changed: true })
   expect(of('server.toggle')).toMatchObject({ keys: [sysLabel('⌘R')], changed: false })
   expect(of('files.refresh')).toMatchObject({ keys: [], changed: false })
-  await expect(keyboardList(page).getByRole('list', { name: 'Conflicts' }).getByRole('listitem')).toHaveText([`${RESTART} is now New Shell Tab; Restart Dev Server has lost it.`])
+  await expect(keyboardList(page).getByRole('list', { name: 'Conflicts' }).getByRole('listitem')).toHaveText([`${RESTART} is now New Terminal; Restart Dev Server has lost it.`])
   const left = await keyboardList(page).getByRole('list', { name: 'Entries left out' }).getByRole('listitem').allTextContents()
   expect(left).toHaveLength(2)
   expect(left[0]).toMatch(/^Entry 3: .*no\.such\.command/)
@@ -1132,5 +1133,371 @@ test('E-KB-4 · keybindings.json gives Settings and Show Disk Usage keys of the 
   expect((await waitPalette(kea, 'Show Disk Usage leads', (r) => r[0]?.id === 'app.showDisk'))[0]!.shortcut).toBe('')
   await page.keyboard.press('Escape')
   await reachesAgent(kea, 'nothing reached the agent meanwhile')
+  await kea.assertUnfocused()
+})
+
+test('E-KB-5 · a menu’s own button closes it: the editor caret and the header’s ⋯ toggle their menus, opening one closes the other, and no tooltip covers an open menu', async ({ run, launch }) => {
+  claudeByDefault(run)
+  const world = new EditorWorld(run)
+  world.editor('vscode')
+  world.open()
+  const kea = await launch()
+  await kea.pretendFocused(true)
+  const page = await kea.page()
+  await project(kea, run)
+  const s = await startFakeSession(kea, 'e-kb-5', 'menus', AT_PROMPT)
+  await fakeAgentTerminal(kea, s.id)
+  await clickTerminal(kea)
+  const caret = page.getByRole('group', { name: 'Open in editor' }).locator('[data-menu-trigger="open-in"]')
+  await expect(caret).toHaveAttribute('aria-expanded', 'false', { timeout: STEP_MS })
+  const more = page.getByRole('button', { name: 'Session actions' })
+  const openIn = page.getByRole('menu', { name: 'Open in' })
+  const actions = page.getByRole('menu', { name: 'Session actions' })
+  const menuOpenClass = () => page.evaluate(() => document.documentElement.classList.contains('kea-menu-open'))
+  // no tooltip delay for this run: a tip that would show does so at once, so one that does not is seen not to
+  await page.evaluate(() => document.documentElement.style.setProperty('--motion-tooltip-delay', '0ms'))
+
+  // the pointer on the caret shows its tip; a click opens its menu and the tip goes
+  await caret.hover()
+  await expect(tooltip(page)).toBeVisible()
+  await caret.click()
+  await expect(openIn).toBeVisible()
+  await expect(caret).toHaveAttribute('aria-expanded', 'true')
+  expect(await menuOpenClass()).toBe(true)
+  // moving about on the caret brings no tip back over the menu
+  await caret.hover({ position: { x: 2, y: 2 } })
+  await caret.hover()
+  await frames(page, 2)
+  await expect(tooltip(page)).toHaveCount(0)
+  // a second click closes it, and it stays closed
+  await caret.click()
+  await expect(openIn).toHaveCount(0)
+  await frames(page, 2)
+  await expect(openIn).toHaveCount(0)
+  await expect(caret).toHaveAttribute('aria-expanded', 'false')
+  expect(await menuOpenClass()).toBe(false)
+  await until('the keyboard back in the terminal', () => inTerminal(kea))
+  // closed, the caret has its tip again
+  await caret.hover({ position: { x: 2, y: 2 } })
+  await expect(tooltip(page)).toBeVisible()
+
+  // the header's ⋯ the same way; one menu at a time
+  await more.click()
+  await expect(actions).toBeVisible()
+  await expect(more).toHaveAttribute('aria-expanded', 'true')
+  await caret.click()
+  await expect(openIn).toBeVisible()
+  await expect(actions).toHaveCount(0)
+  await expect(page.locator('.kea-menu')).toHaveCount(1)
+  await more.click()
+  await expect(actions).toBeVisible()
+  await expect(openIn).toHaveCount(0)
+  await more.click()
+  await expect(actions).toHaveCount(0)
+  await frames(page, 2)
+  await expect(page.locator('.kea-menu')).toHaveCount(0)
+  await expect(more).toHaveAttribute('aria-expanded', 'false')
+  expect(await menuOpenClass()).toBe(false)
+  await until('the keyboard back in the terminal', () => inTerminal(kea))
+  await kea.assertUnfocused()
+})
+
+/** Where Kea's own keys copy and paste: on Linux the router, whose harness display has a clipboard of its own. */
+const NOT_ROUTER_CLIPBOARD = protocolOs.keys.clipboard === 'router' ? null : 'plain Ctrl+C and Ctrl+V are the terminal’s own only on Linux (macOS copies with ⌘C), and this system’s clipboard is the person’s'
+
+test('E-TERM-16 · copy and paste in a terminal through the real clipboard (Linux): Ctrl+Shift+C and Ctrl+Shift+V round-trip a selection; plain Ctrl+C over a selection still interrupts and offers to copy instead; with that on, Ctrl+C copies and clears the selection, Ctrl+V pastes, and Ctrl+C with nothing selected interrupts', async ({ run, launch }) => {
+  test.skip(NOT_ROUTER_CLIPBOARD !== null, skipNote(NOT_ROUTER_CLIPBOARD ?? ''))
+  claudeByDefault(run)
+  const kea = await launch()
+  await kea.pretendFocused(true)
+  const page = await kea.page()
+  await project(kea, run)
+  const s = await startFakeSession(kea, 'e-term-16', 'copy and paste', AT_PROMPT)
+  await fakeAgentTerminal(kea, s.id)
+  await clickTerminal(kea)
+
+  // a shell tab running a program that reads every key raw and says what it read
+  const program = path.join(run.home, 'keys.mjs')
+  fs.writeFileSync(program, "process.stdin.setRawMode(true)\nlet n = 0\nprocess.stdout.write('READY alpha bravo\\r\\n')\nprocess.stdin.on('data', (d) => process.stdout.write(`K${++n}:${JSON.stringify(d.toString('latin1'))}\\r\\n`))\n")
+  await page.keyboard.press(sysKey('Meta+t'))
+  await kea.waitScreen('the shell’s prompt', (x) => x.includes(PROMPT))
+  await kea.enter(`${shq(process.execPath)} ${shq(program)}`)
+  await kea.waitScreen('the program reading keys', (x) => x.includes('READY alpha bravo'))
+
+  const screen = page.locator('.terminal-host.shown .xterm-screen')
+  const hasSelection = () =>
+    page.evaluate(() => {
+      const id = document.querySelector('.terminal-host.shown')?.getAttribute('data-pty') ?? ''
+      const probe = (window as unknown as { __keaProbe: { terminal(id: string): { hasSelection(): boolean } | undefined } }).__keaProbe
+      return probe.terminal(id)?.hasSelection() === true
+    })
+  const select = async (word: string) => {
+    await screen.dblclick({ position: await cellOf(kea, word, 2) })
+    await until(`${word} selected`, async () => (await hasSelection()) || undefined)
+  }
+  let n = 0
+  /** The program's next chunk is `bytes`. */
+  const next = async (what: string, bytes: string) => {
+    n++
+    const x = await kea.waitScreen(what, (t) => t.includes(`K${n}:`))
+    expect(x, what).toContain(`K${n}:${JSON.stringify(bytes)}`)
+  }
+  const copies = () => kea.logLines('main').filter((l) => l.msg === 'edit role run (perf)' && l.role === 'copy').length
+
+  // ── Ctrl+Shift+C and Ctrl+Shift+V, whatever the setting ──
+  await select('alpha')
+  await page.keyboard.press('Control+Shift+KeyC')
+  await until('main copied', () => copies() === 1 || undefined)
+  expect(await hasSelection(), 'Ctrl+Shift+C keeps the selection').toBe(true)
+  await page.keyboard.press('Control+Shift+KeyV')
+  await next('the paste', 'alpha')
+
+  // ── plain Ctrl+C over a selection: still the interrupt, and the hint offers the setting ──
+  await select('bravo')
+  await page.keyboard.press('Control+KeyC')
+  await next('Ctrl+C at the program', '\x03')
+  const hint = page.getByRole('status').filter({ hasText: 'Ctrl+C sent an interrupt' })
+  await expect(hint).toBeVisible()
+  await expect(hint).toContainText('Copy is Ctrl+Shift+C')
+  expect(copies(), 'nothing was copied').toBe(1)
+  await hint.getByRole('button', { name: 'Use Ctrl+C to copy' }).click()
+  await expect(hint).toHaveCount(0)
+  // the key lists show the keys it adds
+  await page.evaluate(() => (window as unknown as { __keaProbe: { run(id: string): boolean } }).__keaProbe.run('app.shortcuts'))
+  await until('Copy lists Ctrl+C', async () => (await keyboardRows(kea)).find((r) => r.id === 'terminal.copy')?.keys.includes('Ctrl+C') || undefined)
+  expect((await keyboardRows(kea)).find((r) => r.id === 'terminal.paste')?.keys).toContain('Ctrl+V')
+  await page.keyboard.press('Escape')
+  await clickTerminal(kea)
+
+  // ── with it on: Ctrl+C copies and clears the selection, Ctrl+V pastes, Ctrl+C with nothing selected interrupts ──
+  await select('bravo')
+  await page.keyboard.press('Control+KeyC')
+  await until('main copied', () => copies() === 2 || undefined)
+  await until('the selection cleared', async () => !(await hasSelection()) || undefined)
+  await page.keyboard.press('Control+KeyV')
+  await next('the paste', 'bravo')
+  await page.keyboard.press('Control+KeyC')
+  await next('Ctrl+C with nothing selected', '\x03')
+  await expect(hint).toHaveCount(0)
+  await kea.assertUnfocused()
+})
+
+
+/** Where the window draws the application menu itself: Linux, whose header has the menu button. */
+const NO_WINDOW_MENU = protocolOs.window.menuButton ? null : 'only Linux draws the application menu in the window (macOS has its menu bar)'
+
+test('E-PLT-1 · Linux’s application menu is drawn in the window: the button and Alt alone open and close it, at the base type size in rows of the row height; a menu drills in and comes back; Esc gives focus back; Edit › Paste pastes into the focused field', async ({ run, launch }) => {
+  test.skip(NO_WINDOW_MENU !== null, skipNote(NO_WINDOW_MENU ?? ''))
+  const kea = await launch()
+  await kea.pretendFocused(true)
+  const page = await kea.page()
+  await project(kea, run)
+  const button = page.locator('[data-window-menu]')
+  const menu = page.getByRole('menu', { name: 'Application menu' })
+  const current = menu.locator('.kea-menu-item.current')
+  const names = async () => (await menu.getByRole('menuitem').evaluateAll((els) => els.map((e) => e.getAttribute('aria-label') ?? e.querySelector('.kea-menu-label')?.textContent ?? ''))).filter((n) => n !== 'Developer')
+
+  // the button opens it under itself, with the menus at its top level; the button again closes it
+  await expect(button).toHaveAttribute('aria-expanded', 'false', { timeout: STEP_MS })
+  await button.click()
+  await expect(menu).toBeVisible()
+  await expect(button).toHaveAttribute('aria-expanded', 'true')
+  expect(await names()).toEqual(['File', 'Edit', 'View', 'Session', 'Go', 'Window', 'Help'])
+  const look = await menu.getByRole('menuitem').first().evaluate((el) => {
+    const root = getComputedStyle(document.documentElement)
+    const s = getComputedStyle(el)
+    return { font: s.fontSize, base: root.getPropertyValue('--type-base-size').trim(), height: s.height, row: root.getPropertyValue('--size-row').trim(), menuTop: el.getBoundingClientRect().top }
+  })
+  expect(look.font, 'the page’s type, not the desktop’s').toBe(look.base)
+  expect(look.height, 'the page’s rows').toBe(look.row)
+  expect(look.menuTop).toBeGreaterThanOrEqual((await button.boundingBox())!.y)
+  await button.click()
+  await expect(menu).toHaveCount(0)
+  await frames(page, 2)
+  await expect(menu).toHaveCount(0)
+  await expect(button).toHaveAttribute('aria-expanded', 'false')
+
+  // from a field: Alt alone opens it; → goes into Edit, ← comes back to it, Esc closes and the field has the keyboard
+  await projectRow(page, 'demo').focus()
+  await page.keyboard.type('x')
+  const filter = page.getByRole('searchbox', { name: 'Filter sessions' })
+  await expect(filter).toBeFocused()
+  await page.keyboard.press('Alt')
+  await expect(menu).toBeVisible()
+  await expect(current.locator('.kea-menu-label')).toHaveText('File')
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('ArrowRight')
+  await expect(menu.getByRole('menuitem', { name: 'Back from Edit' })).toBeVisible()
+  expect(await names()).toEqual(['Back from Edit', 'Undo', 'Redo', 'Cut', 'Copy', 'Paste', 'Select All'])
+  await expect(current.locator('.kea-menu-label')).toHaveText('Undo')
+  await expect(menu.getByRole('menuitem', { name: 'Paste' }).locator('kbd')).toHaveText('Ctrl+Shift+V')
+  await page.keyboard.press('ArrowLeft')
+  await expect(current.locator('.kea-menu-label')).toHaveText('Edit')
+  await page.keyboard.press('Escape')
+  await expect(menu).toHaveCount(0)
+  await expect(filter).toBeFocused()
+  await expect(filter).toHaveValue('x')
+
+  // Alt alone while it is open closes it
+  await page.keyboard.press('Alt')
+  await expect(menu).toBeVisible()
+  await page.keyboard.press('Alt')
+  await expect(menu).toHaveCount(0)
+  await expect(filter).toBeFocused()
+
+  // Edit › Paste: main runs the role in the field that had the keyboard, from the run's own clipboard
+  await kea.app.evaluate(({ clipboard }, text) => clipboard.writeText(text), 'pasted')
+  await page.keyboard.press('Alt')
+  await menu.getByRole('menuitem', { name: 'Edit' }).click()
+  await menu.getByRole('menuitem', { name: 'Paste' }).click()
+  await expect(menu).toHaveCount(0)
+  await expect(filter).toHaveValue('xpasted')
+  await expect(filter).toBeFocused()
+  await kea.assertUnfocused()
+})
+
+test('E-TERM-15 · the terminal menu: a right-click opens it (Copy, Paste, Select All, Find, Clear) and Esc gives the terminal the keyboard back; its picks act on that terminal when the keyboard was elsewhere; with mouse reports on a plain right-click is the program’s, the override or a selection opens the menu and reports nothing, the selection stays; the Menu key opens it; Shift+F10 reaches the program; a right-click copies nothing on select', async ({ run, launch }) => {
+  fs.writeFileSync(path.join(run.home, 'settings.json'), `${JSON.stringify({ general: { defaultAgent: 'claude' }, terminal: { copyOnSelect: true } }, null, 2)}\n`)
+  const kea = await launch()
+  await kea.pretendFocused(true)
+  const page = await kea.page()
+  await recordClipboard(page)
+  await project(kea, run)
+  const s = await startFakeSession(kea, 'e-term-15', 'terminal menu', AT_PROMPT)
+  await fakeAgentTerminal(kea, s.id)
+  await clickTerminal(kea)
+
+  // a shell tab running a program that reads every key raw and says what it read; `m` turns mouse reports on (SGR)
+  const program = path.join(run.home, 'mouse.mjs')
+  fs.writeFileSync(program, String.raw`process.stdin.setRawMode(true)
+let n = 0
+process.stdout.write('READY alpha bravo\r\n')
+process.stdin.on('data', (d) => {
+  const s = d.toString('latin1')
+  if (s === 'm') process.stdout.write('\x1b[?1000h\x1b[?1006h')
+  process.stdout.write('K' + ++n + ':' + JSON.stringify(s) + '\r\n')
+})
+`)
+  await page.keyboard.press(sysKey('Meta+t'))
+  await kea.waitScreen('the shell’s prompt', (x) => x.includes(PROMPT))
+  await kea.enter(`${shq(process.execPath)} ${shq(program)}`)
+  await kea.waitScreen('the program reading keys', (x) => x.includes('READY alpha bravo'))
+
+  const screen = page.locator('.terminal-host.shown .xterm-screen')
+  const menu = page.getByRole('menu', { name: 'Terminal menu' })
+  const hasSelection = () =>
+    page.evaluate(() => {
+      const id = document.querySelector('.terminal-host.shown')?.getAttribute('data-pty') ?? ''
+      const probe = (window as unknown as { __keaProbe: { terminal(id: string): { hasSelection(): boolean } | undefined } }).__keaProbe
+      return probe.terminal(id)?.hasSelection() === true
+    })
+  const selectionText = () =>
+    page.evaluate(() => {
+      const id = document.querySelector('.terminal-host.shown')?.getAttribute('data-pty') ?? ''
+      const probe = (window as unknown as { __keaProbe: { terminal(id: string): { getSelection(): string } | undefined } }).__keaProbe
+      return probe.terminal(id)?.getSelection() ?? ''
+    })
+  const roles = (role: 'copy' | 'paste') => kea.logLines('main').filter((l) => typeof l.msg === 'string' && l.msg.startsWith('edit role') && l.role === role).length
+  const override = protocolOs.system === 'darwin' ? 'Alt' : 'Shift'
+  let seen = 0
+  /** What reached the program since the last look: a `z` typed as a marker ends it, and is left out. */
+  const reached = async (what: string): Promise<string[]> => {
+    await page.keyboard.press('z')
+    const text = await kea.waitScreen(what, (x) => [...x.matchAll(/K(\d+):"z"/g)].some((m) => Number(m[1]) > seen))
+    const chunks = [...text.matchAll(/K(\d+):(".*")/g)].map((m) => ({ k: Number(m[1]), s: JSON.parse(m[2] as string) as string })).filter((c) => c.k > seen)
+    seen = Math.max(...chunks.map((c) => c.k))
+    return chunks.map((c) => c.s).slice(0, -1)
+  }
+
+  // ── no mouse reports: the menu opens at the pointer, in the table's order ──
+  await screen.dblclick({ position: await cellOf(kea, 'alpha', 2) })
+  await until('alpha copied on select', async () => (await clipboard(page)).includes('alpha') || undefined)
+  const copiedBefore = (await clipboard(page)).length
+  await screen.click({ button: 'right', position: await cellOf(kea, 'bravo', 2) })
+  await expect(menu).toBeVisible()
+  expect((await menu.getByRole('menuitem').allInnerTexts()).map((t) => t.replace(/\s+/g, ''))).toEqual([`Copy${sysLabel('⌘C')}`, `Paste${sysLabel('⌘V')}`, `Select All${protocolOs.system === 'darwin' ? '⌘A' : ''}`, `Find${sysLabel('⌘F')}`, `Clear Terminal and Scrollback${sysLabel('⌘K')}`].map((t) => t.replace(/\s+/g, '')))
+  await frames(page, 2)
+  expect((await clipboard(page)).length, 'the right button’s release copies nothing').toBe(copiedBefore)
+  await page.keyboard.press('Escape')
+  await expect(menu).toHaveCount(0)
+  await until('the keyboard back in the terminal', () => inTerminal(kea))
+  // macOS's Ctrl+click is a right-click: inside the selection it opens the menu and keeps the selection (a line, so a
+  // selection dropped and replaced by the word under the pointer shows)
+  if (protocolOs.system === 'darwin') {
+    await screen.click({ clickCount: 3, position: await cellOf(kea, 'alpha', 2) })
+    await until('the line selected', async () => (await selectionText()).includes('READY alpha bravo') || undefined)
+    await screen.click({ modifiers: ['Control'], position: await cellOf(kea, 'alpha', 2) })
+    await expect(menu).toBeVisible()
+    expect(await selectionText(), 'the Ctrl+click kept the selection').toContain('READY alpha bravo')
+    await page.keyboard.press('Escape')
+    await expect(menu).toHaveCount(0)
+  }
+
+  // ── the picks act on the terminal the menu was opened on, wherever the keyboard was ──
+  await projectRow(page, 'demo').focus()
+  await screen.click({ button: 'right', position: await cellOf(kea, 'bravo', 2) })
+  await menu.getByRole('menuitem', { name: 'Select All' }).click()
+  await expect(menu).toHaveCount(0)
+  await until('everything selected', async () => (await hasSelection()) || undefined)
+  await until('the keyboard in the terminal', () => inTerminal(kea))
+  await screen.dblclick({ position: await cellOf(kea, 'bravo', 2) })
+  await projectRow(page, 'demo').focus()
+  const copies = roles('copy')
+  await screen.click({ button: 'right', position: await cellOf(kea, 'bravo', 2) })
+  await menu.getByRole('menuitem', { name: 'Copy' }).click()
+  await until('main ran the copy', () => roles('copy') === copies + 1 || undefined)
+  expect(await inTerminal(kea)).toBe(true)
+  await projectRow(page, 'demo').focus()
+  const pastes = roles('paste')
+  await screen.click({ button: 'right', position: await cellOf(kea, 'READY', 2) })
+  await menu.getByRole('menuitem', { name: 'Paste' }).click()
+  await until('main ran the paste', () => roles('paste') === pastes + 1 || undefined)
+  expect(await inTerminal(kea)).toBe(true)
+  // on Linux the harness's display has a clipboard of its own, so the word arrives; macOS's is the person's and is not used
+  expect(await reached('after the paste')).toEqual(NOT_ROUTER_CLIPBOARD === null ? ['bravo'] : [])
+
+  // ── mouse reports on: the right button is the program's ──
+  await screen.click({ position: await cellOf(kea, 'READY', 2) })
+  expect(await hasSelection()).toBe(false)
+  await page.keyboard.press('m')
+  expect(await reached('mouse reports on')).toEqual(['m'])
+  // the find bar's match, left selected when the bar closes, is not the person's: it keeps no button from the program
+  await page.keyboard.press(sysKey('Meta+f'))
+  await expect(page.getByRole('search').getByLabel('Find in terminal')).toBeFocused()
+  await page.keyboard.type('alpha')
+  await expect(page.locator('.find-bar .find-count')).toHaveText(/^\d+ of \d+$/)
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('search')).toHaveCount(0)
+  await until('the keyboard back in the terminal', () => inTerminal(kea))
+  expect(await hasSelection(), 'the match stays selected').toBe(true)
+  await screen.click({ button: 'right', position: await cellOf(kea, 'alpha', 2) })
+  await frames(page, 2)
+  await expect(menu).toHaveCount(0)
+  const reports = (await reached('the right button reported')).join('')
+  expect(reports).toMatch(/\x1b\[<2;\d+;\d+M/)
+  expect(reports).toMatch(/\x1b\[<2;\d+;\d+m/)
+  // the override opens the menu and the program is told nothing
+  await screen.click({ button: 'right', modifiers: [override], position: await cellOf(kea, 'alpha', 2) })
+  await expect(menu).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(menu).toHaveCount(0)
+  expect(await reached('nothing reported under the override')).toEqual([])
+  // with text selected the menu opens, nothing is reported and the selection stays
+  await page.evaluate(() => (window as unknown as { __keaProbe: { run(id: string): boolean } }).__keaProbe.run('terminal.selectAll'))
+  await until('everything selected', async () => (await hasSelection()) || undefined)
+  await screen.click({ button: 'right', position: await cellOf(kea, 'bravo', 2) })
+  await expect(menu).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(menu).toHaveCount(0)
+  expect(await hasSelection(), 'the selection stays').toBe(true)
+  expect(await reached('nothing reported over a selection')).toEqual([])
+  // the keyboard's Menu key opens it; Shift+F10 is the program's
+  await page.keyboard.press('ContextMenu')
+  await expect(menu).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(menu).toHaveCount(0)
+  expect(await reached('the Menu key reached no one')).toEqual([])
+  await page.keyboard.press('Shift+F10')
+  expect(await reached('Shift+F10 at the program')).toEqual(['\x1b[21;2~'])
   await kea.assertUnfocused()
 })

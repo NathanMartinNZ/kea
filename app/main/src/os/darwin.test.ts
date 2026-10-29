@@ -13,7 +13,7 @@ describe("main's OS layer", () => {
     for (const d of dirs.splice(0)) fs.rmSync(d, { recursive: true, force: true })
   })
   /** What main gathers for the report, as a Mac with a GPU gives it. */
-  const input = (o: Partial<ReportInput>): ReportInput => ({ version: '27.0.0', arch: 'arm64', resourcesDir: '', execPath: '/Applications/Kea.app/Contents/MacOS/Kea', webgl2: 'enabled', trayHost: true, notificationService: true, rendererPid: null, corePid: null, idle: 'system', watchLimitHeld: null, display: 'quartz', desktopId: 'dev.kea.app', ...o })
+  const input = (o: Partial<ReportInput>): ReportInput => ({ version: '27.0.0', arch: 'arm64', resourcesDir: '', execPath: '/Applications/Kea.app/Contents/MacOS/Kea', webgl2: 'enabled', trayHost: true, notificationService: true, rendererPid: null, corePid: null, idle: 'system', watchLimitHeld: null, display: 'quartz', desktopId: 'dev.kea.app', displayScale: 2, ...o })
   const resources = (installKind?: string) => {
     const d = fs.mkdtempSync(path.join(os.tmpdir(), 'kea-plt-'))
     dirs.push(d)

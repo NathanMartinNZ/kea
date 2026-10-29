@@ -9,15 +9,15 @@ import os from 'node:os'
 import path from 'node:path'
 import { performance } from 'node:perf_hooks'
 import * as electron from 'electron'
-import { app, BrowserWindow, dialog, ipcMain, Menu, MessageChannelMain, Notification, powerMonitor, protocol, screen, session, shell, Tray, type IpcMainEvent, type MenuItemConstructorOptions, type WebContents } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, MessageChannelMain, nativeTheme, Notification, powerMonitor, protocol, screen, session, shell, Tray, type IpcMainEvent, type MenuItemConstructorOptions, type WebContents } from 'electron'
 import { createLogger, registerSingletonGauge, resources, Supervisor, type Logger } from '@kea/kit'
-import { childArgv, childV8Flags, DESKTOP_IDS, isAvailable, KEA_FILE_SCHEME, L, need, parsePerfBusy, scrubSessionEnv, zMenuState, zPtyId, zResourcesReply, zSessionId, type CollectedResources, type MenuBarState, type PlatformReport, type ResourceReport } from '@kea/protocol'
+import { childArgv, childV8Flags, DESKTOP_IDS, EDIT_ROLES, isAvailable, KEA_FILE_SCHEME, L, need, parsePerfBusy, scrubSessionEnv, zMenuState, zPtyId, zResourcesReply, zSessionId, type CollectedResources, type EditRole, type MenuBarState, type PlatformReport, type ResourceReport } from '@kea/protocol'
 import { COLOR, SIZE_PX } from '@kea/ui/tokens'
 import { installFrontGuard } from './frontGuard.ts'
 import { keaHome } from './home.ts'
 import { serveKeaFile, VisibleDirs } from './keaFile.ts'
 import { CoreAvailability, RpcPortHandout, shutdownChildren } from './lifecycle.ts'
-import { menuTemplate, windowMenuState, type WindowMenuState } from './menu.ts'
+import { findMenuItem, menuTemplate, windowMenuState, windowMenuTree, type WindowMenuState } from './menu.ts'
 import { BackgroundTray, DockIcon, isQuitChoice, lastWindowAction, markQuitSheetSeen, MenuBarItemRemoval, QuitSheetAnswer, quitAction, quitSheetSeen, trayTemplate, trayTitle, trayTooltip, type QuitChoice } from './menuBar.ts'
 import { trayIcon } from './trayIcon.ts'
 import { openLink, RecordingOpener, type ExternalOpener } from './external.ts'
@@ -59,6 +59,8 @@ if (REFUSED.length > 0) {
 const DEV = !app.isPackaged
 const VERSION = app.getVersion()
 const PERF = process.argv.includes('--kea-perf') // tools/perf: exposes window.__keaPerf in the renderer
+// tools/perf on a display of its own (Linux's Xvfb), whose clipboard is the run's: the Edit roles run for real there
+const PERF_CLIPBOARD = PERF && process.argv.includes('--kea-perf-clipboard')
 const DIST = __dirname // dist/app: main.cjs, preload.cjs, core.cjs, ptyhost.cjs, renderer/
 const RENDERER_DIR = path.join(DIST, 'renderer')
 const HELPER = app.isPackaged ? path.join(process.resourcesPath, 'kea-helper') : path.resolve(DIST, '..', '..', 'native', 'kea-helper', 'target', 'release', 'kea-helper')
@@ -312,14 +314,32 @@ ipcMain.on('kea:mainCommand', (e, id: unknown) => {
   else if (id === 'app.quit') app.quit()
 })
 
-// the palette's Copy and Paste: the Edit menu's roles on the window's focused element. Under --kea-perf the
-// person's clipboard is never read or written: the request is logged instead
+/**
+ * An Edit role on the window's focused element. Under --kea-perf the person's clipboard is never read or written: the
+ * request is logged instead, unless the run's display (and so its clipboard) is its own (--kea-perf-clipboard), where
+ * the role runs and is logged.
+ */
+function runEditRole(w: BrowserWindow, role: EditRole): void {
+  if (PERF && !PERF_CLIPBOARD) {
+    log.info('edit role not run (perf)', { role })
+    return
+  }
+  const wc = w.webContents
+  if (role === 'undo') wc.undo()
+  else if (role === 'redo') wc.redo()
+  else if (role === 'cut') wc.cut()
+  else if (role === 'copy') wc.copy()
+  else if (role === 'paste') wc.paste()
+  else wc.selectAll()
+  if (PERF) log.info('edit role run (perf)', { role })
+}
+
+const isEditRole = (r: unknown): r is EditRole => typeof r === 'string' && (EDIT_ROLES as readonly string[]).includes(r)
+
+// the palette's Copy and Paste, and Linux's keys for them: the Edit menu's roles on the window's focused element
 ipcMain.on('kea:editRole', (e, role: unknown) => {
   const w = fromOurWindow(e)
-  if (!w || (role !== 'copy' && role !== 'paste')) return
-  if (PERF) log.info('edit role not run (perf)', { role })
-  else if (role === 'copy') w.webContents.copy()
-  else w.webContents.paste()
+  if (w && isEditRole(role)) runEditRole(w, role)
 })
 
 /**
@@ -529,8 +549,9 @@ function rebuildMenu(): void {
 /** What a test sees of the header's menu: the menus' titles, and where each opening was asked for (none opens under --kea-perf). */
 const menuOpenings: { x: number; y: number }[] = [] // bounded: the newest L.logMemoryEntries openings (an in-memory log for tests)
 
-// The header's menu button and `Alt` pressed alone open the window's menu under the button. Under
-// --kea-perf no menu opens (it would take the keyboard): the request is recorded instead
+// The header's menu button and `Alt` pressed alone open the window's menu under the button: the window draws it
+// (Kea's own menu, so it has the window's type and colours), from the items of the menu bar's template, sent now so
+// they say what is available now. Under --kea-perf each opening is recorded too
 ipcMain.on('kea:openMenu', (e, at: unknown) => {
   const w = fromOurWindow(e)
   if (!w || !isAvailable(mainOs.menu) || !mainOs.menu.inWindow) return
@@ -541,9 +562,19 @@ ipcMain.on('kea:openMenu', (e, at: unknown) => {
   if (PERF) {
     menuOpenings.push({ x, y })
     if (menuOpenings.length > L.logMemoryEntries) menuOpenings.shift()
-    return
   }
-  Menu.buildFromTemplate(menuNow).popup({ window: w, x, y })
+  w.webContents.send('kea:windowMenu', { at: { x, y }, items: windowMenuTree(menuNow) })
+})
+
+// A pick in the window's menu: its item, found again in the template as it is now; a disabled one does nothing
+ipcMain.on('kea:menuPick', (e, id: unknown) => {
+  const w = fromOurWindow(e)
+  if (!w || typeof id !== 'string' || !isAvailable(mainOs.menu) || !mainOs.menu.inWindow) return
+  const item = findMenuItem(menuNow, id)
+  if (!item || item.enabled === false) return
+  if (isEditRole(item.role)) runEditRole(w, item.role)
+  else if (item.role === 'toggleDevTools') w.webContents.toggleDevTools()
+  else item.click?.(undefined as never, w, undefined as never)
 })
 
 // ── notifications and the badge (notifier.ts) ──────────────────────────────────────────────
@@ -947,6 +978,7 @@ function buildPlatformReport(): PlatformReport | null {
     watchLimitHeld: held,
     display: DISPLAY,
     desktopId: DESKTOP_ID,
+    displayScale: app.isReady() ? screen.getPrimaryDisplay().scaleFactor : null,
   })
 }
 
@@ -1059,6 +1091,9 @@ app.on('window-all-closed', () => {
 
 void app.whenReady().then(() => {
   perfMarks.ready = performance.now()
+  // what Electron draws itself in the system's colours (Linux: dark, as the window is)
+  const theme = isAvailable(mainOs.windowChrome) ? mainOs.windowChrome.nativeTheme : null
+  if (theme) nativeTheme.themeSource = theme
   session.defaultSession.setPermissionRequestHandler((_wc, permission, cb) => cb(permission === 'clipboard-sanitized-write'))
   session.defaultSession.setPermissionCheckHandler((_wc, permission) => permission === 'clipboard-sanitized-write')
   protocol.handle('kea', serveUi)

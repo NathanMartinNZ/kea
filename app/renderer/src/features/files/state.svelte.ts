@@ -28,6 +28,8 @@ export interface FileMenu {
   /** `file`: the row. `changes`: the session whose Changes header it is. */
   target: FileTarget
   at: { x: number; y: number }
+  /** The button it hangs from (`menuTrigger`), when a button opened it: a click there closes it. */
+  trigger?: string
 }
 
 export interface DiscardAsk {

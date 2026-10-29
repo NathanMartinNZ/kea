@@ -15,12 +15,13 @@ Locatable as the group "Open in editor".
 -->
 <script lang="ts">
   import { untrack } from 'svelte'
-  import { EDITOR_BUTTON_LABEL, type EditorOpenRequest } from '@kea/protocol'
-  import { Icon, Menu, type MenuItem } from '@kea/ui'
+  import { EDITOR_BUTTON_LABEL, protocolOs, type EditorOpenRequest } from '@kea/protocol'
+  import { Icon, Menu, menuTrigger, type MenuItem } from '@kea/ui'
   import { call } from '../../lib/rpc.ts'
   import { commands } from '../commands/registry.ts'
   import { menuItems } from '../sessions/sheets.ts'
   import { failed } from '../sessions/state.svelte.ts'
+  import { editorHint } from './hint.ts'
   import { openInEditor } from './open.ts'
   import { buttonMounted, editorState, refreshEditors } from './state.svelte.ts'
   import './editor.css'
@@ -109,7 +110,7 @@ Locatable as the group "Open in editor".
     else commands.run(id, { id: sessionId })
   }
 
-  const hint = $derived(def !== null ? '' : list.editors.length === 0 ? 'No editor was found on this Mac' : `${list.configured.name} is not installed`)
+  const hint = $derived(editorHint({ hasDefault: def !== null, found: list.editors.length, configured: list.configured.name }, protocolOs.words))
   const defName = $derived(list.editors.find((e) => e.id === def)?.name ?? '')
   // a header control never takes the keyboard from the terminal
   const keepFocus = (e: MouseEvent) => e.preventDefault()
@@ -120,13 +121,13 @@ Locatable as the group "Open in editor".
     <button class={editorState.pressed ? 'quiet-button pressed' : 'quiet-button'} data-command="session.openInEditor" data-tip={`Open in ${defName}`} onmousedown={keepFocus} onclick={() => commands.run('session.openInEditor', { id: sessionId })}
       >{#if def === 'vscode' || def === 'vscode-insiders'}<Icon name="vscode" />{/if}{EDITOR_BUTTON_LABEL[def]}</button
     >
-    <button class="quiet-button caret" aria-label="Open in…" aria-haspopup="menu" aria-expanded={menu !== null} data-command="view.openIn" onmousedown={keepFocus} onclick={openMenu}><Icon name="caretDown" /></button>
+    <button class="quiet-button caret" aria-label="Open in…" aria-haspopup="menu" aria-expanded={menu !== null} data-menu-trigger="open-in" data-command="view.openIn" onmousedown={keepFocus} onclick={openMenu}><Icon name="caretDown" /></button>
   {:else}
-    <button class={editorState.pressed ? 'quiet-button pressed' : 'quiet-button'} aria-haspopup="menu" aria-expanded={menu !== null} data-command="view.openIn" data-tip={hint || undefined} onmousedown={keepFocus} onclick={openMenu}>Open in…</button>
+    <button class={editorState.pressed ? 'quiet-button pressed' : 'quiet-button'} aria-haspopup="menu" aria-expanded={menu !== null} data-menu-trigger="open-in" data-command="view.openIn" data-tip={hint || undefined} onmousedown={keepFocus} onclick={openMenu}>Open in…</button>
   {/if}
 </div>
 {#if menu}
   {#key menu.kind}
-    <Menu label={LABEL[menu.kind]} {items} at={menu.at} align="end" onPick={picker(menu)} onClose={() => (menu = null)} />
+    <Menu label={LABEL[menu.kind]} {items} at={menu.at} align="end" trigger={menuTrigger('open-in')} onPick={picker(menu)} onClose={() => (menu = null)} />
   {/key}
 {/if}

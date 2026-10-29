@@ -417,7 +417,8 @@ test('A-2 · every interactive element has an accessible name, icon-only buttons
     expect(seen.filter((t) => t.copy)).toEqual([])
     const here = seen.find((t) => t.pty === agent)!
     expect(here).toMatchObject({ shown: true, role: 'group', name: 'Fix auth redirect, Agent terminal', input: 'Fix auth redirect, Agent terminal' })
-    expect(seen.find((t) => t.pty === shell)?.name).toMatch(/^Fix auth redirect, .+ terminal$/)
+    // a shell's tab names a terminal already: said once
+    expect(seen.find((t) => t.pty === shell)).toMatchObject({ name: 'Fix auth redirect, Terminal 1', input: 'Fix auth redirect, Terminal 1' })
     // one starts: the terminal on screen keeps the copy, and it holds the screen's text; the hidden one pays nothing
     await screenReader(kea, true)
     await until('the screen-reader copy in the terminal on screen', async () => (await terminalsSeen(page)).find((t) => t.pty === agent)?.copy || undefined)

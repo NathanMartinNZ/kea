@@ -1,11 +1,12 @@
-// The window's menu on Linux: the header's menu button opens the application menu under it (main's `Menu.popup()`,
-// built from the same registry as the menu bar), and so does `Alt` pressed and released alone, the habit of Linux apps
-// whose menu is hidden; with the Window Controls Overlay there is no menu bar for `Alt` to reveal. `Alt` held with
-// another key, or with a click, is that chord's, not the menu's. macOS has its menu bar and no button
-// (`protocolOs.window.menuButton`).
+// The window's menu on Linux: the header's menu button opens the application menu under it (drawn by the window,
+// WindowMenu.svelte, from the items main sends of the menu bar's template), and so does `Alt` pressed and released
+// alone, the habit of Linux apps whose menu is hidden; with the Window Controls Overlay there is no menu bar for `Alt`
+// to reveal. `Alt` alone again, or the button, closes it. `Alt` held with another key, or with a click, is that
+// chord's, not the menu's. macOS has its menu bar and no button (`protocolOs.window.menuButton`).
 
 import { protocolOs } from '@kea/protocol'
 import { openWindowMenu } from '../lib/bridge.ts'
+import { windowMenuUi } from './windowMenuState.svelte.ts'
 
 /** What the detector reads of a key event. */
 export type KeyLike = { key: string; altKey: boolean; ctrlKey: boolean; shiftKey: boolean; metaKey: boolean; repeat: boolean; isComposing?: boolean }
@@ -46,8 +47,9 @@ export function menuAnchor(button: { getBoundingClientRect(): { left: number; bo
   return { x: Math.round(r.left), y: Math.round(r.bottom) }
 }
 
-/** Opens the menu under the header's button (the leftmost visible header holds it: WindowMenuButton.svelte). */
+/** Opens the menu under the header's button (the leftmost visible header holds it: WindowMenuButton.svelte), or closes it when it is open or asked for. */
 export function openMenuUnderButton(): void {
+  if (!windowMenuUi.toggle()) return
   const { x, y } = menuAnchor(document.querySelector<HTMLElement>('[data-window-menu]'))
   openWindowMenu(x, y)
 }

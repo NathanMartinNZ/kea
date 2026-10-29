@@ -100,32 +100,33 @@ describe('screen-reader mode', () => {
     expect(t.reg.get('server')!.switches).toBe(5)
   })
 
-  it('U-TERM-33 · each terminal’s accessible name says its session and its tab; a rename and a tab’s new title reach the views, a view made later takes its name, and the names held never outgrow the open tabs', () => {
+  it('U-TERM-33 · each terminal’s accessible name says its session and its tab, and says “terminal” once; a rename reaches the views, a view made later takes its name, and the names held never outgrow the open tabs', () => {
     expect(terminalName('Fix auth redirect', 'Agent')).toBe('Fix auth redirect, Agent terminal')
     expect(terminalName('Fix auth redirect', 'Server')).toBe('Fix auth redirect, Server terminal')
-    expect(terminalName('Fix auth redirect', 'vim')).toBe('Fix auth redirect, vim terminal')
+    // a shell tab's name says it is a terminal already: never "Terminal 2 terminal"
+    expect(terminalName('Fix auth redirect', 'Terminal 2')).toBe('Fix auth redirect, Terminal 2')
     // the shells outside a session have no session to name
-    expect(terminalName(null, 'zsh')).toBe('zsh terminal')
-    expect(terminalName('  ', 'zsh')).toBe('zsh terminal')
-    expect(terminalName('Fix auth redirect', ' ')).toBe('Fix auth redirect, shell terminal')
+    expect(terminalName(null, 'Terminal 1')).toBe('Terminal 1')
+    expect(terminalName('  ', 'Terminal 1')).toBe('Terminal 1')
+    expect(terminalName('Fix auth redirect', ' ')).toBe('Fix auth redirect, Terminal')
 
     const t = setup()
     const names = (session: string, tabs: readonly [string, string][]) => tabs.map(([id, tab]) => [id, terminalName(session, tab)] as const)
     // the names arrive with the tabs list, before any view: the views take theirs as they are made
-    t.mode.setNames(names('Fix auth redirect', [['agent', 'Agent'], ['zsh', 'zsh']]))
+    t.mode.setNames(names('Fix auth redirect', [['agent', 'Agent'], ['zsh', 'Terminal 1']]))
     t.show('agent', ['agent', 'zsh'])
     t.show('zsh', ['agent', 'zsh'])
     expect(t.reg.get('agent')?.name).toBe('Fix auth redirect, Agent terminal')
-    expect(t.reg.get('zsh')?.name).toBe('Fix auth redirect, zsh terminal')
-    // the session is renamed, and the shell's program sets a title: the live views follow
-    t.mode.setNames(names('Auth redirect loop', [['agent', 'Agent'], ['zsh', 'vim']]))
+    expect(t.reg.get('zsh')?.name).toBe('Fix auth redirect, Terminal 1')
+    // the session is renamed: the live views follow
+    t.mode.setNames(names('Auth redirect loop', [['agent', 'Agent'], ['zsh', 'Terminal 1']]))
     expect(t.reg.get('agent')?.name).toBe('Auth redirect loop, Agent terminal')
-    expect(t.reg.get('zsh')?.name).toBe('Auth redirect loop, vim terminal')
+    expect(t.reg.get('zsh')?.name).toBe('Auth redirect loop, Terminal 1')
     expect(t.mode.nameCount).toBe(2)
 
     // a hundred sessions shown one after another, each with its tabs: the names held are the ones of the tabs open now
     for (let i = 0; i < 100; i++) {
-      const tabs: [string, string][] = [[`agent-${i}`, 'Agent'], [`zsh-${i}`, 'zsh'], [`srv-${i}`, 'Server']]
+      const tabs: [string, string][] = [[`agent-${i}`, 'Agent'], [`zsh-${i}`, 'Terminal 1'], [`srv-${i}`, 'Server']]
       t.mode.setNames(names(`session ${i}`, tabs))
       t.show(`agent-${i}`, tabs.map(([id]) => id), { exists: (id) => id.startsWith('agent-') })
       expect(t.mode.nameCount).toBe(3)

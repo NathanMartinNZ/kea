@@ -18,6 +18,11 @@ export interface WindowChrome {
   readonly createShown: boolean
   /** A saved position is restored (on Wayland a window cannot place itself, and `getBounds()` has no real position). */
   restoresPosition(display: DisplayServer): boolean
+  /**
+   * `nativeTheme.themeSource` for what Electron draws itself (Linux: GTK's dialogs and menus, dark like the window);
+   * null to leave it to the system (macOS, where it would change the menu bar and the frames).
+   */
+  readonly nativeTheme: 'dark' | null
 }
 
 /**
@@ -197,6 +202,8 @@ export interface ReportInput {
   display: DisplayServer
   /** The desktop file's id this build runs as (`DESKTOP_IDS`), which a notification's click activates. */
   desktopId: string
+  /** The primary display's scale factor (`screen.getPrimaryDisplay().scaleFactor`); null before the app is ready. */
+  displayScale: number | null
 }
 
 /** The platform report, as main assembles it. */

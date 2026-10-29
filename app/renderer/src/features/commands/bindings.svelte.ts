@@ -103,13 +103,13 @@ export interface KeyboardRow {
 }
 
 /** Every command of the table with its binding now, in table order. Reactive. */
-export function keyboardRows(): KeyboardRow[] {
+export function keyboardRows(extra: (id: string) => readonly string[] = () => []): KeyboardRow[] {
   void bindingsState.version
   return COMMANDS.map((c) => ({
     id: c.id,
     title: commandTitle(c),
     category: c.category,
-    keys: effective.labels.get(c.id) ?? [],
+    keys: [...(effective.labels.get(c.id) ?? []), ...extra(c.id)],
     scope: c.keyScope ?? null,
     gesture: c.gesture ?? null,
     changed: effective.changed.has(c.id),

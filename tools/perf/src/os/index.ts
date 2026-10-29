@@ -22,7 +22,10 @@ export interface HarnessDisplay {
    * of the menu-bar mode skip by name there.
    */
   readonly trayProblem: string | null
-  /** The Chromium switches and environment a launch adds (Linux: `--ozone-platform=x11` on the run's display). */
+  /**
+   * The switches and environment a launch adds. Linux: `--ozone-platform=x11` on the run's display, and
+   * `--kea-perf-clipboard`, since that display's clipboard is the run's own (macOS's is the person's, never touched).
+   */
   launch(): Promise<{ args: string[]; env: Record<string, string | undefined> }>
 }
 

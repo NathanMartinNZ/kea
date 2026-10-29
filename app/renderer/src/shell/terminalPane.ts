@@ -1,6 +1,6 @@
 // What the terminal pane (`TerminalPane.svelte`) keeps beyond one mount: the `shells` context of plain shell tabs, the
-// tab each session showed last and what the session itself is known to remember of it, the tab order and the tab
-// titles.
+// tab each session showed last and what the session itself is known to remember of it, the tab order, and the tabs'
+// titles and tooltips.
 
 import type { PtyInfo } from '@kea/protocol'
 import { terminalText } from '../features/terminal/text.ts'
@@ -56,14 +56,24 @@ export function byKind(list: readonly PtyInfo[], id: string): PtyInfo['kind'] {
 }
 
 /**
- * A tab's title: `Agent`, `Setup`, `Server`. A shell tab shows the title its program set (OSC 0/2), else the name of
- * the process in its foreground (core's `foreground`, asked of the holder while the session is on screen), else the
- * shell's name. Title and process name are the program's own words: shown as data.
+ * A tab's title, always Kea's own words: `Agent`, `Setup`, `Server`, and a shell tab's `Terminal n`, with the number
+ * core gave it in its session or the shells pane (`PtyInfo.number`), whatever runs in it.
  */
 export function tabTitle(t: PtyInfo): string {
   if (t.kind === 'agent') return 'Agent'
   if (t.kind === 'script') return 'Setup'
   if (t.kind === 'server') return 'Server'
+  return t.number ? `Terminal ${t.number}` : 'Terminal'
+}
+
+/**
+ * A shell tab's tooltip and accessible description, as a file tab's is its path: what runs in it. The title its
+ * program set (OSC 0/2), else the name of the process in its foreground (core's `foreground`, asked of the holder while
+ * the session is on screen), else the shell's name. Title and process name are the program's own words: shown as data.
+ * Null for the other kinds.
+ */
+export function tabTip(t: PtyInfo): string | null {
+  if (t.kind !== 'shell') return null
   return terminalText(t.title) || terminalText(t.foreground) || (t.argv[0]?.split('/').pop() ?? 'shell')
 }
 

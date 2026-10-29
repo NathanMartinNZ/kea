@@ -294,9 +294,9 @@ export function linuxMenu(p: MenuParts): MenuItemConstructorOptions[] {
     {
       label: 'Window',
       submenu: [
-        { label: 'Minimize', click: (_m, w) => w?.minimize() },
-        { label: 'Maximize', click: (_m, w) => (w?.isMaximized() ? w.unmaximize() : w?.maximize()) },
-        { label: 'Full Screen', click: (_m, w) => w?.setFullScreen(!w.isFullScreen()) },
+        { id: 'window.minimize', label: 'Minimize', click: (_m, w) => w?.minimize() },
+        { id: 'window.maximize', label: 'Maximize', click: (_m, w) => (w?.isMaximized() ? w.unmaximize() : w?.maximize()) },
+        { id: 'window.fullScreen', label: 'Full Screen', click: (_m, w) => w?.setFullScreen(!w.isFullScreen()) },
       ],
     },
     { label: 'Help', submenu: p.help },
@@ -385,9 +385,11 @@ function watchLimit(): number | null {
 }
 
 /** The lines main adds to the terminal lines, in About's order once merged (`PLATFORM_LINES`). */
-export function desktopLines(o: { desktop: string | null; display: DisplayServer; trayHost: boolean | null; notifications: boolean | null; desktopFile: { id: string; found: boolean }; idle: IdleSource; webgl2: string; watches: number | null; watchLimit: number | null; watchLimitHeld: boolean | null }): PlatformLine[] {
+export function desktopLines(o: { desktop: string | null; display: DisplayServer; scale: number | null; trayHost: boolean | null; notifications: boolean | null; desktopFile: { id: string; found: boolean }; idle: IdleSource; webgl2: string; watches: number | null; watchLimit: number | null; watchLimitHeld: boolean | null }): PlatformLine[] {
   const session = o.display === 'wayland' ? 'Wayland' : 'X11'
-  const lines: PlatformLine[] = [line('desktop', 'Desktop', `${o.desktop ?? 'unknown desktop'}, ${session}`)]
+  // the scale tells a page drawn too small or too large from one the desktop's text scaling enlarged
+  const scale = o.scale === null ? '' : `, primary display at scale ${Math.round(o.scale * 100) / 100}`
+  const lines: PlatformLine[] = [line('desktop', 'Desktop', `${o.desktop ?? 'unknown desktop'}, ${session}${scale}`)]
   lines.push(terminalRendererLine(o.webgl2, GPU_DRIVER_FIX))
   lines.push(
     o.trayHost === true
@@ -421,8 +423,10 @@ export const linux: MainOs = {
     options: (o) => ({ titleBarStyle: 'hidden', titleBarOverlay: o.overlay, autoHideMenuBar: true }),
     createShown: true,
     restoresPosition: (display) => display !== 'wayland',
+    // the page sets its own colours (it reads no `prefers-color-scheme`); GTK's dialogs and menus follow this
+    nativeTheme: 'dark',
   },
-  // Chromium's own switch, else its hint (`--ozone-platform-hint=auto` in the desktop file), else the environment
+  // Chromium's own switch, else its hint, else the environment: Electron runs on Wayland where the session has one
   raise: { display: (env, sw) => displayServer(env, sw('ozone-platform') || sw('ozone-platform-hint')), how: raiseHow },
   menu: { layout: linuxMenu, inWindow: true },
   notify: { create: (make, o) => new make({ title: o.title, body: foldSubtitle(o.subtitle, o.body), silent: o.silent }), permission: false },
@@ -477,6 +481,7 @@ export const linux: MainOs = {
       const extra = desktopLines({
         desktop: process.env.XDG_CURRENT_DESKTOP || null,
         display: o.display,
+        scale: o.displayScale,
         trayHost: o.trayHost,
         notifications: o.notificationService,
         desktopFile: { id: o.desktopId, found: desktopFileFound(o.desktopId) },

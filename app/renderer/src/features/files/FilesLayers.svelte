@@ -27,5 +27,5 @@ finder (`⌘P`) is the palette's file mode (features/palette).
 </script>
 
 {#if menu}
-  <Menu label={menu.req.kind === 'file' ? 'File menu' : 'Changes actions'} items={menu.items} at={menu.req.at} align={menu.req.kind === 'changes' ? 'end' : 'start'} onClose={close} onPick={runWith(menu.req.target)} />
+  <Menu label={menu.req.kind === 'file' ? 'File menu' : 'Changes actions'} items={menu.items} at={menu.req.at} align={menu.req.kind === 'changes' ? 'end' : 'start'} trigger={menu.req.trigger} onClose={close} onPick={runWith(menu.req.target)} />
 {/if}

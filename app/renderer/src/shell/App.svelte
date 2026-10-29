@@ -33,6 +33,7 @@ is a `separator` "Resize sidebar" / "Resize file panel" with its width as its va
   import { addProjectAt } from '../features/sessions/actions.ts'
   import { registerSessionCommands } from '../features/sessions/commands.ts'
   import Menus from '../features/sessions/Menus.svelte'
+  import TerminalMenu from '../features/terminal/TerminalMenu.svelte'
   import Sidebar from '../features/sessions/Sidebar.svelte'
   import { lastSessionId, mru, pendingSessionId, projects, sessions, terminalsList, ui } from '../features/sessions/state.svelte.ts'
   import ToastHost from '../features/sessions/ToastHost.svelte'
@@ -47,6 +48,8 @@ is a `separator` "Resize sidebar" / "Resize file panel" with its width as its va
   import { drawn, setPanelMode, type PanelMode } from './layout.ts'
   import { layoutState, registerLayoutCommands, setLayout, setPanelElement } from './layoutStore.svelte.ts'
   import MainHeader from './MainHeader.svelte'
+  import TextMenu from './TextMenu.svelte'
+  import WindowMenu from './WindowMenu.svelte'
   import WindowMenuButton from './WindowMenuButton.svelte'
   import MainPane from './MainPane.svelte'
   import { forgetWhatGoes } from './forget.ts'
@@ -136,11 +139,13 @@ is a `separator` "Resize sidebar" / "Resize file panel" with its width as its va
   <aside class="column sidebar-column" aria-label="Sidebar" hidden={d.sidebar === 0}>
     <div class="column-header sidebar-header">
       {#if menuIn === 'sidebar'}
-        <WindowMenuButton />
+        <div class="header-cluster"><WindowMenuButton /></div>
       {/if}
       <span class="header-spacer"></span>
       {#if anyProject.current}
-        <button class="quiet-button icon" aria-label={named('session.new')} data-command="session.new" onmousedown={keepFocus} onclick={() => commands.run('session.new')}><Icon name="plus" /></button>
+        <div class="header-cluster">
+          <button class="quiet-button icon" aria-label={named('session.new')} data-command="session.new" onmousedown={keepFocus} onclick={() => commands.run('session.new')}><Icon name="plus" /></button>
+        </div>
       {/if}
     </div>
     <Sidebar />
@@ -154,18 +159,22 @@ is a `separator` "Resize sidebar" / "Resize file panel" with its width as its va
   <!-- the file panel: the column, its header toggle and its focus are the window's; its body is `FilePanel` -->
   <section class="column file-panel" aria-label="File panel" hidden={d.tree === 0} {@attach panelElement}>
     <div class="column-header panel-header">
-      {#if menuIn === 'panel'}
-        <WindowMenuButton />
-      {/if}
-      <div class="segments" role="group" aria-label="File panel mode">
-        {@render modeButton('files', 'Files')}
-        {#if hasChanges}
-          {@render modeButton('changes', changes === null ? 'Changes' : `Changes ${changes}`)}
+      <div class="header-cluster">
+        {#if menuIn === 'panel'}
+          <WindowMenuButton />
         {/if}
+        <div class="segments" role="group" aria-label="File panel mode">
+          {@render modeButton('files', 'Files')}
+          {#if hasChanges}
+            {@render modeButton('changes', changes === null ? 'Changes' : `Changes ${changes}`)}
+          {/if}
+        </div>
       </div>
       <span class="header-spacer"></span>
       <!-- the finder: the panel header's search icon -->
-      <button class="quiet-button icon" aria-label={named('files.goToFile', 'Go to File')} data-command="files.goToFile" data-tip="Go to File" disabled={panelSession === null} onmousedown={keepFocus} onclick={() => commands.run('files.goToFile')}><Icon name="search" /></button>
+      <div class="header-cluster">
+        <button class="quiet-button icon" aria-label={named('files.goToFile', 'Go to File')} data-command="files.goToFile" data-tip="Go to File" disabled={panelSession === null} onmousedown={keepFocus} onclick={() => commands.run('files.goToFile')}><Icon name="search" /></button>
+      </div>
     </div>
     <!-- the panel's body is the files feature's: the tree, or the Changes list -->
     <div class="panel-body">
@@ -184,6 +193,11 @@ is a `separator` "Resize sidebar" / "Resize file panel" with its width as its va
     <Divider column="tree" x={d.sidebar + d.tree} label="Resize file panel" />
   {/if}
   <Menus />
+  <TerminalMenu />
+  <TextMenu />
+  {#if menuButton}
+    <WindowMenu />
+  {/if}
   <!-- the file panel's menus -->
   <FilesLayers />
   <!-- the command palette (⌘⇧P; ⌘P in file mode, which is the finder) -->

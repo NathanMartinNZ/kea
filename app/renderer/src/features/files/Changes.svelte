@@ -16,7 +16,7 @@ answer → the last status that worked, said so.
   import { tick, untrack } from 'svelte'
   import type { Attachment } from 'svelte/attachments'
   import { DIFF_SCOPES, L, type DiffScope, type GitEntry } from '@kea/protocol'
-  import { MoreIcon } from '@kea/ui'
+  import { menuTrigger, MoreIcon } from '@kea/ui'
   import { SIZE_PX } from '@kea/ui/tokens'
   import { commands } from '../commands/registry.ts'
   import { branchLine, branchText, changeRow, LETTER_NAMES, midPath, totalsText } from './changes.ts'
@@ -169,7 +169,7 @@ answer → the last status that worked, said so.
 
   function openMenu(e: MouseEvent): void {
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
-    panel.menu = { kind: 'changes', target: { sessionId, path: '', dir: true }, at: { x: r.right, y: r.bottom } }
+    panel.menu = { kind: 'changes', target: { sessionId, path: '', dir: true }, at: { x: r.right, y: r.bottom }, trigger: menuTrigger('changes-actions') }
   }
 
   const keepFocus = (e: MouseEvent) => e.preventDefault()
@@ -185,7 +185,7 @@ answer → the last status that worked, said so.
     {#if head?.manual || gitState === 'tooMany'}
       <button class="quiet-button" data-command="files.refresh" onmousedown={keepFocus} onclick={() => filesModel.refresh()}>Refresh</button>
     {/if}
-    <button class="quiet-button icon" aria-label="Changes actions" aria-haspopup="menu" data-tip="Changes actions" onmousedown={keepFocus} onclick={openMenu}><MoreIcon /></button>
+    <button class="quiet-button icon" aria-label="Changes actions" aria-haspopup="menu" aria-expanded={panel.menu?.kind === 'changes'} data-menu-trigger="changes-actions" data-tip="Changes actions" onmousedown={keepFocus} onclick={openMenu}><MoreIcon /></button>
   </div>
   {#if totals && gitState !== 'tooMany'}
     <div class="ch-totals" aria-label="Totals">

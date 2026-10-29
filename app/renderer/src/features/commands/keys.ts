@@ -8,6 +8,10 @@
 //   copy, paste                    → macOS: native menu roles, whose ⌘C / ⌘V are the menu's (copy / paste events
 //                                    reach the focused element); Linux: the router asks main for the role
 //                                    (Ctrl+Shift+C / V, Ctrl+Insert, Shift+Insert), the menu registering no key
+//   ⌘A in a terminal               → Select All of the terminal's text (macOS; on Linux Ctrl+A is the shell's)
+//   Ctrl+C, Ctrl+V in a terminal   → Linux with `terminal.ctrlCopyPaste` on: the copy role while the person has
+//                                    selected text there (else the PTY's interrupt), the paste role; off, the PTY's,
+//                                    and Ctrl+C over such a selection is the moment of a one-time hint
 //   a scoped binding               → only while its context has the keyboard (`scope.ts`); a scoped key without
 //                                    primary is the context's own and is passed to it (a viewer's keys; ↵ in the
 //                                    detached overlay), which finds its command with `scopedBinding`
@@ -22,7 +26,7 @@
 //
 // Pure functions over a KeyboardEvent-like object, so the table is unit-tested (U-KB-1; Linux's rules U-PLT-41).
 
-import { bindings, NATIVE_ROLES, parseChord, protocolOs, type Binding, type KeyLabels, type KeyScope } from '@kea/protocol'
+import { bindings, NATIVE_ROLES, parseChord, protocolOs, SELECT_ALL_COMMAND, type Binding, type KeyLabels, type KeyScope } from '@kea/protocol'
 
 // The router's chord lists are the OS layer's (`keys`): the keybindings file is validated against the same ones
 
@@ -93,8 +97,11 @@ export type Route =
   | { do: 'command'; id: string; args?: unknown }
   /** A native menu role acts (copy / paste) by the menu's own key (macOS); the terminal's own key handling never sees the key. */
   | { do: 'native'; id: string }
-  /** Copy or paste where the menu has no key for it (Linux): main runs the role on the focused element; preventDefault. */
-  | { do: 'edit'; id: string; role: 'copy' | 'paste' }
+  /**
+   * Copy or paste where the menu has no key for it (Linux): main runs the role on the focused element; preventDefault.
+   * `plain`: by plain Ctrl+C or Ctrl+V (`ctrlKeyRole`), whose copy clears the terminal's selection once it has run.
+   */
+  | { do: 'edit'; id: string; role: 'copy' | 'paste'; plain?: true }
   /** Send these bytes to the PTY instead. */
   | { do: 'pty'; data: string }
   /** Keep the key from the terminal, but let the native menu act on it. */
@@ -109,6 +116,10 @@ export interface RouteContext {
   scopes?: readonly KeyScope[]
   /** A handler for the command exists and allows it now (with the binding's argument, e.g. `⌘3`'s index). */
   has(id: string, args?: unknown): boolean
+  /** Plain Ctrl+C and Ctrl+V copy and paste in a terminal (`terminal.ctrlCopyPaste`), where the router owns the clipboard. */
+  ctrlCopyPaste?: boolean
+  /** The terminal with the keyboard holds text the person selected (not the find bar's match). */
+  userSelection?: boolean
 }
 
 const BY_CHORD = new Map<string, Binding[]>() // bounded: one entry per binding in use (≤ the command table's keys plus one per command)
@@ -164,8 +175,12 @@ export function scopedBinding(e: KeyLike, scopes: readonly KeyScope[]): Binding 
 export function routeKey(e: KeyLike, ctx: RouteContext, keys: KeyLabels = protocolOs.keys): Route {
   const chord = chordOf(e)
   if (!chord) return { do: 'pass' }
+  const plain = ctrlKeyRole(chord, ctx, keys)
+  if (plain) return { do: 'edit', id: plain === 'copy' ? 'terminal.copy' : 'terminal.paste', role: plain, plain: true }
   const text = keys.terminalText[chord]
   if (ctx.inTerminal && text !== undefined) return { do: 'pty', data: text }
+  // Select All in a terminal selects its text; prevented, so the Edit menu's role does not select the hidden textarea
+  if (ctx.inTerminal && chord === keys.terminalSelectAll) return ctx.has(SELECT_ALL_COMMAND) ? { do: 'command', id: SELECT_ALL_COMMAND } : { do: 'swallow' }
   const c = parseChord(chord)
   if (!c) return { do: 'pass' }
   const b = lookup(chord, ctx.scopes ?? [])
@@ -180,6 +195,41 @@ export function routeKey(e: KeyLike, ctx: RouteContext, keys: KeyLabels = protoc
   }
   // The text-editing keys are the only ⌘ combinations that reach the PTY (on Linux: see `keptFromTerminal`)
   return ctx.inTerminal && keys.keptFromTerminal(c, b !== undefined) ? { do: 'swallow' } : { do: 'pass' }
+}
+
+/**
+ * What plain Ctrl+C or Ctrl+V does in a terminal where the router owns the clipboard (Linux) and the person asked for
+ * it (`terminal.ctrlCopyPaste`): Ctrl+C copies while they have text selected there, Ctrl+V pastes. Null: the key is
+ * the terminal's own (Ctrl+C with nothing selected interrupts).
+ */
+export function ctrlKeyRole(chord: string, ctx: RouteContext, keys: KeyLabels = protocolOs.keys): 'copy' | 'paste' | null {
+  if (!ctx.inTerminal || !ctx.ctrlCopyPaste || keys.clipboard !== 'router') return null
+  if (chord === 'ctrl+c') return ctx.userSelection ? 'copy' : null
+  return chord === 'ctrl+v' ? 'paste' : null
+}
+
+/**
+ * The one-time copy hint's moment: plain Ctrl+C in a terminal over text the person selected, on a system where it
+ * interrupts rather than copies (Linux, `terminal.ctrlCopyPaste` off). The key still goes to the PTY.
+ */
+export function copyHintDue(chord: string | null, ctx: RouteContext, keys: KeyLabels = protocolOs.keys): boolean {
+  return chord === 'ctrl+c' && ctx.inTerminal && !ctx.ctrlCopyPaste && ctx.userSelection === true && keys.clipboard === 'router'
+}
+
+/** The keys `terminal.ctrlCopyPaste` adds to Copy and Paste while it is on, as the key lists show them (Linux's only). */
+export function ctrlCopyPasteKeys(id: string, on: boolean, keys: KeyLabels = protocolOs.keys): string[] {
+  if (!on || keys.clipboard !== 'router') return []
+  const key = id === 'terminal.copy' ? 'c' : id === 'terminal.paste' ? 'v' : null
+  return key ? [keys.label({ cmd: false, ctrl: true, alt: false, shift: false, key })] : []
+}
+
+/**
+ * The key the router gives Select All in a terminal (`⌘A` on macOS), as the key lists show it; none for any other
+ * command, and none on Linux, where `Ctrl+A` is the shell's.
+ */
+export function selectAllKeys(id: string, keys: KeyLabels = protocolOs.keys): string[] {
+  const c = id === SELECT_ALL_COMMAND && keys.terminalSelectAll ? parseChord(keys.terminalSelectAll) : null
+  return c ? [keys.label(c)] : []
 }
 
 /** The system's primary modifier is down, whatever else is (`⌘`; `Ctrl+Shift` without Super on Linux). */

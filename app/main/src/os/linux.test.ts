@@ -6,7 +6,7 @@ import { COMMANDS, need, PLATFORM_LINES, zPlatformReport } from '@kea/protocol'
 import { darwin as protocolDarwin } from '@kea/protocol/os/darwin'
 import { linux as protocolLinux } from '@kea/protocol/os/linux'
 import { afterEach, describe, expect, it } from 'vitest'
-import { menuTemplate, type MenuInput } from '../menu.ts'
+import { findMenuItem, menuTemplate, windowMenuTree, type MenuInput } from '../menu.ts'
 import { GPU_DRIVER_FIX, terminalRendererLine } from '../platformLines.ts'
 import { darwin } from './darwin.ts'
 import { desktopFileFound, desktopLines, displayServer, foldSubtitle, GO_COMMANDS, idleSource, inotifyWatches, lingerOn, linux, linuxFacts, linuxLines, linuxVersion, osReleaseName, raiseHow, sandboxedBy, sandboxLine, serviceOf, statParent, zygotePids, type LinuxFacts } from './linux.ts'
@@ -161,6 +161,48 @@ describe('the window on Linux', () => {
     expect(menuTemplate({ ...input, chrome: need(darwin.menu), system: protocolDarwin }).map((m) => m.label ?? m.role)).toEqual(['Kea', 'Edit', 'Session', 'Project', 'Terminal', 'Files', 'Viewer', 'Server', 'View', 'window', 'help'])
   })
 
+  // The window draws that menu itself (WindowMenu.svelte, a drill-down): main hands it the template as plain items,
+  // and a pick comes back by id, found again in the template
+  it('U-PLT-59 · the Linux menu as plain items: File … Help as submenus, Linux keys, the Edit roles by id, separators; every pick finds its item', () => {
+    const input = linuxMenuInput({ dev: true })
+    const t = menuTemplate(input)
+    const tree = windowMenuTree(t)
+    expect(tree.map((n) => n.label)).toEqual(['File', 'Edit', 'View', 'Session', 'Go', 'Developer', 'Window', 'Help'])
+    for (const n of tree) expect(n.submenu, n.label).toBeDefined()
+    const menu = (label: string) => tree.find((n) => n.label === label)!.submenu!
+    // Edit: the roles by id, Copy and Paste by their commands, with the keys Linux shows
+    expect(menu('Edit').map((n) => (n.separator ? '—' : n.id))).toEqual(['role:undo', 'role:redo', '—', 'role:cut', 'terminal.copy', 'terminal.paste', 'terminal.selectAll'])
+    expect(menu('Edit').map((n) => n.label)).toEqual(['Undo', 'Redo', '', 'Cut', 'Copy', 'Paste', 'Select All'])
+    expect(menu('Edit').find((n) => n.id === 'terminal.copy')).toMatchObject({ shortcut: 'Ctrl+Shift+C', enabled: true })
+    expect(menu('Edit').find((n) => n.id === 'role:undo')?.shortcut).toBe('Ctrl+Z')
+    // Select All keeps the field's Ctrl+A: in a terminal that key is the shell's, and the window runs the command instead
+    expect(menu('Edit').find((n) => n.id === 'terminal.selectAll')?.shortcut).toBe('Ctrl+A')
+    expect(menu('Window').map((n) => n.id)).toEqual(['window.minimize', 'window.maximize', 'window.fullScreen'])
+    expect(menu('File').find((n) => n.id === 'app.closeToMenuBar')).toMatchObject({ label: 'Close Kea (sessions keep running)', shortcut: 'Ctrl+Shift+Q' })
+    // a command the renderer has not reported is there, disabled
+    expect(menu('Go').find((n) => n.id === 'session.next')).toMatchObject({ enabled: false })
+    // View's own submenus drill further; separators are lines, never picked
+    expect(menu('View').some((n) => n.submenu && n.label === 'Terminal')).toBe(true)
+    const flat = (ns: typeof tree): typeof tree => ns.flatMap((n) => [n, ...flat(n.submenu ?? [])])
+    const nodes = flat(tree)
+    expect(new Set(nodes.map((n) => n.id)).size, 'no two items share an id').toBe(nodes.length)
+    for (const n of nodes.filter((x) => x.separator)) expect(n).toMatchObject({ enabled: false, label: '' })
+    // every leaf's id finds its own item again; a submenu, a separator or an unknown id finds none
+    for (const n of nodes.filter((x) => !x.submenu && !x.separator)) {
+      const i = findMenuItem(t, n.id)
+      expect(i, n.id).not.toBeNull()
+      expect(i?.label ?? n.label, n.id).toBe(n.label)
+    }
+    expect(findMenuItem(t, 'menu:1')).toBeNull()
+    expect(findMenuItem(t, nodes.find((x) => x.separator)!.id)).toBeNull()
+    expect(findMenuItem(t, 'no.such.item')).toBeNull()
+    // a pick runs what the native menu ran
+    ;(findMenuItem(t, 'session.next')!.click as () => void)()
+    ;(findMenuItem(t, 'app.closeToMenuBar')!.click as () => void)()
+    expect(input.sent).toEqual(['session.next', 'main:closeToMenuBar'])
+    expect(findMenuItem(t, 'terminal.selectAll')?.role).toBe('selectAll')
+  })
+
   // On Wayland the tray's Open Kea hides and shows an open window (GNOME raises one mapped again) and replaces a
   // minimized one with a window rebuilt from its state; a notification's click and a second launch are the desktop's
   // to raise; Kea's own menu runs in its focused window. On X11 and macOS restore() and focus() work. No window: a new
@@ -244,11 +286,22 @@ describe('notifications, the badge and the platform report on Linux', () => {
     expect(hits).toEqual([])
   })
 
+  // The desktop line carries the primary display's scale, which tells a page drawn at the desktop's scale from one the
+  // desktop's text scaling enlarged; a fractional scale is shown to two places, and none is shown before it is known.
+  it('U-PLT-62 · the desktop line names the primary display’s scale', () => {
+    const at = (scale: number | null) => desktopLines({ desktop: 'ubuntu:GNOME', display: 'wayland', scale, trayHost: true, notifications: true, desktopFile: { id: 'dev.kea.app', found: true }, idle: 'system', webgl2: 'enabled', watches: 1, watchLimit: 2, watchLimitHeld: false }).find((l) => l.id === 'desktop')!
+    expect(at(1).value).toBe('ubuntu:GNOME, Wayland, primary display at scale 1')
+    expect(at(1.25).value).toBe('ubuntu:GNOME, Wayland, primary display at scale 1.25')
+    expect(at(4 / 3).value).toBe('ubuntu:GNOME, Wayland, primary display at scale 1.33')
+    expect(at(null).value).toBe('ubuntu:GNOME, Wayland')
+    expect(at(1.25).fix).toBeNull()
+  })
+
   // The platform report's desktop lines: the desktop and session, the terminal renderer, the tray host (with the
   // AppIndicator fix), notifications (the service, and the desktop file a click needs), the idle source and Kea's
   // inotify watches (with the sysctl fix once core holds a limit); a report in About's order that the schema takes.
   it("U-PLT-33 · the report's desktop lines: each the full answer or with its fix, in About's order", () => {
-    const base: Parameters<typeof desktopLines>[0] = { desktop: 'ubuntu:GNOME', display: 'wayland', trayHost: true, notifications: true, desktopFile: { id: 'dev.kea.app.dev', found: true }, idle: 'system', webgl2: 'enabled', watches: 120, watchLimit: 65536, watchLimitHeld: false }
+    const base: Parameters<typeof desktopLines>[0] = { desktop: 'ubuntu:GNOME', display: 'wayland', scale: null, trayHost: true, notifications: true, desktopFile: { id: 'dev.kea.app.dev', found: true }, idle: 'system', webgl2: 'enabled', watches: 120, watchLimit: 65536, watchLimitHeld: false }
     const byLine = (o: Partial<typeof base>) => new Map(desktopLines({ ...base, ...o }).map((l) => [l.id, l]))
     const ok = byLine({})
     expect(ok.get('desktop')!.value).toBe('ubuntu:GNOME, Wayland')

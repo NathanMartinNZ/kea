@@ -190,6 +190,12 @@ export interface AgentAdapter {
   /** Its settings extension (`agents.<id>.*`, settings.ts). */
   settings: AgentSettingsExtension
   /**
+   * The agent captures the mouse yet does nothing with the right button: in its tab a plain right-click opens Kea's
+   * terminal menu, and the agent is told nothing of that button. Absent or false: a terminal that captures the mouse
+   * has the right button, and Kea's menu needs the selection override (Shift, ⌥ on macOS).
+   */
+  rightButtonMenu?: boolean
+  /**
    * Whether its events are held back until the folder is trusted, and whose answer that trust is: the
    * engine's trust window follows it. `repo`: the agent keeps one answer per repository (Claude Code: keyed to the main
    * checkout), so once an event of it came from a project no later launch there is watched. `launch`: Kea cannot tell

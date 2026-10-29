@@ -1,6 +1,7 @@
 // The page side of the preload bridge: `rpc` (the port to core, replaced when core restarts), `openStream(ptyId)` (a
 // port to ptyhost for one terminal), the menu bar (the renderer reports which commands it can run, main sends back the
-// one chosen), the wake signal after sleep, the memory watchdog's request for the GPU process's memory back
+// one chosen; on Linux main sends the application menu for the window to draw, `onWindowMenu`, and takes its picks
+// back), the wake signal after sleep, the memory watchdog's request for the GPU process's memory back
 // (`gpuReset`), core going away (main's `coreAway`; the next RPC port means it is back) and main's requests for this
 // renderer's resource report, answered by the reporter `setResourceReporter` installs, and the window's own question
 // for every process's report (`resourceReports`: Copy diagnostics and the dev HUD); the native pieces of the window's
@@ -8,7 +9,7 @@
 // first-quit sheet main asks for and its answer, and a session main asks the window to show. Ports and main's messages
 // arrive by window.postMessage from the preload, because contextBridge cannot carry MessagePorts.
 
-import { asCollectedResources, isCommandId, zWindowHandoff, type CollectedResources, type CommandInvocation, type MenuState, type ResourceReport, type WindowHandoff } from '@kea/protocol'
+import { asCollectedResources, isCommandId, zWindowHandoff, zWindowMenuNode, type CollectedResources, type CommandInvocation, type EditRole, type MenuState, type ResourceReport, type WindowHandoff, type WindowMenuNode } from '@kea/protocol'
 
 interface PreloadApi {
   platform: { version: string; arch: string; perf: boolean }
@@ -26,7 +27,8 @@ interface PreloadApi {
   askNotificationState(reqId: number): void
   openNotificationSettings(): void
   mainCommand(id: string): void
-  editRole(role: 'copy' | 'paste'): void
+  editRole(role: EditRole): void
+  pickMenu(id: string): void
   pathForFile(file: File): string
   quitChoice(choice: string): void
   openMenu(x: number, y: number): void
@@ -54,6 +56,7 @@ const folderPicks = new Map<number, (path: string | null) => void>() // bounded:
 const reportAsks = new Map<number, (c: CollectedResources | null) => void>() // bounded: questions to main for every process's report that it has not answered yet; main answers each by its own deadline for the processes
 const quitSheetListeners = new Set<(live: number, background: boolean) => void>() // bounded: the window's one quit-sheet installer
 const showSessionListeners = new Set<(sessionId: string) => void>() // bounded: the window's one installer
+const windowMenuListeners = new Set<(m: WindowMenuOpening) => void>() // bounded: the window's one menu layer (Linux)
 let nextReq = 1
 let lastRpc: MessagePort | null = null
 let reporter: (() => ResourceReport) | null = null
@@ -105,6 +108,15 @@ window.addEventListener('message', (e: MessageEvent) => {
     case 'wake':
       for (const l of [...wakeListeners]) l()
       return
+    case 'windowMenu': {
+      const m = d as { at?: { x?: unknown; y?: unknown }; items?: unknown }
+      const items = zWindowMenuNode.array().safeParse(m.items)
+      const x = m.at?.x
+      const y = m.at?.y
+      if (!items.success || typeof x !== 'number' || typeof y !== 'number') return
+      for (const l of [...windowMenuListeners]) l({ at: { x, y }, items: items.data })
+      return
+    }
     case 'gpuReset':
       for (const l of [...gpuResetListeners]) l()
       return
@@ -312,9 +324,26 @@ export function runMainCommand(id: string): void {
   window.kea.mainCommand(id)
 }
 
-/** Copy or paste in the focused element, as the Edit menu's role does (the clipboard events reach it). */
-export function editRole(role: 'copy' | 'paste'): void {
+/** An Edit role in the focused element, as the Edit menu's does (copy's and paste's clipboard events reach it). */
+export function editRole(role: EditRole): void {
   window.kea.editRole(role)
+}
+
+/** Linux's application menu, as main sends it for the window to draw at `at` (under the header's menu button). */
+export interface WindowMenuOpening {
+  at: { x: number; y: number }
+  items: WindowMenuNode[]
+}
+
+/** Main sent the application menu to draw (an opening asked for by `openWindowMenu`). Returns an unsubscribe function. */
+export function onWindowMenu(cb: (m: WindowMenuOpening) => void): () => void {
+  windowMenuListeners.add(cb)
+  return () => windowMenuListeners.delete(cb)
+}
+
+/** A pick in the window's menu, by the id main gave its item. */
+export function pickWindowMenu(id: string): void {
+  window.kea.pickMenu(id)
 }
 
 /** The path of a dropped or pasted file or folder; empty when it has none. */

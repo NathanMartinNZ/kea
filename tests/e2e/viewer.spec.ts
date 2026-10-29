@@ -15,7 +15,7 @@ import { L } from '@kea/protocol'
 import { STEP_MS, until, type Kea } from '../support/app.ts'
 import { claudeByDefault, fakeAgentTerminal, gate, startFakeSession } from '../support/app-fake-agent.ts'
 import { EditorWorld, OPENER, opened } from '../support/app-server.ts'
-import { addProject, agentTerminal, demoRepo, selectSession, startSession, waitLive } from '../support/app-sessions.ts'
+import { addProject, agentTerminal, demoRepo, projectRow, selectSession, startSession, waitLive } from '../support/app-sessions.ts'
 import { changeRows, clickChange, clickFile, clickScope, GIT_MS, panelModes, panelRegion, scopeShown, treeRows, waitChanges } from '../support/app-files.ts'
 import { clickFileTab, fileTab, fileTabs, pinFileTab, viewerShown } from '../support/app-tabs.ts'
 import { changeMarker, commitAll, gitIn, gutterLines, loginSource, png, sessionWorktree, tokenClasses, viewer, viewerCopy, viewerRows, viewerText, waitBody, waitViewer, writeFiles } from '../support/app-viewer.ts'
@@ -763,6 +763,74 @@ test('E-FV-10 · the gutter’s changed lines answered before the file itself: o
   expect(await viewerText(kea)).toBe(changed)
   await waitViewer(kea, 'two changed regions', (v) => v.ui.changes === 2)
   expect([await changeMarker(kea, 1), await changeMarker(kea, 2), await changeMarker(kea, 9)], 'a marker on the changed and the added lines only').toEqual([null, 'modified', 'added'])
+})
+
+test('E-FV-11 · the cursor over a file’s code is the I-beam, as over text that can be selected; its gutter keeps the arrow', async ({ run, launch }) => {
+  const kea = await launch()
+  const page = await kea.page()
+  await sessionWith(kea, run, { 'src/calc.js': 'export function add(a, b) {\n  return a + b\n}\n' })
+  await clickFile(kea, 'src/calc.js')
+  await waitBody(kea, 'src/calc.js', 'text')
+  const cursorOf = (selector: string) => page.locator(selector).first().evaluate((e) => getComputedStyle(e).cursor)
+  expect(await cursorOf('.viewer .cm-editor .cm-content')).toBe('text')
+  expect(await cursorOf('.viewer .cm-editor .cm-line')).toBe('text') // a line inherits it
+  // the gutter's numbers cannot be selected: `auto` is the arrow there
+  expect(['auto', 'default']).toContain(await cursorOf('.viewer .cm-editor .cm-gutters'))
+})
+
+test('E-KB-7 · the text menu: a right-click on a field offers Cut, Copy, Paste and Select All with their keys, and its picks act on that field; on the viewer’s code it offers Copy, disabled while nothing is selected, and Select All, which selects the whole file; one menu at a time', async ({ run, launch }) => {
+  const kea = await launch()
+  const page = await kea.page()
+  const code = 'export function add(a, b) {\n  return a + b\n}\n'
+  await sessionWith(kea, run, { 'src/calc.js': code })
+  const menu = page.getByRole('menu', { name: 'Text menu' })
+  const item = (name: string) => menu.getByRole('menuitem', { name })
+  const roles = (role: string) => kea.logLines('main').filter((l) => typeof l.msg === 'string' && l.msg.startsWith('edit role') && l.role === role).length
+  const key = (k: string) => (protocolOs.system === 'darwin' ? `⌘${k}` : `Ctrl+${k}`)
+
+  // ── a field: the sidebar's filter ──
+  await projectRow(page, 'demo').focus()
+  await page.keyboard.type('calc')
+  const filter = page.getByRole('searchbox', { name: 'Filter sessions' })
+  await expect(filter).toBeFocused()
+  await filter.click({ button: 'right' })
+  await expect(menu).toBeVisible()
+  await expect(page.getByRole('menu')).toHaveCount(1)
+  expect((await menu.getByRole('menuitem').allInnerTexts()).map((t) => t.replace(/\s+/g, ''))).toEqual([`Cut${key('X')}`, `Copy${key('C')}`, `Paste${key('V')}`, `SelectAll${key('A')}`])
+  await item('Select All').click()
+  await expect(menu).toHaveCount(0)
+  await expect(filter).toBeFocused()
+  expect(await filter.evaluate((e: HTMLInputElement) => [e.selectionStart, e.selectionEnd])).toEqual([0, 4])
+  // Copy, now that the text is selected, is main's role on that field
+  const copies = roles('copy')
+  await filter.click({ button: 'right' })
+  await expect(item('Copy')).not.toHaveAttribute('aria-disabled', 'true')
+  await item('Copy').click()
+  await until('main ran the copy', () => roles('copy') === copies + 1 || undefined)
+  await expect(filter).toBeFocused()
+  await filter.click({ button: 'right' })
+  await expect(menu).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(menu).toHaveCount(0)
+  await expect(filter).toBeFocused()
+  await page.keyboard.press('Escape')
+
+  // ── the viewer’s code ──
+  await clickFile(kea, 'src/calc.js')
+  await waitBody(kea, 'src/calc.js', 'text')
+  const content = page.locator('.viewer .cm-editor .cm-content').first()
+  await content.click({ button: 'right', position: { x: 4, y: 4 } })
+  await expect(menu).toBeVisible()
+  expect((await menu.getByRole('menuitem').allInnerTexts()).map((t) => t.replace(/\s+/g, ''))).toEqual([`Copy${key('C')}`, `SelectAll${key('A')}`])
+  await expect(item('Copy')).toHaveAttribute('aria-disabled', 'true')
+  await item('Select All').click()
+  await expect(menu).toHaveCount(0)
+  await until('the whole file selected', async () => (await viewerCopy(kea)) === code || undefined)
+  const viewerCopies = roles('copy')
+  await content.click({ button: 'right', position: { x: 4, y: 4 } })
+  await item('Copy').click()
+  await until('main ran the copy', () => roles('copy') === viewerCopies + 1 || undefined)
+  await expect(content).toBeFocused()
 })
 
 test('E-DF-1 · a changed file clicked in Changes is its diff against the branch’s base; ] and [ step through the changed files and around; after the agent commits it is still listed and still a diff in Branch scope; a click on Uncommitted in the Changes header empties the list and the open diff together, a new edit shows in both, and a click on Branch puts both back on the branch’s base', async ({ run, launch }) => {

@@ -17,6 +17,7 @@ function agentRow(over: Partial<AgentInfo> = {}): AgentInfo {
     notice: null,
     installCommand: 'npm i -g agent-a',
     loginCommand: null,
+    rightButtonMenu: false,
     options: {
       models: [
         { id: 'big', label: 'Big', efforts: ['low', 'high'], isDefault: false },

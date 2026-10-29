@@ -27,10 +27,10 @@ describe('menu bar', () => {
     const t = menuTemplate(i)
     expect(t.map((m) => m.label ?? m.role)).toEqual(TOP)
     const term = named(t, 'Terminal')
-    // the whole category in table order, copy and paste left to the Edit menu's roles
-    expect(term.map((m) => m.id)).toEqual(COMMANDS.filter((c) => c.category === 'Terminal' && c.id !== 'terminal.copy' && c.id !== 'terminal.paste').map((c) => c.id))
+    // the whole category in table order, copy, paste and select all left to the Edit menu's roles
+    expect(term.map((m) => m.id)).toEqual(COMMANDS.filter((c) => c.category === 'Terminal' && !['terminal.copy', 'terminal.paste', 'terminal.selectAll'].includes(c.id)).map((c) => c.id))
     const pick = (id: string) => term.find((m) => m.id === id) as MenuItemConstructorOptions
-    expect(['terminal.newShell', 'terminal.nextTab', 'terminal.find', 'terminal.fontBigger'].map((id) => pick(id).label)).toEqual(['New Shell Tab', 'Next Tab', 'Find', 'Increase Font Size'])
+    expect(['terminal.newShell', 'terminal.nextTab', 'terminal.find', 'terminal.fontBigger'].map((id) => pick(id).label)).toEqual(['New Terminal', 'Next Tab', 'Find', 'Increase Font Size'])
     expect(['terminal.newShell', 'terminal.nextTab', 'terminal.find', 'terminal.fontBigger'].map((id) => pick(id).enabled)).toEqual([true, false, true, true])
     expect(['terminal.newShell', 'terminal.nextTab', 'terminal.find', 'terminal.fontBigger'].map((id) => pick(id).accelerator)).toEqual(['Cmd+T', 'Cmd+Shift+]', 'Cmd+F', 'Cmd+Plus'])
     // A command the renderer did not report, or reported unavailable (Close Tab on the Agent tab), is listed disabled
@@ -51,6 +51,10 @@ describe('menu bar', () => {
     expect(items.find((m) => m.id === 'terminal.copy')?.role).toBe('copy')
     expect(items.find((m) => m.id === 'terminal.paste')?.role).toBe('paste')
     expect(items.filter((m) => m.id === 'terminal.copy' || m.id === 'terminal.paste')).toHaveLength(2)
+    // Select All keeps its role (⌘A in a field outside the page), under the terminal command's id: the router sends ⌘A
+    // in a terminal to the command
+    expect(items.find((m) => m.id === 'terminal.selectAll')).toMatchObject({ role: 'selectAll', label: 'Select All' })
+    expect(items.filter((m) => m.role === 'selectAll')).toHaveLength(1)
     const quit = items.find((m) => m.id === 'app.quit')
     expect(quit?.accelerator).toBe('Cmd+Alt+Q')
     expect(quit?.registerAccelerator).toBeUndefined()

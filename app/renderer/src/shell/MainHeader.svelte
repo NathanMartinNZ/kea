@@ -1,4 +1,5 @@
-<!-- The main column's header: the session's (SessionHeader.svelte), else empty. A drag region except its controls.
+<!-- The main column's header: the session's (SessionHeader.svelte), else empty. A drag region except its clusters of
+controls (window.css `.header-cluster`).
 `menuButton`: it is the leftmost visible header on Linux, so it holds the window's menu button. -->
 <script lang="ts">
   import { ui } from '../features/sessions/state.svelte.ts'
@@ -11,7 +12,7 @@
 
 <div class="column-header main-header">
   {#if menuButton}
-    <WindowMenuButton />
+    <div class="header-cluster"><WindowMenuButton /></div>
   {/if}
   {#if sessionId}
     {#key sessionId}

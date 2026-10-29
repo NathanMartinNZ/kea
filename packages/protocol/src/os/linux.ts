@@ -88,6 +88,7 @@ export const linux: ProtocolOs = {
     badge: 'Badge',
     onQuitHelp: 'What Ctrl+Shift+Q (Close Kea) does while sessions run. Kea keeps running in the background only where the desktop has a tray.',
     stayRunning: 'Keep running in the background',
+    machine: 'this computer',
   },
   keys: {
     // Ctrl, Shift, Alt (so the primary modifier, Ctrl+Shift, always leads), then the key
@@ -108,6 +109,7 @@ export const linux: ProtocolOs = {
     terminalText: {},
     reserved: RESERVED,
     clipboard: 'router',
+    terminalSelectAll: null,
     modClick: (e) => e.ctrlKey,
   },
 }

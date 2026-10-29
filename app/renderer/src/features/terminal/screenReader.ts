@@ -6,8 +6,9 @@
 // only in the terminal on screen: a warm or hidden terminal keeps no such copy, so it pays nothing. Turning it on and
 // off is live: no terminal is made again.
 //
-// A terminal's accessible name says which session and which tab it is ("Fix auth redirect, Agent terminal"), so a
-// screen reader's user knows where the keyboard is; it is set whether or not a screen reader runs.
+// A terminal's accessible name says which session and which tab it is ("Fix auth redirect, Agent terminal", a shell's
+// "Fix auth redirect, Terminal 2"), so a screen reader's user knows where the keyboard is; it is set whether or not a
+// screen reader runs.
 
 export interface ScreenReaderTarget {
   readonly ptyId: string
@@ -17,11 +18,18 @@ export interface ScreenReaderTarget {
   setAccessibleName(name: string): void
 }
 
-/** A terminal's accessible name: its session's title (none for the shells outside a session), then its tab. */
+/** A tab name that says it is a terminal already (a shell tab's `Terminal 2`): never named "Terminal 2 terminal". */
+const NAMES_A_TERMINAL = /\bterminal\b/i
+
+/**
+ * A terminal's accessible name: its session's title (none for the shells outside a session), then its tab's name, which
+ * is Kea's own (`tabTitle`), with "terminal" after it unless it says so already.
+ */
 export function terminalName(session: string | null | undefined, tab: string): string {
-  const t = tab.trim() || 'shell'
+  const name = tab.trim() || 'Terminal'
+  const t = NAMES_A_TERMINAL.test(name) ? name : `${name} terminal`
   const s = session?.trim()
-  return s ? `${s}, ${t} terminal` : `${t} terminal`
+  return s ? `${s}, ${t}` : t
 }
 
 export class ScreenReaderMode<V extends ScreenReaderTarget> {

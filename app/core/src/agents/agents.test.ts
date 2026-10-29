@@ -168,6 +168,13 @@ describe('the agent service', () => {
     expect(identifyAgent(registry, ['/opt/test-agent', '--id', 'x'])).toBe('testagent')
   })
 
+  it('U-AGT-51 · the agents row says whether a plain right-click opens Kea’s terminal menu in the agent’s tab: Claude Code’s, which has nothing on that button; Command Code’s, an adapter that does not say and the shell keep it for the program', async () => {
+    const registry = new AdapterRegistry([...ADAPTERS, testAdapter])
+    const { svc } = setup({ registry })
+    await svc.detect('testagent')
+    expect(['claude', 'commandcode', 'testagent', 'shell'].map((id) => svc.store.get(id)?.rightButtonMenu)).toEqual([true, false, false, false])
+  })
+
   it('U-AGT-42 · an adapter’s launch files are written into a folder of Kea’s own under KEA_HOME (named by their content, private, rewritten when they are not as given, earlier ones that no running agent was started with removed) and the launch names it; when they cannot be written the agent still starts, without them', async () => {
     const withFiles = (files: { name: string; content: string }[]): AgentAdapter => ({
       ...testAdapter,

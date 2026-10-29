@@ -12,7 +12,7 @@ test('R-1 · first run and empty states', async ({ run, launch }) => {
   const set = new GallerySet('R-1', 'First run and empty states')
   const kea = await openKea(run, launch)
   const page = await kea.page()
-  await set.shot(kea, 'no-projects', 'No projects: the sidebar says "Add a project to get started." with the quiet "Add project… ⌘O"; the main pane keeps plain shell tabs', 'Empty states')
+  await set.shot(kea, 'no-projects', 'No projects: the sidebar says "Add a project to get started." with the quiet "Add project… ⌘O"; the main pane keeps its plain shell, Terminal 1', 'Empty states')
   await set.shot(kea, 'no-projects-sidebar', 'The sidebar alone', 'Empty states', { part: page.getByRole('complementary', { name: 'Sidebar' }), pad: 0 })
   await demoProject(kea, 'atlas-web')
   await expect(promptBox(page)).toBeFocused({ timeout: STEP_MS })

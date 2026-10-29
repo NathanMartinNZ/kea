@@ -11,6 +11,46 @@
 // One delay for the window (`--motion-tooltip-delay`), on one timer: the pointer resting on a control, or the keyboard
 // arriving on one, starts it; leaving, pressing a key or a button, or scrolling ends it and hides what shows.
 
+import type { Contains } from './menuNav.ts'
+
+/**
+ * The controls that have a tip: one that names its text, or a button that names its command. Rows that carry
+ * `data-command` for other reasons (a menu's items, the keyboard list) say their key themselves.
+ */
+export const TIP_SELECTOR = '[data-tip], button[data-command]:not([role=menuitem])'
+
+/** What the tooltip reads of a control, when the pointer or the keyboard arrives and again when the delay ends. */
+export interface TipControl {
+  /** Still in the document. */
+  connected: boolean
+  disabled: boolean
+  /** Its `aria-expanded`: `true` while the menu or popover it opened is open. */
+  expanded: string | null
+  tip: string | null
+  command: string | null
+  key: string | null
+}
+
+/** Whether a control may have a tip now: not disabled, and not while its menu or popover is open (it would cover it). */
+export function tipWanted(c: Pick<TipControl, 'disabled' | 'expanded'>): boolean {
+  return !c.disabled && c.expanded !== 'true'
+}
+
+/** The tip a control shows when its delay ends: none for one that went, was disabled or opened its menu meanwhile. */
+export function tipNow(c: TipControl, resolve: (command: string) => { title: string; shortcut?: string | undefined } | undefined): Tip | null {
+  if (!c.connected || !tipWanted(c)) return null
+  return tipOf({ tip: c.tip, command: c.command, key: c.key }, resolve)
+}
+
+/**
+ * Whether a `pointerout` leaves the control the tip is for: to something outside it, or out of the window (no
+ * related target). Moving between the control's own parts (its icon, its padding) does not.
+ */
+export function leavesAnchor(anchor: Contains | null, related: unknown): boolean {
+  if (anchor === null) return false
+  return related === null || related === undefined || !anchor.contains(related)
+}
+
 /** What a tooltip says: its text and, where its control runs a command that has one, the key now. */
 export interface Tip {
   text: string

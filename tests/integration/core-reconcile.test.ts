@@ -131,4 +131,55 @@ describe('core: launch reconciliation', () => {
       expect(fs.existsSync(path.join(h.home, 'sessions', session, `${id}.json`)) && fs.existsSync(path.join(h.home, 'sessions', session, `${id}.ring`)), 'no state file removed').toBe(true)
     }
   })
+
+  it('I-PTY-35 · shell tab numbers are core’s, in memory: a ptyhost restart under the running core keeps every number, gaps included; a restarted core numbers its shells again in their order, so the gaps close; every holder runs on throughout and nothing on disk holds a number', async () => {
+    const h = await harness()
+    let c = core(h)
+    await c.reconciled()
+    const open = async (sessionId: string) => (await c.t.launch(cat(sessionId, 'shell', h.home))).ptyId
+    const numbers = (ids: string[]) => ids.map((id) => c.t.store.get(id)?.number)
+    const a1 = await open('shells')
+    const a2 = await open('shells')
+    const a3 = await open('shells')
+    const b1 = await open('S1')
+    const agent = (await c.t.launch(cat('S1', 'agent', h.home))).ptyId
+    const b2 = await open('S1')
+    expect(numbers([a1, a2, a3, b1, b2, agent])).toEqual([1, 2, 3, 1, 2, undefined])
+    // the middle shell of the shells pane closed: a gap, and the next one is numbered past it
+    expect(await c.call('terminal.close', { ptyId: a2 })).toEqual({ ok: true })
+    const a4 = await open('shells')
+    const live = [a1, a3, a4, b1, b2]
+    expect(numbers(live)).toEqual([1, 3, 4, 1, 2])
+    const pids = live.map((id) => holderState(h.home, id)?.pid)
+    /** Calls that would have disturbed one of the live holders, from the `from`th call core made on. */
+    const disturbed = (from = 0) => c.calls.slice(from).filter((x) => ['pty.signal', 'pty.terminate', 'pty.release'].includes(x.m) && live.includes(x.a.ptyId as string))
+    const mark = c.calls.length
+
+    // ptyhost restarts while core runs: it adopts the holders, core reconciles on the new control port, and no number
+    // changes, the gap included
+    await h.restart()
+    c.reconnect()
+    const plan = await c.reconciled(2)
+    expect(plan.attached.sort()).toEqual([...live, agent].sort())
+    expect(numbers(live)).toEqual([1, 3, 4, 1, 2])
+    expect(live.map((id) => c.t.store.get(id)?.state)).toEqual(live.map(() => 'running'))
+    expect(disturbed(mark)).toEqual([])
+
+    // core restarts: its records come back from disk, which holds no number, and are numbered again in their order
+    c.dispose()
+    c = core(h)
+    const again = await c.reconciled()
+    expect(again.attached.sort()).toEqual([...live, agent].sort())
+    expect(numbers(live)).toEqual([1, 2, 3, 1, 2])
+    expect(c.t.store.get(agent)?.number).toBeUndefined()
+    // a shell opened now follows the highest listed
+    const a5 = await open('shells')
+    expect(c.t.store.get(a5)?.number).toBe(4)
+
+    // the holders ran on throughout: the same processes, never signalled or released
+    expect(live.map((id) => holderState(h.home, id)?.pid)).toEqual(pids)
+    expect(live.every((id) => holderAlive(h.home, id))).toBe(true)
+    expect(disturbed()).toEqual([])
+    expect(fs.readFileSync(path.join(h.home, 'terminals.json'), 'utf8')).not.toContain('"number"')
+  })
 })

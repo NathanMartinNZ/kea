@@ -37,6 +37,8 @@
   font-family: var(--font-mono);
   font-size: var(--type-mono-size);
   white-space: nowrap;
+  /* a URL: the hand, as for a link (window.css `.link-button`) */
+  cursor: pointer;
 }
 
 .server-chip:hover,

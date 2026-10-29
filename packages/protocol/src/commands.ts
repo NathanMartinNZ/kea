@@ -18,7 +18,7 @@ export const CATEGORIES = ['Session', 'Project', 'Terminal', 'Files', 'Viewer', 
 export type Category = (typeof CATEGORIES)[number]
 
 /** The contextual menus generated from the table: the surfaces a command is also listed in. */
-export const SURFACES = ['session ⌃', 'project ⌃', 'file ⌃', 'changes ⋯', 'header ⋯', 'editor ▾', 'menu-bar item'] as const
+export const SURFACES = ['session ⌃', 'project ⌃', 'file ⌃', 'changes ⋯', 'header ⋯', 'editor ▾', 'terminal ⌃', 'menu-bar item'] as const
 export type Surface = (typeof SURFACES)[number]
 
 /** Where a scoped binding applies. Unscoped bindings apply everywhere. */
@@ -90,19 +90,20 @@ export const COMMANDS: readonly CommandDef[] = [
   { id: 'project.openInEditor', title: 'Open in Editor', category: 'Project', surfaces: ['project ⌃'] },
   { id: 'project.settings', title: 'Project Settings', category: 'Project', surfaces: ['project ⌃'] },
   { id: 'project.remove', title: 'Remove Project…', category: 'Project', surfaces: ['project ⌃'] },
-  { id: 'terminal.newShell', title: 'New Shell Tab', category: 'Terminal', keys: ['⌘T'], linuxKeys: ['Ctrl+Shift+T'] },
+  { id: 'terminal.newShell', title: 'New Terminal', category: 'Terminal', keys: ['⌘T'], linuxKeys: ['Ctrl+Shift+T'] },
   { id: 'terminal.closeTab', title: 'Close Tab', category: 'Terminal', keys: ['⌘W'], linuxKeys: ['Ctrl+Shift+W'] },
   { id: 'terminal.nextTab', title: 'Next Tab', category: 'Terminal', keys: ['⌘⇧]'], linuxKeys: ['Ctrl+Shift+]'] },
   { id: 'terminal.previousTab', title: 'Previous Tab', category: 'Terminal', keys: ['⌘⇧['], linuxKeys: ['Ctrl+Shift+['] },
-  { id: 'terminal.find', title: 'Find', category: 'Terminal', keys: ['⌘F'], linuxKeys: ['Ctrl+Shift+F'] },
-  { id: 'terminal.clear', title: 'Clear Terminal and Scrollback', category: 'Terminal', keys: ['⌘K'], linuxKeys: ['Ctrl+Shift+K'] },
+  { id: 'terminal.copy', title: 'Copy', category: 'Terminal', keys: ['⌘C'], linuxKeys: ['Ctrl+Shift+C', 'Ctrl+Insert'], surfaces: ['terminal ⌃'], surfaceNote: 'disabled with its reason when nothing is selected' },
+  { id: 'terminal.paste', title: 'Paste', category: 'Terminal', keys: ['⌘V'], linuxKeys: ['Ctrl+Shift+V', 'Shift+Insert'], surfaces: ['terminal ⌃'] },
+  { id: 'terminal.selectAll', title: 'Select All', category: 'Terminal', surfaces: ['terminal ⌃'] },
+  { id: 'terminal.find', title: 'Find', category: 'Terminal', keys: ['⌘F'], linuxKeys: ['Ctrl+Shift+F'], surfaces: ['terminal ⌃'] },
+  { id: 'terminal.clear', title: 'Clear Terminal and Scrollback', category: 'Terminal', keys: ['⌘K'], linuxKeys: ['Ctrl+Shift+K'], surfaces: ['terminal ⌃'] },
   { id: 'terminal.jumpToBottom', title: 'Jump to Bottom', category: 'Terminal' },
   { id: 'terminal.fontBigger', title: 'Increase Font Size', category: 'Terminal', keys: ['⌘+'], linuxKeys: ['Ctrl+Shift+='] },
   { id: 'terminal.fontSmaller', title: 'Decrease Font Size', category: 'Terminal', keys: ['⌘−'], linuxKeys: ['Ctrl+Shift+-'] },
   { id: 'terminal.fontReset', title: 'Reset Font Size', category: 'Terminal', keys: ['⌘0'], linuxKeys: ['Ctrl+Shift+0'] },
   { id: 'terminal.resetRendering', title: 'Reset Terminal Rendering', category: 'Terminal' },
-  { id: 'terminal.copy', title: 'Copy', category: 'Terminal', keys: ['⌘C'], linuxKeys: ['Ctrl+Shift+C', 'Ctrl+Insert'] },
-  { id: 'terminal.paste', title: 'Paste', category: 'Terminal', keys: ['⌘V'], linuxKeys: ['Ctrl+Shift+V', 'Shift+Insert'] },
   { id: 'terminal.focus', title: 'Focus Terminal', category: 'Terminal', keys: ['⌃`'], linuxKeys: ['Ctrl+`'] },
   { id: 'files.goToFile', title: 'Go to File…', category: 'Files', keys: ['⌘P'], linuxKeys: ['Ctrl+Shift+P'] },
   { id: 'files.togglePanel', title: 'Toggle File Panel', category: 'Files' },
@@ -181,6 +182,12 @@ export function commandTitle(def: CommandDef, os: ProtocolOs = protocolOs): stri
 export function systemKeys(def: CommandDef, keys: KeyLabels = protocolOs.keys): readonly string[] {
   return keys.keysOf(def) ?? []
 }
+
+/**
+ * The Edit menu's Select All in a terminal: the item keeps its native role (⌘A in a field the page does not draw), and
+ * the router sends the system's Select All key in a terminal to this command instead (`KeyLabels.terminalSelectAll`).
+ */
+export const SELECT_ALL_COMMAND = 'terminal.selectAll'
 
 /** Commands whose action is a native menu role, so the browser's own clipboard events reach the focused element. */
 export const NATIVE_ROLES: Readonly<Record<string, 'copy' | 'paste'>> = { 'terminal.copy': 'copy', 'terminal.paste': 'paste' }
@@ -371,6 +378,28 @@ export const zMenuState = z.object({
     .optional(),
 })
 export type MenuState = z.infer<typeof zMenuState>
+
+/**
+ * Main → renderer (`kea:windowMenu`, Linux): the application menu as the window draws it, from the same template as
+ * the hidden menu bar. `id` is what a pick sends back (`kea:menuPick`): a command's id, `role:<name>` for an Edit
+ * role, or one of main's own items' (`window.minimize`); a submenu is `menu:<place>`, a separator `sep:<place>`.
+ * `shortcut` is the key as the item shows it.
+ */
+export interface WindowMenuNode {
+  id: string
+  label: string
+  enabled: boolean
+  shortcut?: string | undefined
+  separator?: boolean | undefined
+  submenu?: WindowMenuNode[] | undefined
+}
+export const zWindowMenuNode: z.ZodType<WindowMenuNode> = z.lazy(() =>
+  z.object({ id: z.string(), label: z.string(), enabled: z.boolean(), shortcut: z.string().optional(), separator: z.boolean().optional(), submenu: z.array(zWindowMenuNode).optional() }),
+)
+
+/** The Edit roles main runs on the window's focused element (`kea:editRole`, and the window menu's Edit items). */
+export const EDIT_ROLES = ['undo', 'redo', 'cut', 'copy', 'paste', 'selectAll'] as const
+export type EditRole = (typeof EDIT_ROLES)[number]
 
 /** Main → renderer (`kea:command`): run a command chosen from the menu bar. */
 export type CommandInvocation = { id: string; args?: unknown }

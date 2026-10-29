@@ -9,7 +9,8 @@
 // contextBridge cannot carry MessagePorts, so ports reach the page by `window.postMessage` with the port transferred
 // (`{ kea: 'rpc' }`, `{ kea: 'stream', reqId }`); main's other messages travel the same way (`{ kea: 'command', id }`,
 // `{ kea: 'wake' }`, `{ kea: 'coreAway' }`, `{ kea: 'resources', reqId }`, `{ kea: 'quitSheet', live }`,
-// `{ kea: 'showSession', sessionId }`, `{ kea: 'screenReader', on }`, `{ kea: 'gpuReset' }`: the memory watchdog asks
+// `{ kea: 'showSession', sessionId }`, `{ kea: 'screenReader', on }`, `{ kea: 'windowMenu', at, items }`: Linux's
+// application menu for the window to draw, `{ kea: 'gpuReset' }`: the memory watchdog asks
 // for the GPU process's memory back), so the page never registers a listener across the bridge, where Electron cannot
 // remove one by identity. The renderer's `lib/bridge.ts` turns these into `openStream(ptyId):
 // Promise<MessagePort>`, `onCommand`, `onWake`, `onCoreConnection` and the answer to a resource-report request
@@ -51,6 +52,7 @@ ipcRenderer.on('kea:command', (_e, msg: { id: unknown; args?: unknown }) => {
   if (typeof msg?.id === 'string') toPage({ kea: 'command', id: msg.id, ...(msg.args !== undefined ? { args: msg.args } : {}) }, [])
 })
 ipcRenderer.on('kea:wake', () => toPage({ kea: 'wake' }, []))
+ipcRenderer.on('kea:windowMenu', (_e, msg: { at?: unknown; items?: unknown }) => toPage({ kea: 'windowMenu', at: msg?.at, items: msg?.items }, []))
 ipcRenderer.on('kea:gpuReset', () => toPage({ kea: 'gpuReset' }, []))
 ipcRenderer.on('kea:screenReader', (_e, msg: { on: unknown }) => toPage({ kea: 'screenReader', on: msg?.on === true }, []))
 ipcRenderer.on('kea:folder', (_e, msg: { reqId: unknown; path: unknown }) => {
@@ -121,9 +123,13 @@ contextBridge.exposeInMainWorld('kea', {
   mainCommand: (id: string): void => {
     if (typeof id === 'string') ipcRenderer.send('kea:mainCommand', id)
   },
-  /** Copy or paste in the focused element, as the Edit menu's roles do (the palette's Copy and Paste). Main checks the role. */
+  /** An Edit role in the focused element, as the Edit menu's do (the palette's Copy and Paste, Linux's keys). Main checks the role. */
   editRole: (role: string): void => {
     if (typeof role === 'string') ipcRenderer.send('kea:editRole', role)
+  },
+  /** A pick in the window's menu (Linux), by the item's id as main sent it; main finds and checks the item. */
+  pickMenu: (id: string): void => {
+    if (typeof id === 'string') ipcRenderer.send('kea:menuPick', id)
   },
   /** The path of a file or folder dropped on the window; empty when it has none. */
   pathForFile: (file: File): string => {

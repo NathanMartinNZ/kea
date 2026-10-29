@@ -120,8 +120,10 @@ test('E-TERM-14 · a closable tab has a close button: shell and file tabs show i
   await tab(idle).hover()
   await expect(close(idle), 'under the pointer').toBeVisible()
   await expect(close(idle)).toHaveAttribute('data-command', 'terminal.closeTab')
-  await expect(tab(idle), 'the button adds nothing to the tab’s name').toHaveText('zsh')
-  await expect(tab(idle)).toHaveAccessibleName('zsh')
+  await expect(tab(idle), 'the button adds nothing to the tab’s name').toHaveText('Terminal 1')
+  await expect(tab(idle)).toHaveAccessibleName('Terminal 1')
+  await expect(tab(idle), 'what runs in it is its description, as its tooltip').toHaveAccessibleDescription('zsh')
+  await expect(tab(busy)).toHaveAccessibleName('Terminal 2')
 
   // 2. a click on an inactive idle shell's button closes that tab at once; the tab on screen stays, with the keyboard
   await close(idle).click()

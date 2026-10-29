@@ -60,7 +60,7 @@ registered here: `viewer.open`, `viewer.pinTab`, and Close / Next / Previous Tab
   import ReconnectingBar from './ReconnectingBar.svelte'
   import { askSavedTab, saveTab } from './savedTab.ts'
   import { closeFileTab, fileTabTitle, homeTab, isFileTabId, openFileTab, pickActiveTab, pinFileTab, rememberTab, sameTabMemory, saveFileTabView, startTab, stripOrder, viewFileTab, type TabKind, type TabMemory } from './tabs.ts'
-  import { byKind, closeQuestion, firstShell, KIND_ORDER, lastActive, opensFirstShell, savedTab, SHELLS_CONTEXT, tabTitle } from './terminalPane.ts'
+  import { byKind, closeQuestion, firstShell, KIND_ORDER, lastActive, opensFirstShell, savedTab, SHELLS_CONTEXT, tabTip, tabTitle } from './terminalPane.ts'
 
   let {
     context,
@@ -266,7 +266,7 @@ registered here: `viewer.open`, `viewer.pinTab`, and Close / Next / Previous Tab
   )
   const needsYou = $derived(sessionRow.current?.lifecycle === 'live' && sessionRow.current.phase === 'blocked')
 
-  // each terminal's accessible name says its session and its tab; it follows a rename and a tab's title
+  // each terminal's accessible name says its session and its tab; it follows a rename
   $effect(() => {
     const title = context === SHELLS_CONTEXT ? null : (sessionRow.current?.title ?? null)
     const names = list.map((t) => [t.ptyId, terminalName(title, tabTitle(t))] as const)
@@ -562,14 +562,17 @@ registered here: `viewer.open`, `viewer.pinTab`, and Close / Next / Previous Tab
     <div class="tabs" role="tablist" aria-label="Terminals">
       {#each tabs as id (id)}
         {@const t = byId.get(id)!}
-        <!-- a tab never takes keyboard focus from the terminal, also when it is already the active one -->
+        {@const tip = tabTip(t)}
+        <!-- a tab never takes keyboard focus from the terminal, also when it is already the active one; a shell tab's
+             tooltip and description say what runs in it, as a file tab's say its path -->
         <!-- svelte-ignore a11y_role_supports_aria_props (Chromium exposes aria-description on any role) -->
         <button
           role="tab"
           data-pty={id}
           data-kind={t.kind}
           aria-selected={id === active}
-          aria-description={t.kind === 'agent' && id !== active && needsYou ? 'Needs you' : undefined}
+          aria-description={t.kind === 'agent' && id !== active && needsYou ? 'Needs you' : (tip ?? undefined)}
+          data-tip={tip ?? undefined}
           class={['tab', t.kind === 'shell' ? 'closable' : '', id === active ? 'active' : ''].filter(Boolean).join(' ')}
           onmousedown={keepFocus}
           onclick={(e) => {
@@ -626,7 +629,7 @@ registered here: `viewer.open`, `viewer.pinTab`, and Close / Next / Previous Tab
     {#if restored && tabs.length === 0 && canOpenShell}
       <div class="empty">
         <span>No shell is open.</span>
-        <button class="button" onclick={() => void openShell()}>New Shell Tab {#if shortcut('terminal.newShell')}<kbd>{shortcut('terminal.newShell')}</kbd>{/if}</button>
+        <button class="button" onclick={() => void openShell()}>New Terminal {#if shortcut('terminal.newShell')}<kbd>{shortcut('terminal.newShell')}</kbd>{/if}</button>
       </div>
     {/if}
     {#if fileTab}

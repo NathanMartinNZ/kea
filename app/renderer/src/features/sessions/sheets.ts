@@ -2,8 +2,10 @@
 // show): the contextual menus generated from the command table and the header's overflow menu, what a
 // delete would lose, and the wording shared by the sheets.
 
-import { COMMANDS, surfaceMenu, systemKeys, systemTitle, type DeletePreview, type RemoveBlocker, type Surface } from '@kea/protocol'
+import { systemTitle, type DeletePreview, type RemoveBlocker, type Surface } from '@kea/protocol'
 import type { MenuItem } from '@kea/ui'
+import { shortcut } from '../commands/bindings.svelte.ts'
+import { surfaceItems } from '../commands/menuItems.ts'
 import { commands } from '../commands/registry.ts'
 import { relativeTime } from './model.ts'
 import { ui } from './state.svelte.ts'
@@ -12,16 +14,11 @@ export const MENU_SURFACE: Record<'session' | 'project' | 'header', Surface> = {
 export const MENU_LABEL: Record<'session' | 'project' | 'header', string> = { session: 'Session menu', project: 'Project menu', header: 'Session actions' }
 
 /**
- * A contextual menu's items: the surface's commands in table order, only those available for the row, plus the
- * ones kept there disabled with their reason (`keepInMenus`).
+ * A contextual menu's items (commands/menuItems.ts): the surface's commands in table order, only those available
+ * for the row, plus the ones kept there disabled with their reason (`keepInMenus`), each with its key now.
  */
 export function menuItems(surface: Surface, args: unknown): MenuItem[] {
-  return surfaceMenu(surface, (id) => commands.inMenus(id, args)).map((id) => {
-    const c = COMMANDS.find((x) => x.id === id)!
-    const key = !c.keyScope ? systemKeys(c)[0] : undefined
-    const reason = commands.reason(id, args)
-    return { id, label: systemTitle(c), ...(key ? { shortcut: key } : {}), ...(reason ? { disabled: true, reason } : {}) }
-  })
+  return surfaceItems(surface, args, { inMenus: (id, a) => commands.inMenus(id, a), reason: (id, a) => commands.reason(id, a), title: (c) => systemTitle(c), key: shortcut })
 }
 
 export const closeSheet = (): void => {

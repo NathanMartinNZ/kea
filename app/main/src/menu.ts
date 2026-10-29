@@ -9,10 +9,13 @@
 // native roles so the browser's clipboard events reach the focused element. `⌘M`, `⌘H`, `⌃⌘F` stay standard macOS. `⌘R`
 // never reloads the window: there is no reload item, except a developer one without a shortcut in dev builds.
 //
+// On Linux the window draws the menu itself (a drill-down `Menu` under the header's button): `windowMenuTree` gives it
+// the template's items as plain data, and a pick comes back by id (`findMenuItem`), so both menus are one template.
+//
 // `menuTemplate` is pure (Electron's template objects), so its shape is unit-tested without Electron.
 
 import type { MenuItemConstructorOptions } from 'electron'
-import { chordAccelerator, commandById, commandTitle, MAIN_COMMANDS, menuSections, NATIVE_ROLES, need, protocolOs, systemKeys, systemTitle, toAccelerator, type Category, type MenuState, type ProtocolOs } from '@kea/protocol'
+import { chordAccelerator, commandById, commandTitle, MAIN_COMMANDS, menuSections, NATIVE_ROLES, need, protocolOs, SELECT_ALL_COMMAND, systemKeys, systemTitle, toAccelerator, type Category, type MenuState, type ProtocolOs, type WindowMenuNode } from '@kea/protocol'
 import { mainOs, type MenuChrome, type MenuParts } from './os/index.ts'
 
 /** What a window's renderer last reported (`kea:menuState`), as the menu reads it. */
@@ -46,7 +49,7 @@ export interface MenuInput {
 const TOP_MENUS: Partial<Record<Category, string>> = { Session: 'Session', Project: 'Project', Terminal: 'Terminal', Files: 'Files', Viewer: 'Viewer', Server: 'Server', View: 'View' }
 
 /** The commands the generated lists leave out: main's own and the Edit menu's roles have their items already. */
-const PLACED: ReadonlySet<string> = new Set([...MAIN_COMMANDS, ...Object.keys(NATIVE_ROLES)])
+const PLACED: ReadonlySet<string> = new Set([...MAIN_COMMANDS, ...Object.keys(NATIVE_ROLES), SELECT_ALL_COMMAND])
 
 /** The key an item shows: the person's where `keybindings.json` changed it, else the table's first. */
 function accelerator(id: string, input?: MenuInput): string | undefined {
@@ -106,12 +109,13 @@ export function menuTemplate(input: MenuInput): MenuItemConstructorOptions[] {
       { role: 'cut' },
       { id: 'terminal.copy', role: 'copy', label: titleOf('terminal.copy', 'Copy', input.system) },
       { id: 'terminal.paste', role: 'paste', label: titleOf('terminal.paste', 'Paste', input.system) },
-      { role: 'selectAll' },
+      // the role serves ⌘A in a field the page does not draw; in a terminal the router runs the command instead
+      { id: SELECT_ALL_COMMAND, role: 'selectAll', label: titleOf(SELECT_ALL_COMMAND, 'Select All', input.system) },
     ],
     editKeys: { ...(copyKey ? { copy: copyKey } : {}), ...(pasteKey ? { paste: pasteKey } : {}) },
     sections: (Object.entries(TOP_MENUS) as [Category, string][]).map(([category, label]) => ({ category, label, items: items(category) })).filter((s) => s.items.length > 0),
     // dev builds only, and without a shortcut: ⌘R is server.toggle
-    dev: input.dev ? [{ label: 'Developer', submenu: [{ label: 'Reload Window', click: () => input.main.reload() }, { role: 'toggleDevTools' }] }] : [],
+    dev: input.dev ? [{ label: 'Developer', submenu: [{ id: 'dev.reload', label: 'Reload Window', click: () => input.main.reload() }, { role: 'toggleDevTools' }] }] : [],
     // Help: the system's own items first (macOS: its search field, which finds every item by title); then the keyboard
     // list and Copy Diagnostics, each also in the app menu (macOS) under its own id
     help: [rendererItem('app.shortcuts', input, 'help:app.shortcuts'), rendererItem('app.copyDiagnostics', input, 'help:app.copyDiagnostics')],
@@ -119,3 +123,41 @@ export function menuTemplate(input: MenuInput): MenuItemConstructorOptions[] {
   // the system lays the parts out (the OS layer's `menu`): macOS's menu bar, Linux's File … Help
   return (input.chrome ?? need(mainOs.menu)).layout(parts)
 }
+
+/** A role item's title where the template names none (Electron's own, as its menus write them). */
+const ROLE_LABELS: Readonly<Record<string, string>> = { undo: 'Undo', redo: 'Redo', cut: 'Cut', copy: 'Copy', paste: 'Paste', selectAll: 'Select All', toggleDevTools: 'Toggle Developer Tools' }
+
+/** An item's id in the window's menu: its own, else its role's, else its place (`2/0`). */
+function nodeId(i: MenuItemConstructorOptions, place: string): string {
+  if (i.type === 'separator') return `sep:${place}`
+  if (Array.isArray(i.submenu)) return `menu:${place}`
+  if (i.id) return String(i.id)
+  return i.role ? `role:${i.role}` : `item:${place}`
+}
+
+/** The application menu as plain items the window draws (Linux: a drill-down `Menu`); hidden items are left out. */
+export function windowMenuTree(template: readonly MenuItemConstructorOptions[], at = ''): WindowMenuNode[] {
+  return template.flatMap((i, k): WindowMenuNode[] => {
+    if (i.visible === false) return []
+    const place = at ? `${at}/${k}` : String(k)
+    const id = nodeId(i, place)
+    if (i.type === 'separator') return [{ id, label: '', enabled: false, separator: true }]
+    const label = i.label ?? (i.role ? (ROLE_LABELS[i.role] ?? i.role) : '')
+    if (Array.isArray(i.submenu)) return [{ id, label, enabled: i.enabled !== false, submenu: windowMenuTree(i.submenu, place) }]
+    return [{ id, label, enabled: i.enabled !== false, ...(typeof i.accelerator === 'string' ? { shortcut: i.accelerator } : {}) }]
+  })
+}
+
+/** The item a window-menu pick names (`windowMenuTree`'s id), in the template as it is now; null when it has none. */
+export function findMenuItem(template: readonly MenuItemConstructorOptions[], id: string, at = ''): MenuItemConstructorOptions | null {
+  for (const [k, i] of template.entries()) {
+    if (i.visible === false) continue
+    const place = at ? `${at}/${k}` : String(k)
+    if (Array.isArray(i.submenu)) {
+      const found = findMenuItem(i.submenu, id, place)
+      if (found) return found
+    } else if (i.type !== 'separator' && nodeId(i, place) === id) return i
+  }
+  return null
+}
+

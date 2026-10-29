@@ -3,8 +3,10 @@
 // git lookup, ptyhost's `pty.banner` notes when a new ptyhost connects or, for the disk-full one, by its
 // `pty.bannerCleared`. The session-mode banner (Linux without a systemd user manager to give terminals a
 // scope of their own) is shown once per KEA_HOME. On Linux core's watch service says when inotify's limits stop
-// it following a worktree, and its port blocks when too few lie below the system's ephemeral range.
+// it following a worktree, and its port blocks when too few lie below the system's ephemeral range. A window's
+// one-time hints are kept the same way: core says once per KEA_HOME that a hint is to show (`hints.once`).
 import { z } from 'zod'
+import { defineApi } from './rpc.ts'
 
 export const BANNERS_STORE = 'banners'
 
@@ -28,3 +30,19 @@ export const zBanner = z.object({
   at: z.number().int(),
 })
 export type Banner = z.infer<typeof zBanner>
+
+/**
+ * The one-time hints a window shows the first time their moment comes in this KEA_HOME. `ctrlCopy`: on Linux, Ctrl+C
+ * pressed in a terminal with text selected, which sends an interrupt rather than copying.
+ */
+export const HINTS = ['ctrlCopy'] as const
+export type Hint = (typeof HINTS)[number]
+
+/** The key-value row that records a hint as shown in this KEA_HOME. */
+export const hintShownKey = (hint: Hint): string => `hint.${hint}.shown`
+
+export const hintsApi = defineApi({
+  /** A hint's moment came: whether to show it (true the first time in this KEA_HOME, which is then recorded). */
+  'hints.once': { args: z.object({ hint: z.enum(HINTS) }), result: z.object({ show: z.boolean() }) },
+})
+

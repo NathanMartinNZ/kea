@@ -25,8 +25,8 @@ tools/perf/last.json
 
 # OS and editors
 .DS_Store
-.claude/settings.local.json
 
 # the maintainer's private design specification and coding-agent notes, kept out of the repository
 /CLAUDE.md
+.claude/
 .plan/

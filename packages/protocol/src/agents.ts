@@ -47,6 +47,8 @@ export const zAgentInfo = z.object({
   installCommand: z.string().nullable(),
   /** What to run when the CLI is signed out (`signed out — run claude auth login`); null when the agent has none. */
   loginCommand: z.string().nullable(),
+  /** In its tab a plain right-click opens Kea's terminal menu, though the agent captures the mouse (the adapter's `rightButtonMenu`). */
+  rightButtonMenu: z.boolean(),
   options: zAgentOptions,
   /** The adapter's defaults merged with `agents.<id>.defaults` (what the composer falls back to). */
   defaults: z.object({ model: z.string().optional(), effort: z.string().optional(), permissionMode: z.string().optional() }),

@@ -17,7 +17,7 @@ export const CLAUDE_SETTINGS: AgentSettingsExtension = {
       schema: z.enum(RENDERERS),
       default: 'agent-default',
       label: 'Claude renderer',
-      help: 'Fullscreen: Claude’s own scrolling view and mouse (⌥-drag selects). Classic: Kea’s scrollback, find and last screens hold the transcript.',
+      help: 'Fullscreen: Claude’s own scrolling view and mouse (Shift-drag selects, ⌥-drag on macOS). Classic: Kea’s scrollback, find and last screens hold the transcript.',
       section: 'Agents',
       control: 'select',
       options: [

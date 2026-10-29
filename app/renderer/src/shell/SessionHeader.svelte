@@ -10,7 +10,7 @@ each is its feature's own component and renders nothing when it has nothing to s
 <script lang="ts">
   import { untrack } from 'svelte'
   import { L } from '@kea/protocol'
-  import { MoreIcon } from '@kea/ui'
+  import { menuTrigger, MoreIcon } from '@kea/ui'
   import { External } from '../lib/reactive.svelte.ts'
   import EditorButton from '../features/editor/EditorButton.svelte'
   import DiffStat from '../features/files/DiffStat.svelte'
@@ -49,14 +49,14 @@ each is its feature's own component and renders nothing when it has nothing to s
   function openActions(e: MouseEvent & { currentTarget: HTMLButtonElement }): void {
     if (menuItems('header ⋯', { id }).length === 0) return
     const r = e.currentTarget.getBoundingClientRect()
-    ui.menu = { kind: 'header', id, at: { x: r.right, y: r.bottom } }
+    ui.menu = { kind: 'header', id, at: { x: r.right, y: r.bottom }, trigger: menuTrigger('session-actions') }
   }
 
   const keepFocus = (e: MouseEvent) => e.preventDefault()
 </script>
 
 {#if s}
-  <div class="header-left">
+  <div class="header-cluster header-left">
     {#if renaming}
       <RenameField {s} />
     {:else}
@@ -83,10 +83,11 @@ each is its feature's own component and renders nothing when it has nothing to s
       >
     {/if}
   </div>
-  <div class="header-right">
+  <span class="header-spacer"></span>
+  <div class="header-cluster header-right">
     <DiffStat sessionId={id} />
     <ServerControl sessionId={id} canRun={canRunIn(s)} />
     <EditorButton sessionId={id} />
-    <button class="quiet-button icon" aria-label="Session actions" aria-haspopup="menu" data-tip="More" onmousedown={keepFocus} onclick={openActions}><MoreIcon /></button>
+    <button class="quiet-button icon" aria-label="Session actions" aria-haspopup="menu" aria-expanded={ui.menu?.kind === 'header'} data-menu-trigger="session-actions" data-tip="More" onmousedown={keepFocus} onclick={openActions}><MoreIcon /></button>
   </div>
 {/if}

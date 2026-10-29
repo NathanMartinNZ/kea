@@ -82,6 +82,8 @@
   box-shadow: var(--shadow-float);
   outline: none;
   animation: kea-menu-in var(--motion-float-in) linear both;
+  /* a menu over a header is the page's, not a place to drag the window by */
+  -webkit-app-region: no-drag;
 }
 
 .kea-menu-item {
@@ -128,6 +130,22 @@
 
 .kea-menu-kbd {
   margin: 0;
+}
+
+/* a drill-down: the submenu's and the back row's chevrons, and the lines between groups */
+.kea-menu-chevron {
+  color: var(--text-3);
+}
+
+.kea-menu-item.back {
+  color: var(--text-2);
+  gap: var(--space-2);
+}
+
+.kea-menu-separator {
+  height: 1px;
+  margin: var(--space-1) var(--space-2);
+  background: var(--line);
 }
 
 /* the tooltip: micro type on --surface-4, over every other floating layer; it never takes the pointer */

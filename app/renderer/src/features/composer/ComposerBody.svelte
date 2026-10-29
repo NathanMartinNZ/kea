@@ -25,7 +25,7 @@ Locatable as: `region` "New session", `textbox` "Prompt", `switch` "Worktree", `
 <script lang="ts">
   import { tick, untrack } from 'svelte'
   import type { CoreApi, LaunchOptions, Project, ResultOf, ValidationProblem } from '@kea/protocol'
-  import { Menu, type MenuItem } from '@kea/ui'
+  import { Menu, MENU_OPEN_CLASS, menuTrigger, type MenuItem } from '@kea/ui'
   import { pathForFile } from '../../lib/bridge.ts'
   import { External } from '../../lib/reactive.svelte.ts'
   import { call } from '../../lib/rpc.ts'
@@ -357,7 +357,7 @@ Locatable as: `region` "New session", `textbox` "Prompt", `switch` "Worktree", `
   role; the keydown is the composer's ⌘↩ and Escape, caught as they bubble from its fields) -->
 <section class="composer" role="region" aria-label="New session" onkeydown={onKeyDown} bind:this={sectionEl}>
   <h1 class="composer-heading">
-    New session in <button bind:this={projectBtn} class="quiet-button composer-project" aria-haspopup="menu" aria-label={`Project: ${project.name}`} onclick={(e) => openMenu('project', e)}>{project.name} ▾</button>
+    New session in <button bind:this={projectBtn} class="quiet-button composer-project" aria-haspopup="menu" aria-label={`Project: ${project.name}`} aria-expanded={menu?.kind === 'project'} data-menu-trigger="composer-project" onclick={(e) => openMenu('project', e)}>{project.name} ▾</button>
   </h1>
   {#if note}
     <p class="composer-note">{note}</p>
@@ -385,7 +385,7 @@ Locatable as: `region` "New session", `textbox` "Prompt", `switch` "Worktree", `
       }}
     ></textarea>
     <div class="composer-selectors" role="group" aria-label="Agent options">
-      <button bind:this={selectorEls.agent} class="quiet-button" aria-haspopup="menu" aria-label={`Agent: ${info?.displayName ?? draft.agent}`} data-tip="Agent" data-tip-key={primaryLabel('1')} onclick={(e) => openMenu('agent', e)}>{info?.displayName ?? draft.agent} ▾</button>
+      <button bind:this={selectorEls.agent} class="quiet-button" aria-haspopup="menu" aria-label={`Agent: ${info?.displayName ?? draft.agent}`} data-tip="Agent" data-tip-key={primaryLabel('1')} aria-expanded={menu?.kind === 'agent'} data-menu-trigger="composer-agent" onclick={(e) => openMenu('agent', e)}>{info?.displayName ?? draft.agent} ▾</button>
       {#if customModel}
         <input
           class="composer-model"
@@ -409,13 +409,13 @@ Locatable as: `region` "New session", `textbox` "Prompt", `switch` "Worktree", `
           }}
         />
       {:else if k.models.length > 0 || info?.options.allowCustomModel}
-        <button bind:this={selectorEls.model} class="quiet-button" aria-haspopup="menu" aria-label={`Model: ${model ?? 'default'}`} data-tip="Model" data-tip-key={primaryLabel('2')} onclick={(e) => openMenu('model', e)}>{k.models.find((m) => m.id === model)?.label ?? model ?? 'default'} ▾</button>
+        <button bind:this={selectorEls.model} class="quiet-button" aria-haspopup="menu" aria-label={`Model: ${model ?? 'default'}`} data-tip="Model" data-tip-key={primaryLabel('2')} aria-expanded={menu?.kind === 'model'} data-menu-trigger="composer-model" onclick={(e) => openMenu('model', e)}>{k.models.find((m) => m.id === model)?.label ?? model ?? 'default'} ▾</button>
       {/if}
       {#if k.efforts.length > 0}
-        <button bind:this={selectorEls.effort} class="quiet-button" aria-haspopup="menu" aria-label={`Effort: ${config.effort ?? 'model default'}`} data-tip="Effort" data-tip-key={primaryLabel('3')} onclick={(e) => openMenu('effort', e)}>{config.effort ?? 'Model default'} ▾</button>
+        <button bind:this={selectorEls.effort} class="quiet-button" aria-haspopup="menu" aria-label={`Effort: ${config.effort ?? 'model default'}`} data-tip="Effort" data-tip-key={primaryLabel('3')} aria-expanded={menu?.kind === 'effort'} data-menu-trigger="composer-effort" onclick={(e) => openMenu('effort', e)}>{config.effort ?? 'Model default'} ▾</button>
       {/if}
       {#if k.modes.length > 0}
-        <button bind:this={selectorEls.mode} class="quiet-button{mode?.dangerous ? ' danger-text' : ''}" aria-haspopup="menu" aria-label={`Permission mode: ${mode?.label ?? 'default'}`} data-tip="Permission mode" data-tip-key={primaryLabel('4')} onclick={(e) => openMenu('mode', e)}>{mode?.label ?? 'Default mode'} ▾</button>
+        <button bind:this={selectorEls.mode} class="quiet-button{mode?.dangerous ? ' danger-text' : ''}" aria-haspopup="menu" aria-label={`Permission mode: ${mode?.label ?? 'default'}`} data-tip="Permission mode" data-tip-key={primaryLabel('4')} aria-expanded={menu?.kind === 'mode'} data-menu-trigger="composer-mode" onclick={(e) => openMenu('mode', e)}>{mode?.label ?? 'Default mode'} ▾</button>
       {/if}
     </div>
   </div>
@@ -423,7 +423,7 @@ Locatable as: `region` "New session", `textbox` "Prompt", `switch` "Worktree", `
   <ConditionNote agent={draft.agent} />
   <div class="composer-footer">
     {#if draft.isolation === 'worktree'}
-      <button class="quiet-button" aria-haspopup="menu" aria-label={`Base branch: ${baseLabel(draft, bases)}`} onclick={(e) => openMenu('base', e)}>⎇ from {baseLabel(draft, bases)} ▾</button>
+      <button class="quiet-button" aria-haspopup="menu" aria-label={`Base branch: ${baseLabel(draft, bases)}`} aria-expanded={menu?.kind === 'base'} data-menu-trigger="composer-base" onclick={(e) => openMenu('base', e)}>⎇ from {baseLabel(draft, bases)} ▾</button>
     {:else}
       <span class="composer-inplace">In place · {bases?.head ?? project.defaultBranch ?? project.rootPath.split('/').pop()}</span>
     {/if}
@@ -478,11 +478,13 @@ Locatable as: `region` "New session", `textbox` "Prompt", `switch` "Worktree", `
       label={MENU_LABELS[menu.kind]}
       items={menuItems(menu.kind)}
       at={menu.at}
+      trigger={menuTrigger(`composer-${menu.kind}`)}
       onClose={() => {
         menu = null
-        // Back to the prompt, unless another selector was opened meanwhile (⌘2 right after Esc): its menu keeps the keyboard
+        // Back to the prompt, unless another menu was opened meanwhile (⌘2 right after Esc, the window's menu, a field's
+        // text menu): that menu keeps the keyboard
         requestAnimationFrame(() => {
-          if (!menu) promptEl?.focus()
+          if (!menu && !document.documentElement.classList.contains(MENU_OPEN_CLASS)) promptEl?.focus()
         })
       }}
       onPick={pick}

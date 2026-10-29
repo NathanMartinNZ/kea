@@ -1,10 +1,11 @@
-// The design's motion table as data: what may move, and that it stands still under reduced motion. Every hand-written
-// stylesheet of the window (the renderer's and `packages/ui`'s; generated tokens left out) is read as rules, and every
-// script and component as text. Nothing here renders: a rule that is not in the styles cannot run.
+// The design's motion table and the header's drag regions as data: what may move, that it stands still under reduced
+// motion, and what drags the window. Every hand-written stylesheet of the window (the renderer's and `packages/ui`'s;
+// generated tokens left out) is read as rules, and every script and component as text. Nothing here renders.
 import { readdirSync, readFileSync } from 'node:fs'
 import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { MENU_OPEN_CLASS } from '@kea/ui'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(here, '../../../..')
@@ -161,5 +162,107 @@ describe('motion', () => {
     expect(reduced.find((r) => r.selector === '.window')?.decls.get('transition')).toBe('none')
     // and a reduced-motion rule only ever switches motion off
     expect(reduced.flatMap((r) => [...r.decls].filter(([p, v]) => !MOVES.test(p) || v !== 'none').map(([p, v]) => `${r.file} ${r.selector} { ${p}: ${v} }`))).toEqual([])
+  })
+})
+
+/** The tags of a component's markup (its script and style left out), each with its depth; Svelte's `{…}` is skipped. */
+function tags(source: string): { depth: number; tag: string }[] {
+  const text = source.replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/g, '').replace(/<!--[\s\S]*?-->/g, '')
+  const out: { depth: number; tag: string }[] = []
+  let depth = 0
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '{') {
+      for (let braces = 0; i < text.length; i++) if (text[i] === '{') braces++; else if (text[i] === '}' && --braces === 0) break
+    } else if (text[i] === '<') {
+      let j = i
+      for (let braces = 0; j < text.length && !(text[j] === '>' && braces === 0); j++) if (text[j] === '{') braces++; else if (text[j] === '}') braces--
+      const tag = text.slice(i, j + 1)
+      if (tag.startsWith('</')) depth--
+      else {
+        out.push({ depth, tag })
+        if (!tag.endsWith('/>') && !/^<(input|br|img)\b/.test(tag)) depth++
+      }
+      i = j
+    }
+  }
+  return out
+}
+
+/** The opening tags directly inside the first element whose class list has `cls` (or at the top, for null). */
+function inside(source: string, cls: string | null): string[] {
+  const all = tags(source)
+  const at = cls === null ? -1 : all.findIndex((t) => new RegExp(`class="[^"]*\\b${cls}\\b`).test(t.tag))
+  const depth = at < 0 ? 0 : all[at]!.depth + 1
+  const out: string[] = []
+  for (const t of all.slice(at + 1)) {
+    if (t.depth < depth) break
+    if (t.depth === depth) out.push(t.tag)
+  }
+  return out
+}
+
+/** What every rule of `selector` sets `-webkit-app-region` to, in order. */
+const region = (selector: string) => sheet.rules.filter((r) => r.selector === selector && r.decls.has('-webkit-app-region')).map((r) => r.decls.get('-webkit-app-region'))
+
+describe('drag regions', () => {
+  it('DS-9 · a header drags by its spacers alone: its clusters of controls, a menu over it and every header while a menu is open do not drag', () => {
+    expect(region('.column-header')).toEqual(['drag'])
+    expect(region('.header-spacer')).toEqual([]) // it drags as its header does
+    for (const s of ['.header-cluster', '.kea-menu', `.${MENU_OPEN_CLASS} .column-header`]) expect(region(s), s).toEqual(['no-drag'])
+    // a cluster is the header's full height, with a strip of its own beside its controls
+    const cluster = sheet.rules.find((r) => r.selector === '.header-cluster')!
+    expect(cluster.decls.get('align-self')).toBe('stretch')
+    expect(cluster.decls.get('padding')).toBe('0 var(--space-2)')
+    // the hand-kept list of every rule that says how a place drags: a new one is added here on purpose
+    const all = sheet.rules.filter((r) => r.decls.has('-webkit-app-region')).map((r) => `${r.file} ${r.selector}: ${r.decls.get('-webkit-app-region')}`)
+    expect(all.sort()).toEqual(
+      [
+        'app/renderer/src/features/server/server.css .server-hint: no-drag',
+        'app/renderer/src/shell/window.css .divider: no-drag',
+        'app/renderer/src/shell/window.css .column-header: drag',
+        'app/renderer/src/shell/window.css .column-header button: no-drag',
+        'app/renderer/src/shell/window.css .column-header input: no-drag',
+        'app/renderer/src/shell/window.css .column-header h1: no-drag',
+        'app/renderer/src/shell/window.css .header-cluster: no-drag',
+        `app/renderer/src/shell/window.css .${MENU_OPEN_CLASS} .column-header: no-drag`,
+        'app/renderer/src/styles.css .tab: no-drag',
+        'packages/ui/src/ui.css .kea-menu: no-drag',
+      ].sort(),
+    )
+  })
+
+  it('DS-9 · every control in a header sits in a cluster: a header holds clusters and spacers only', () => {
+    const read = (f: string) => readFileSync(join(here, f), 'utf8')
+    const allowed = (t: string) => /^<div class="header-cluster[ "]/.test(t) || /^<span class="header-spacer"/.test(t)
+    const app = read('App.svelte')
+    expect(inside(app, 'sidebar-header').filter((t) => !allowed(t))).toEqual([])
+    expect(inside(app, 'panel-header').filter((t) => !allowed(t))).toEqual([])
+    expect(inside(app, 'panel-header').length).toBe(3)
+    // the main header holds the session's, whose own top level is clusters and a spacer
+    expect(inside(read('MainHeader.svelte'), 'main-header').filter((t) => !allowed(t) && !t.startsWith('<SessionHeader'))).toEqual([])
+    const session = inside(read('SessionHeader.svelte'), null)
+    expect(session.filter((t) => !allowed(t))).toEqual([])
+    expect(session.length).toBe(3)
+  })
+})
+
+
+describe('cursors', () => {
+  it('DS-10 · the cursor policy: the hand on links and on text-like buttons, the I-beam on the viewer’s code, col-resize on dividers, the arrow on controls drawn as buttons, tabs, rows and menu items', () => {
+    const cursor = (r: Rule) => r.decls.get('cursor')
+    const set = sheet.rules.filter((r) => cursor(r) !== undefined)
+    const by = (value: string) => set.filter((r) => cursor(r) === value).map((r) => r.selector).sort()
+    // the hand-kept list: a new cursor is added here on purpose
+    expect(by('pointer')).toEqual(['.branch-chip', '.config-summary', '.diff-stat', '.link-button', '.server-chip', '.viewer-preview a[data-path]', '.viewer-preview a[href]'].sort())
+    expect(by('text')).toEqual(['.viewer .cm-editor .cm-content'])
+    expect(by('col-resize')).toEqual(['.divider', '.window.resizing'])
+    expect(by('zoom-in')).toEqual(['.viewer-image img'])
+    expect(by('zoom-out')).toEqual(['.viewer-image.actual img'])
+    expect(by('default')).toEqual(
+      ['.fp-row', '.finder-row', '.palette-row', '.sb-row', '.tab', '.kea-menu-item', '.viewer .cm-editor .cm-foldGutter .cm-gutterElement', '.viewer .cm-editor .cm-collapsedLines', ".link-button[aria-disabled='true']", ".link-button[aria-disabled='true']:hover"].sort(),
+    )
+    expect(set.filter((r) => !['pointer', 'text', 'col-resize', 'zoom-in', 'zoom-out', 'default'].includes(cursor(r)!)).map((r) => `${r.selector}: ${cursor(r)}`)).toEqual([])
+    // a control drawn as a button never has the hand: it reads as a control already
+    expect(by('pointer').filter((s) => /quiet-button|primary-button|\.button|segment|-row|kea-menu-item|\.tab\b/.test(s))).toEqual([])
   })
 })

@@ -1,8 +1,8 @@
-// Shell tab titles with the real pieces: core assembled as main.ts assembles it, on a temp KEA_HOME, wired to a real
-// ptyhost and real holders. What a tab's title is made from is the `foreground` field of its entry in core's
+// Shell tab tooltips with the real pieces: core assembled as main.ts assembles it, on a temp KEA_HOME, wired to a real
+// ptyhost and real holders. What a shell tab's tooltip is made from is the `foreground` field of its entry in core's
 // `terminals` store: the name of the process in the terminal's foreground, which core asks the holder for (`STAT`) when
-// something happens in a shell tab of a session on screen. The rate limit, the bookkeeping and the tab strip's use of
-// the field have unit and e2e tests of their own.
+// something happens in a shell tab of a session on screen. The tab's label is its number, which none of this changes.
+// The rate limit, the bookkeeping and the tab strip's use of the fields have unit and e2e tests of their own.
 
 import { afterEach, describe, expect, it } from 'vitest'
 import type { SessionView } from '@kea/protocol'
@@ -27,8 +27,8 @@ async function create(s: SessionsUnderTest, projectId: string, prompt: string): 
   return v
 }
 
-describe('shell tabs titled with their foreground process', () => {
-  it('I-TERM-1 · a shell tab of the session on screen, and one of the shells pane: a command started in it later names the tab, and the shell’s name is back when the command ends; a hidden session’s tab is asked nothing and carries no name until its session is shown again', async () => {
+describe('shell tabs: their foreground process in the tooltip', () => {
+  it('I-TERM-1 · a shell tab of the session on screen, and one of the shells pane: a command started in it later names the tab’s tooltip, and the shell’s name is back when the command ends, while the tab keeps its number; a hidden session’s tab is asked nothing and carries no name until its session is shown again', async () => {
     const s = await sessions()
     const r = repo()
     cleanup.push(() => r.dispose())
@@ -37,6 +37,7 @@ describe('shell tabs titled with their foreground process', () => {
     const core = s.c.core
     const t = core.terminals
     const name = (ptyId: string) => t.store.get(ptyId)?.foreground ?? null
+    const number = (ptyId: string) => t.store.get(ptyId)?.number
     const type = (ptyId: string, keys: string) => s.h.manager.get(ptyId)!.input(keys)
     const asked = (ptyId: string) => s.c.calls.filter((c) => c.m === 'pty.stat' && c.a.ptyId === ptyId).length
     const named = (ptyId: string, what: string) => until(`${ptyId} named ${what} (it reads ${name(ptyId)})`, () => name(ptyId) === what)
@@ -51,6 +52,7 @@ describe('shell tabs titled with their foreground process', () => {
     })
     const direct = asked(tab) // the test's own `terminal.foreground` calls
     expect(name(tab), 'hidden: no name').toBeNull()
+    expect(number(tab), 'the session’s first shell tab').toBe(1)
     expect(t.resourceCounts).toMatchObject({ titles: 0, titleTimers: 0 })
 
     // the window shows the session: its shell tab is asked at once, and only that tab (the Agent tab is named by Kea)
@@ -74,6 +76,7 @@ describe('shell tabs titled with their foreground process', () => {
     // a command started later renames it again
     type(tab, 'cat\r')
     await named(tab, 'cat')
+    expect(number(tab), 'what runs in it never changes its number').toBe(1)
 
     // hidden again: the name goes with what was kept, and nothing more is asked
     core.visible.set(window, null)
@@ -93,6 +96,7 @@ describe('shell tabs titled with their foreground process', () => {
     await named(shell, 'cat')
     type(shell, '\x04')
     await named(shell, sh)
+    expect(number(shell), 'the shells pane counts its own tabs').toBe(1)
     // the window goes: nothing is on screen
     t.windowGone()
     expect(name(shell)).toBeNull()

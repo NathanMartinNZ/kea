@@ -5,7 +5,13 @@
 // `terminals.orphans` lists live holders no record accounts for. Shell tabs open through `openShell()`; a session's
 // agent, dev server and scripts start through `launch()`.
 //
-// Shell tab titles: a shell tab is titled with the process in its foreground. Core learns it from the holder's `STAT`,
+// Shell tab numbers: a shell tab reads `Terminal n` (`PtyInfo.number`). Core gives the number as it makes the tab's
+// record (or adopts an orphan as a shell): 1 + the highest among the shell records it lists for that session, the
+// `shells` pseudo-session counting its own, an ended or lost one included; 1 when none. It never changes while core
+// runs. The numbers live in this memory only, never on a record, so nothing on disk holds one: a restarted core numbers
+// its records again, in the order the store lists them.
+//
+// Shell tab tooltips: a shell tab's tooltip names the process in its foreground. Core learns it from the holder's `STAT`,
 // asked only for the running shell tabs of a session on screen, and only when something happened: the session came on
 // screen or the tab's output paused (asked at once: nothing is due later), its output started or a key was typed (at
 // most once per L.tabTitleStatMs per tab: the one timer there is, armed for an event inside that time and taken back by
@@ -112,7 +118,7 @@ export interface TerminalsOptions {
   onConnect?(): void
   /** Ptyhost's activity notes (bell, OSC 9/777, output started/stopped, keystrokes) for tier 3. */
   onActivity?(n: ActivityNote): void
-  /** Which sessions a window shows: their shell tabs are titled with their foreground process. */
+  /** Which sessions a window shows: their shell tabs' tooltips name their foreground process. */
   visible?: Pick<VisibleSet, 'has' | 'onChange'>
   /** The clock of the tab-title rate limit (default: the system's; tests pass their own). */
   clock?: Clock
@@ -164,6 +170,14 @@ export interface TerminalExit {
 
 /** The key of a `terminal.setVisible` that came with no window connection (a test's direct call). */
 const NO_WINDOW = {}
+
+/**
+ * The order the `terminals` store lists records in, which shell numbers follow: tab order, then creation; records
+ * rebuilt from the holders (all at tab order 0, made at once) by their holder's start, then PTY id.
+ */
+function byListOrder(a: TerminalRecord, b: TerminalRecord): number {
+  return a.tabOrder - b.tabOrder || a.createdAt - b.createdAt || (a.holderStartedAt ?? 0) - (b.holderStartedAt ?? 0) || (a.ptyId < b.ptyId ? -1 : a.ptyId > b.ptyId ? 1 : 0)
+}
 
 /** What is known of the foreground process of one shell tab on screen. */
 interface Foreground {
@@ -218,6 +232,10 @@ export class Terminals {
   // bounded: one per running shell tab of a session on screen, each with at most one timer and one `STAT` out;
   // dropped when its session is hidden, its tab ends or closes, and at dispose
   private readonly foregrounds = new Map<string, Foreground>()
+  /** Each shell record's number (`numberShells`): in memory only, never on a record. */
+  // bounded: one per shell record (≤ L.terminalRecordsMax), dropped with its record; one whose record the records' cap
+  // made room for goes at the next numbering
+  private readonly numbers = new Map<string, number>()
   private readonly clock: Clock
   private readonly offVisible: Disposable | null
   /**
@@ -249,7 +267,8 @@ export class Terminals {
     this.now = opts.now ?? Date.now
     this.clock = opts.clock ?? systemClock
     // A restarted core lists what it recorded before ptyhost answers, so the window keeps its terminals; the
-    // first reconciliation then updates each entry in place
+    // first reconciliation then updates each entry in place. Its shells are numbered again, in their order
+    this.numberShells()
     for (const r of this.records.list()) this.show(r.ptyId)
     this.offSettings = opts.settings?.onChange(() => this.settingsChanged()) ?? null
     // A session coming on screen has its shell tabs asked once; one leaving gives up what was known
@@ -375,6 +394,8 @@ export class Terminals {
     let p: Ptyhost
     try {
       this.records.put(rec)
+      // numbered as its record is made, before anything is awaited: two quick new tabs differ, in their order
+      if (rec.kind === 'shell') this.numberShells()
       p = await this.control()
       await p.call('pty.spawn', { ptyId, sessionId: req.sessionId, kind: req.kind, spec, cols: req.cols, rows: req.rows, ringBytes: this.opts.settings?.ringBytes() ?? L.ringBytesDefault, keaVersion: this.opts.version })
     } catch (e) {
@@ -452,6 +473,7 @@ export class Terminals {
       const h = this.listed.get(ptyId)
       if (!o.canAdopt || !h || this.records.get(ptyId)) throw new RpcError('refused', `holder ${ptyId} cannot be adopted (${o.reason}${h ? '' : ', unreachable'})`)
       this.save(recordFromHolder(h, null, this.now(), { kind: 'shell', tabOrder: this.nextTabOrder(h.sessionId) }))
+      this.numberShells()
       this.attached.add(ptyId)
       this.orphans.delete(ptyId)
       this.show(ptyId)
@@ -794,6 +816,7 @@ export class Terminals {
     this.exits.dispose()
     this.stops.dispose()
     this.listed.clear()
+    this.numbers.clear()
   }
 
   // ── internals ─────────────────────────────────────────────────────────────────────
@@ -837,6 +860,27 @@ export class Terminals {
     return this.records.list().reduce((n, r) => (r.sessionId === sessionId ? Math.max(n, r.tabOrder + 1) : n), 0)
   }
 
+  /**
+   * Number each shell record that has no number yet, in the order the store lists records (`byListOrder`): 1 + the
+   * highest number among its session's shell records, 1 when none. A number once given is never changed; one whose
+   * record is gone is dropped.
+   */
+  private numberShells(): void {
+    const shells = this.records.list().filter((r) => r.kind === 'shell')
+    const ids = new Set(shells.map((r) => r.ptyId))
+    for (const id of [...this.numbers.keys()]) if (!ids.has(id)) this.numbers.delete(id)
+    const highest = new Map<string, number>()
+    for (const r of shells) {
+      const n = this.numbers.get(r.ptyId)
+      if (n !== undefined) highest.set(r.sessionId, Math.max(highest.get(r.sessionId) ?? 0, n))
+    }
+    for (const r of shells.filter((x) => !this.numbers.has(x.ptyId)).sort(byListOrder)) {
+      const n = (highest.get(r.sessionId) ?? 0) + 1
+      highest.set(r.sessionId, n)
+      this.numbers.set(r.ptyId, n)
+    }
+  }
+
   /** Persist a record; a failed write is logged and the store still follows the change. */
   private save(...rs: TerminalRecord[]): void {
     try {
@@ -865,6 +909,7 @@ export class Terminals {
   private forget(ptyId: string): void {
     this.attached.delete(ptyId)
     this.unreachable.delete(ptyId)
+    this.numbers.delete(ptyId)
     this.dropForeground(ptyId)
     try {
       this.records.delete(ptyId)
@@ -880,8 +925,10 @@ export class Terminals {
     if (!r) return
     const h = this.attached.has(ptyId) ? this.listed.get(ptyId) : undefined
     const fg = this.foregrounds.get(ptyId)?.name
+    const n = this.numbers.get(ptyId)
+    const number = n !== undefined ? { number: n } : {}
     const info: PtyInfo = h
-      ? { ...h, kind: r.kind, title: r.kind === 'script' && r.title ? r.title : h.title, ...(fg ? { foreground: fg } : {}) }
+      ? { ...h, kind: r.kind, title: r.kind === 'script' && r.title ? r.title : h.title, ...(fg ? { foreground: fg } : {}), ...number }
       : {
           ptyId,
           sessionId: r.sessionId,
@@ -898,6 +945,7 @@ export class Terminals {
           exitSignal: r.exitSignal,
           detached: false,
           title: r.title,
+          ...number,
         }
     const cur = this.store.get(ptyId)
     if (!cur || JSON.stringify(cur) !== JSON.stringify(info)) this.store.set(ptyId, info)
@@ -960,6 +1008,7 @@ export class Terminals {
       const plan = planReconcile({ records: this.records.list(), holders: list, scan, spawning: new Set(this.spawning.keys()), rebuild, now: this.now() })
       this.rebuilt = true
       if (plan.put.length) this.save(...plan.put)
+      this.numberShells() // records rebuilt from the holders
       this.listed.clear()
       for (const i of list) this.listed.set(i.ptyId, i)
       this.attached = new Set(plan.attached)

@@ -1,8 +1,10 @@
 // The window's terminal views: one registry, plus what spans every view (the atlas refresh on DPR change and wake from
-// sleep, the memory watchdog's GPU reset, the tab kinds the paste policy needs, screen-reader mode and the terminals'
+// sleep, the memory watchdog's GPU reset, the tab kinds the paste policy and the right button need, screen-reader mode and the terminals'
 // accessible names, and the resource counts).
 
 import { onGpuReset, onScreenReader, onWake } from '../../lib/bridge.ts'
+import { agents, installAgents } from '../composer/agents.ts'
+import { sessions, terminalsList } from '../sessions/state.svelte.ts'
 import { call } from '../../lib/rpc.ts'
 import type { AtlasCanvas } from './atlas.ts'
 import { NO_RESULTS } from './find.ts'
@@ -16,6 +18,13 @@ import { TerminalView, webglContexts, type ViewState } from './view.ts'
 
 const kinds = new Map<string, string>() // bounded: one per open tab
 
+/** The agent of an Agent tab's session has nothing on the right button (its row in core's `agents` store). */
+function agentGivesButton(ptyId: string): boolean {
+  installAgents()
+  const session = sessions.get(terminalsList.get(ptyId)?.sessionId ?? '')
+  return session ? agents.get(session.agent)?.rightButtonMenu === true : false
+}
+
 export const terminals: TerminalRegistry<TerminalView> = new TerminalRegistry<TerminalView>(
   (ptyId) => {
     const v = new TerminalView(ptyId, {
@@ -25,6 +34,7 @@ export const terminals: TerminalRegistry<TerminalView> = new TerminalRegistry<Te
       recallScroll,
       // An ended terminal whose holder is gone shows its last screen, from its checkpoint, on demand
       lastScreen: (id, cols, rows) => call('terminal.lastScreen', { ptyId: id, cols, rows }),
+      rightButtonMenu: (id) => kinds.get(id) === 'agent' && agentGivesButton(id),
     })
     screenReader.adopt(v)
     return v
@@ -117,6 +127,12 @@ export function focusedView(): TerminalView | undefined {
 /** The view on screen, else the one being switched to (perf probes, commands). */
 export function activeView(): TerminalView | undefined {
   return terminals.shown() ?? terminals.visible()
+}
+
+/** The view a command acts on: the terminal its menu was opened on (`{ ptyId }`), else the one on screen. */
+export function viewFor(args: unknown): TerminalView | undefined {
+  const id = typeof args === 'object' && args !== null && 'ptyId' in args ? (args as { ptyId: unknown }).ptyId : undefined
+  return typeof id === 'string' ? terminals.get(id) : activeView()
 }
 
 /** Clear every WebGL terminal's atlas (DPR change, wake, "Reset Terminal Rendering"; the watchdog's GPU reset). */

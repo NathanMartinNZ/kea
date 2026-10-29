@@ -112,7 +112,8 @@ export const linux: HarnessOs = {
     shared: false,
     trayProblem: 'a run has no session bus (NO_SESSION_BUS), so no tray host: with no window Kea quits instead of running from a tray icon',
     launch: async () => ({
-      args: ['--ozone-platform=x11'],
+      // the run's own X server has its own clipboard: Kea's Copy and Paste may use it
+      args: ['--ozone-platform=x11', '--kea-perf-clipboard'],
       env: { DISPLAY: await runDisplay(), WAYLAND_DISPLAY: undefined, XAUTHORITY: undefined, DBUS_SESSION_BUS_ADDRESS: NO_SESSION_BUS },
     }),
   },

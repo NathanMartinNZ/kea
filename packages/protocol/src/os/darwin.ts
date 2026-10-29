@@ -50,10 +50,10 @@ export const darwin: ProtocolOs = {
     terminalFont: 'SF Mono',
     terminalFontFallbacks: ['"SF Mono"', 'ui-monospace', 'Menlo', 'monospace'],
     // VoiceOver's state reaches Kea from the system, so there is no screen-reader setting to show
-    hiddenSettings: ['terminal.screenReader'],
+    hiddenSettings: ['terminal.screenReader', 'terminal.ctrlCopyPaste'],
     terminalApps: ['ghostty', 'iterm', 'warp', 'kitty', 'wezterm', 'alacritty', 'terminal'],
   },
-  words: { fileManager: 'Finder', title: (def) => def.title, badge: 'Badge count', onQuitHelp: 'What ⌘Q does while sessions run.', stayRunning: 'Stay in the menu bar' },
+  words: { fileManager: 'Finder', title: (def) => def.title, badge: 'Badge count', onQuitHelp: 'What ⌘Q does while sessions run.', stayRunning: 'Stay in the menu bar', machine: 'this Mac' },
   keys: {
     // the modifiers in macOS's order (⌃ ⌥ ⇧ ⌘), then the key
     label: (c: Chord) => `${c.ctrl ? '⌃' : ''}${c.alt ? '⌥' : ''}${c.shift ? '⇧' : ''}${c.cmd ? '⌘' : ''}${KEY_GLYPHS[c.key] ?? c.key.toUpperCase()}`,
@@ -71,6 +71,7 @@ export const darwin: ProtocolOs = {
     terminalText: TERMINAL_TEXT,
     reserved: RESERVED,
     clipboard: 'menu',
+    terminalSelectAll: 'cmd+a',
     modClick: (e) => e.metaKey,
   },
 }

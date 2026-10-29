@@ -236,9 +236,11 @@
   line-height: var(--viewer-line-height, 1.4);
 }
 
+/* the code is text that can be selected: the I-beam (the gutters keep the arrow) */
 .viewer .cm-editor .cm-content {
   padding: var(--space-1) 0;
   caret-color: var(--term-cursor);
+  cursor: text;
 }
 
 .viewer .cm-editor .cm-line {

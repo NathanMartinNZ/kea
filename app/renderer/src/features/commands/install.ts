@@ -4,10 +4,14 @@
 
 import { MAIN_COMMANDS } from '@kea/protocol'
 import { installBindings } from './bindings.svelte.ts'
-import { routeKey } from './keys.ts'
+import { chordOf, copyHintDue, routeKey, type RouteContext } from './keys.ts'
 import { commands } from './registry.ts'
 import { currentKeyScopes } from './scope.ts'
 import { editRole, onCommand, setMenuState } from '../../lib/bridge.ts'
+import { call } from '../../lib/rpc.ts'
+import { CopyHint } from '../terminal/ctrlCopy.ts'
+import { prefs } from '../terminal/prefs.ts'
+import { terminalUi } from '../terminal/ui.svelte.ts'
 import { focusedView } from '../terminal/views.ts'
 
 let installed = false
@@ -28,12 +32,25 @@ export function installCommands(): void {
   if (installed) return
   installed = true
   installBindings()
+  // Linux's one-time hint: plain Ctrl+C over a selection interrupted rather than copied
+  const copyHint = new CopyHint(
+    () => call('hints.once', { hint: 'ctrlCopy' }).then((r) => r.show),
+    () => terminalUi.copyHint(true),
+  )
 
   window.addEventListener(
     'keydown',
     (e) => {
       if (e.isComposing) return
-      const r = routeKey(e, { inTerminal: focusedView() !== undefined, scopes: currentKeyScopes(), has: (id, args) => !MAINS.has(id) && commands.available(id, args) })
+      const view = focusedView()
+      const ctx: RouteContext = {
+        inTerminal: view !== undefined,
+        scopes: currentKeyScopes(),
+        has: (id, args) => !MAINS.has(id) && commands.available(id, args),
+        ctrlCopyPaste: prefs.get().ctrlCopyPaste,
+        userSelection: view?.userSelection() ?? false,
+      }
+      const r = routeKey(e, ctx)
       switch (r.do) {
         case 'command':
           e.preventDefault()
@@ -50,6 +67,7 @@ export function installCommands(): void {
           // Linux: the Edit menu registers no key, so main runs the role on the focused element
           e.preventDefault()
           e.stopPropagation()
+          if (r.plain && r.role === 'copy') view?.clearSelectionAfterCopy()
           editRole(r.role)
           return
         case 'native':
@@ -58,6 +76,7 @@ export function installCommands(): void {
           e.stopPropagation()
           return
         case 'pass':
+          if (copyHintDue(chordOf(e), ctx)) void copyHint.due()
           return
       }
     },

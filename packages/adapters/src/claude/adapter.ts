@@ -27,6 +27,8 @@ export const claude: AgentAdapter = {
   installCommand: INSTALL_COMMAND,
   loginCommand: [COMMAND, ...AUTH_LOGIN].join(' '),
   settings: CLAUDE_SETTINGS,
+  // its fullscreen view scrolls, clicks and drags with the mouse and has nothing on the right button
+  rightButtonMenu: true,
   // workspace trust is keyed to the main checkout's repo root, also for worktrees outside it
   trustGated: 'repo',
   detect,

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cssDurationMs, tipOf, tipPlace, TooltipDelay } from './tooltip.ts'
+import { cssDurationMs, leavesAnchor, TIP_SELECTOR, tipNow, tipOf, tipPlace, tipWanted, TooltipDelay, type TipControl } from './tooltip.ts'
 
 const DELAY = 500
 
@@ -118,5 +118,54 @@ describe('tooltips', () => {
     // no room below: above the control
     expect(tipPlace({ left: 400, top: 570, width: 40, height: 20 }, tip, view, 4)).toEqual({ left: 370, top: 546 })
     expect(tipPlace({ left: 400, top: 0, width: 40, height: 600 }, tip, view, 4).top).toBe(4)
+  })
+
+  it('U-KB-14 · moving between a control’s own parts keeps its tip; leaving it, or leaving the window, hides it', () => {
+    const button = { contains: (n: unknown) => n === 'button' || n === 'icon' || n === 'label' }
+    expect(leavesAnchor(button, 'icon')).toBe(false) // padding to icon
+    expect(leavesAnchor(button, 'button')).toBe(false) // icon back to the padding
+    expect(leavesAnchor(button, 'header')).toBe(true)
+    expect(leavesAnchor(button, null)).toBe(true) // out through the window's edge
+    expect(leavesAnchor(button, undefined)).toBe(true)
+    expect(leavesAnchor(null, 'header')).toBe(false) // no tip: nothing to hide
+  })
+
+  it('U-KB-15 · a control whose menu or popover is open has no tip, nor a disabled one', () => {
+    expect(tipWanted({ disabled: false, expanded: null })).toBe(true)
+    expect(tipWanted({ disabled: false, expanded: 'false' })).toBe(true)
+    expect(tipWanted({ disabled: false, expanded: 'true' })).toBe(false)
+    expect(tipWanted({ disabled: true, expanded: null })).toBe(false)
+    const caret: TipControl = { connected: true, disabled: false, expanded: 'true', tip: null, command: 'view.openIn', key: null }
+    const resolve = () => ({ title: 'Open in…', shortcut: '⌥⌘O' })
+    expect(tipNow(caret, resolve)).toBeNull()
+    expect(tipNow({ ...caret, expanded: 'false' }, resolve)).toEqual({ text: 'Open in…', shortcut: '⌥⌘O' })
+    // which controls have one: a menu's own rows do not
+    expect(TIP_SELECTOR).toContain('[data-tip]')
+    expect(TIP_SELECTOR).toContain(':not([role=menuitem])')
+  })
+
+  it('U-KB-16 · a control that goes, or opens its menu, while its delay runs shows nothing when the delay ends', () => {
+    const control: TipControl = { connected: true, disabled: false, expanded: null, tip: 'More', command: null, key: null }
+    const shown: (string | null)[] = []
+    const d = new TooltipDelay<TipControl>({
+      delayMs: () => DELAY,
+      show: (c) => shown.push(tipNow(c, () => undefined)?.text ?? null),
+      hide: () => {},
+      timers: { set: (fn, ms) => setTimeout(fn, ms), clear: (h) => clearTimeout(h as ReturnType<typeof setTimeout>) },
+    })
+    d.enter(control)
+    control.connected = false // its header was replaced
+    vi.advanceTimersByTime(DELAY)
+    expect(shown).toEqual([null])
+    d.leave()
+    const caret = { ...control, connected: true }
+    d.enter(caret)
+    caret.expanded = 'true' // its menu opened from a key while the pointer rested on it
+    vi.advanceTimersByTime(DELAY)
+    expect(shown).toEqual([null, null])
+    d.leave()
+    d.enter({ ...control, connected: true })
+    vi.advanceTimersByTime(DELAY)
+    expect(shown).toEqual([null, null, 'More'])
   })
 })

@@ -1,6 +1,7 @@
 import { L, type PtyInfo } from '@kea/protocol'
 import { describe, expect, it } from 'vitest'
-import { closeQuestion, opensFirstShell, tabTitle } from './terminalPane.ts'
+import { terminalName } from '../features/terminal/screenReader.ts'
+import { closeQuestion, opensFirstShell, tabTip, tabTitle } from './terminalPane.ts'
 
 const tab = (over: Partial<PtyInfo> = {}): PtyInfo => ({
   ptyId: 'aaaaaaaaaa',
@@ -21,25 +22,47 @@ const tab = (over: Partial<PtyInfo> = {}): PtyInfo => ({
   ...over,
 })
 
-describe('the tab strip: a terminal tab’s title', () => {
-  it('U-TERM-41 · a shell tab shows the title its program set, else the name of the process in its foreground, else the shell’s name; both are shown as data; Agent, Setup and Server tabs keep their own names', () => {
+describe('the tab strip: a terminal tab’s title and tooltip', () => {
+  it('U-TERM-41 · a shell tab’s tooltip is the title its program set, else the name of the process in its foreground, else the shell’s name; both are shown as data; Agent, Setup and Server tabs have none', () => {
     // nothing known yet (not asked, or the session was hidden): the shell's own name
-    expect(tabTitle(tab())).toBe('zsh')
-    expect(tabTitle(tab({ foreground: null }))).toBe('zsh')
-    expect(tabTitle(tab({ argv: [] }))).toBe('shell')
+    expect(tabTip(tab())).toBe('zsh')
+    expect(tabTip(tab({ foreground: null }))).toBe('zsh')
+    expect(tabTip(tab({ argv: [] }))).toBe('shell')
     // a command started in it, and the shell again when it ends
-    expect(tabTitle(tab({ foreground: 'cat' }))).toBe('cat')
-    expect(tabTitle(tab({ foreground: 'zsh' }))).toBe('zsh')
+    expect(tabTip(tab({ foreground: 'cat' }))).toBe('cat')
+    expect(tabTip(tab({ foreground: 'zsh' }))).toBe('zsh')
     // a title the program sets itself wins
-    expect(tabTitle(tab({ foreground: 'vim', title: 'notes.md - VIM' }))).toBe('notes.md - VIM')
-    expect(tabTitle(tab({ foreground: 'vim', title: '' }))).toBe('vim')
+    expect(tabTip(tab({ foreground: 'vim', title: 'notes.md - VIM' }))).toBe('notes.md - VIM')
+    expect(tabTip(tab({ foreground: 'vim', title: '' }))).toBe('vim')
     // a process may name itself anything: control and bidi characters go, and the length is capped
-    expect(tabTitle(tab({ foreground: 'ev\x1b[31mil\u202e\nname' }))).toBe('ev [31mil name')
-    expect([...tabTitle(tab({ foreground: 'x'.repeat(L.oscTextMaxChars + 50) }))]).toHaveLength(L.oscTextMaxChars)
-    // the other kinds are named by Kea, whatever runs in them
+    expect(tabTip(tab({ foreground: 'ev\x1b[31mil\u202e\nname' }))).toBe('ev [31mil name')
+    expect([...(tabTip(tab({ foreground: 'x'.repeat(L.oscTextMaxChars + 50) })) ?? '')]).toHaveLength(L.oscTextMaxChars)
+    // the other kinds are named by Kea, whatever runs in them, and have no tooltip of the program's
+    expect(tabTip(tab({ kind: 'agent', foreground: 'cat', title: 'x' }))).toBeNull()
+    expect(tabTip(tab({ kind: 'script', foreground: 'cat', title: 'x' }))).toBeNull()
+    expect(tabTip(tab({ kind: 'server', foreground: 'cat', title: 'x' }))).toBeNull()
+  })
+
+  it('U-TERM-56 · a shell tab reads `Terminal n` with core’s number, whatever runs in it or titles it; Agent, Setup and Server keep their names; the terminal’s accessible name says “terminal” once, after the session’s title', () => {
+    // a shell: its number, never the program's words (those are its tooltip)
+    const long = 'user@host: ~/.kea/worktrees/atlas-web/fix-auth'
+    expect(tabTitle(tab({ number: 1 }))).toBe('Terminal 1')
+    expect(tabTitle(tab({ number: 2, foreground: 'vim', title: long }))).toBe('Terminal 2')
+    expect(tabTip(tab({ number: 2, foreground: 'vim', title: long }))).toBe(long)
+    expect(tabTitle(tab({ number: 12, state: 'lost' })), 'an ended shell keeps its number').toBe('Terminal 12')
+    // a shell core gave no number: still a terminal, never the program's words
+    expect(tabTitle(tab({ foreground: 'cat' }))).toBe('Terminal')
+    // the other kinds are named by Kea, and carry no number
     expect(tabTitle(tab({ kind: 'agent', foreground: 'cat', title: 'x' }))).toBe('Agent')
     expect(tabTitle(tab({ kind: 'script', foreground: 'cat', title: 'x' }))).toBe('Setup')
     expect(tabTitle(tab({ kind: 'server', foreground: 'cat', title: 'x' }))).toBe('Server')
+    // the terminal's accessible name: session, then tab; a shell's tab names a terminal already
+    const named = (session: string | null, t: PtyInfo) => terminalName(session, tabTitle(t))
+    expect(named('Fix auth redirect', tab({ kind: 'agent' }))).toBe('Fix auth redirect, Agent terminal')
+    expect(named('Fix auth redirect', tab({ kind: 'server' }))).toBe('Fix auth redirect, Server terminal')
+    expect(named('Fix auth redirect', tab({ kind: 'script' }))).toBe('Fix auth redirect, Setup terminal')
+    expect(named('Fix auth redirect', tab({ number: 2, foreground: 'vim' }))).toBe('Fix auth redirect, Terminal 2')
+    expect(named(null, tab({ sessionId: 'shells', number: 1 })), 'a plain shell has no session').toBe('Terminal 1')
   })
 })
 

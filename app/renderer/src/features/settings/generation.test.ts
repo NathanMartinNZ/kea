@@ -244,7 +244,7 @@ describe('Settings: what a row shows and writes', () => {
   })
 
   it('U-SET-9 · an agent’s card says what was detected or that it is not installed; a holder’s uptime in its two largest units; the notifications note shows only while the permission is denied', () => {
-    const info = (over: Partial<AgentInfo>): AgentInfo => ({ id: 'one', displayName: 'Agent One', state: 'ready', version: '1.2.3', path: '/opt/bin/one', loggedIn: true, notice: null, installCommand: 'install one', loginCommand: 'one login', options: {} as AgentInfo['options'], defaults: {}, detectedAt: 1, order: 0, ...over })
+    const info = (over: Partial<AgentInfo>): AgentInfo => ({ id: 'one', displayName: 'Agent One', state: 'ready', version: '1.2.3', path: '/opt/bin/one', loggedIn: true, notice: null, installCommand: 'install one', loginCommand: 'one login', rightButtonMenu: false, options: {} as AgentInfo['options'], defaults: {}, detectedAt: 1, order: 0, ...over })
     expect(agentSummary(null)).toEqual({ state: 'detecting', lines: ['Looking for it…'] })
     expect(agentSummary(info({}))).toEqual({ state: 'installed', lines: ['Version 1.2.3 · Signed in'] })
     expect(agentSummary(info({ state: 'outdated', loggedIn: false, notice: 'Older than Kea was tested with' }))).toEqual({ state: 'installed', lines: ['Version 1.2.3 · Signed out', 'Older than Kea was tested with'] })

@@ -4,8 +4,11 @@ import path from 'node:path'
 import { noopLogger, runDir, type Clock } from '@kea/kit'
 import { channelPair, L, ptyhostApi, RpcPeer, type PtyInfo } from '@kea/protocol'
 import { describe, expect, it } from 'vitest'
+import { openDatabase } from '../platform/db/db.ts'
 import { VisibleSet } from '../platform/visible.ts'
-import { MemoryRecords, type TerminalRecord } from './records.ts'
+import { insertSession, type SessionRow } from '../sessions/rows.ts'
+import { DbRecords, RoutedRecords } from './dbRecords.ts'
+import { FileRecords, MemoryRecords, recordsPath, type TerminalRecord } from './records.ts'
 import { Terminals, type TerminalExit } from './terminals.ts'
 
 const info = (ptyId: string, over: Partial<PtyInfo> = {}): PtyInfo => ({
@@ -1144,5 +1147,250 @@ describe('core terminals: shell tabs titled with their foreground process', () =
     expect([name('bbbbbbbbbb'), name('dddddddddd')]).toEqual([null, null])
     t.dispose()
     ph.peer.dispose()
+  })
+})
+
+/**
+ * A stand-in ptyhost for shell tab numbers: it spawns and lists holders, ends a PTY it is asked to hang up and lets go
+ * of one it releases. After `hold()` each spawn waits until the test lets it go (`go`).
+ */
+function numberingPtyhost(holders: PtyInfo[] = []) {
+  const [coreSide, ptyhostSide] = channelPair()
+  const spawned: string[] = [] // bounded: the PTYs one test opens
+  const waiters: { n: number; resolve(): void }[] = [] // bounded: one per `spawnedCount` a test awaits
+  const gates = new Map<string, () => void>() // bounded: the spawns one test holds
+  let holding = false
+  const end = (ptyId: string) => {
+    const h = holders.find((x) => x.ptyId === ptyId)
+    if (!h || h.state !== 'running') return
+    h.state = 'exited'
+    h.exitCode = 0
+    peer.notify('pty.exit', { ptyId, sessionId: h.sessionId, code: 0, signal: null, lost: false })
+  }
+  const peer: RpcPeer = new RpcPeer(ptyhostSide, {
+    name: 'fake-ptyhost',
+    api: ptyhostApi,
+    handlers: {
+      'pty.configure': async () => ({ ok: true }),
+      'pty.setVisible': async () => ({ ok: true }),
+      'pty.spawn': async (a: { ptyId: string; sessionId: string; kind: PtyInfo['kind'] }) => {
+        holders.push(info(a.ptyId, { sessionId: a.sessionId, kind: a.kind }))
+        spawned.push(a.ptyId)
+        for (const w of waiters.splice(0)) (spawned.length >= w.n ? w.resolve : () => waiters.push(w))()
+        if (holding) await new Promise<void>((r) => gates.set(a.ptyId, r))
+        return { holderPid: 10, childPid: 11, detached: true }
+      },
+      'pty.list': async () => holders.map((h) => ({ ...h })),
+      'pty.signal': async (a: { ptyId: string }) => {
+        end(a.ptyId)
+        return { ok: true }
+      },
+      'pty.terminate': async (a: { ptyId: string }) => {
+        end(a.ptyId)
+        return { ok: true }
+      },
+      'pty.release': async (a: { ptyId: string }) => {
+        holders.splice(0, holders.length, ...holders.filter((h) => h.ptyId !== a.ptyId))
+        return { ok: true }
+      },
+    } as never,
+  })
+  return {
+    coreSide,
+    peer,
+    spawned,
+    end,
+    /** Resolves once `n` spawns have reached this ptyhost. */
+    spawnedCount: (n: number) => new Promise<void>((resolve) => (spawned.length >= n ? resolve() : waiters.push({ n, resolve }))),
+    hold: () => void (holding = true),
+    /** The held spawn of `ptyId` answers now; spawns that follow are not held. */
+    go: (ptyId: string) => {
+      holding = false
+      gates.get(ptyId)?.()
+      gates.delete(ptyId)
+    },
+  }
+}
+
+/** Resolves once `ok` holds, checked at each change of core's `terminals` store. */
+function storeHolds(t: Terminals, ok: () => boolean): Promise<void> {
+  return new Promise((resolve) => {
+    if (ok()) return resolve()
+    const off = t.store.onDelta(() => {
+      if (!ok()) return
+      off()
+      resolve()
+    })
+  })
+}
+
+describe('core terminals: shell tab numbers', () => {
+  const shellIn = (sessionId: string, kind: PtyInfo['kind'] = 'shell') => ({ sessionId, kind, command: { argv: ['/bin/zsh', '-l'] }, cwd: '/tmp', cols: 80, rows: 24 })
+
+  it('U-PTY-75 · a shell tab’s number is 1 + the highest among the shell records core still lists for its session or the shells pane (1 when none), given as its record is made: two quick opens differ and keep their order, a closed tab’s number comes back only when it was the highest, an ended or lost shell still counts, an adopted orphan takes the next; no other kind has one', async () => {
+    const records = new MemoryRecords([
+      // S2's only shell lost its holder while Kea was away: its dimmed tab is still listed
+      record('lost000002', 'S2', { state: 'lost', endedAt: 1 }),
+      record('shel000003', 'S3'),
+    ])
+    // S3 has a holder no record accounts for: an orphan that can be adopted as a shell
+    const ph = numberingPtyhost([info('shel000003', { sessionId: 'S3' }), info('orph000003', { sessionId: 'S3', kind: 'agent' })])
+    const t = new Terminals({ version: '0', log: noopLogger, env: async () => ({}), records })
+    const number = (ptyId: string) => t.store.get(ptyId)?.number
+    t.setControl(ph.coreSide)
+    await call(t, 'terminal.restored', {})
+    expect([number('lost000002'), number('shel000003')]).toEqual([1, 1])
+    expect(t.store.get('lost000002')?.state).toBe('lost')
+
+    // the shells pane counts on its own, and so does each session
+    const open = async () => (await call<{ ptyId: string }>(t, 'terminal.openShell', { cols: 80, rows: 24 })).ptyId
+    const s1 = await open()
+    const s2 = await open()
+    const s3 = await open()
+    expect([s1, s2, s3].map(number)).toEqual([1, 2, 3])
+    const agent = (await t.launch(shellIn('S1', 'agent'))).ptyId
+    const b1 = (await t.launch(shellIn('S1'))).ptyId
+    const server = (await t.launch(shellIn('S1', 'server'))).ptyId
+    const setup = (await t.launch(shellIn('S1', 'script'))).ptyId
+    expect(number(b1)).toBe(1)
+    expect([agent, server, setup].map((id) => Object.hasOwn(t.store.get(id)!, 'number')), 'Agent, Server and Setup carry no number').toEqual([false, false, false])
+
+    // the middle tab closed: its number does not come back while a higher one is listed
+    expect(await call(t, 'terminal.close', { ptyId: s2 })).toEqual({ ok: true })
+    const s4 = await open()
+    expect(number(s4)).toBe(4)
+    // the highest closed: the next one takes that number again
+    expect(await call(t, 'terminal.close', { ptyId: s4 })).toEqual({ ok: true })
+    const s5 = await open()
+    expect(number(s5)).toBe(4)
+    // a shell that ended is still listed (its tab shows its last screen): it keeps its number and still counts
+    ph.end(s5)
+    await storeHolds(t, () => t.store.get(s5)?.state === 'exited')
+    expect(number(s5)).toBe(4)
+
+    // two quick opens: each record has its number as it is made, before ptyhost answers either, so they differ and
+    // keep their order, whichever spawn answers first
+    const before = ph.spawned.length
+    ph.hold()
+    const quick = [open(), open()]
+    await ph.spawnedCount(before + 2)
+    const [first, second] = ph.spawned.slice(before)
+    ph.go(second!)
+    expect(await quick[1]).toBe(second)
+    ph.go(first!)
+    expect(await quick[0]).toBe(first)
+    expect([first!, second!].map(number)).toEqual([5, 6])
+    expect([s1, s3, s5, first!, second!].map(number), 'nothing listed was renumbered').toEqual([1, 3, 4, 5, 6])
+
+    // a lost shell counts: S2's next shell is its second
+    const lostNext = (await t.launch(shellIn('S2'))).ptyId
+    expect(number(lostNext)).toBe(2)
+    // an adopted orphan takes its session's next number
+    expect(await call(t, 'terminal.adoptOrphan', { ptyId: 'orph000003' })).toEqual({ ptyId: 'orph000003' })
+    expect(t.store.get('orph000003')).toMatchObject({ kind: 'shell', sessionId: 'S3', number: 2 })
+    // the records never carry it
+    expect(records.list().filter((r) => 'number' in r)).toEqual([])
+    t.dispose()
+    ph.peer.dispose()
+  })
+
+  it('U-PTY-75 · core numbers its shells in the order the store lists them, by tab order, then creation, and those rebuilt from holders (tab order 0, made at once) by their holder’s start, then PTY id; a ptyhost restart changes no number, a core restart numbers them again and closes the gaps', async () => {
+    // records listed out of order: the numbers follow the tab order, then the creation time
+    const records = new MemoryRecords([
+      record('cccccccccc', 'shells', { tabOrder: 4, createdAt: 1 }),
+      record('aaaaaaaaaa', 'shells', { tabOrder: 1, createdAt: 9 }),
+      record('bbbbbbbbbb', 'shells', { tabOrder: 1, createdAt: 3 }),
+      record('dddddddddd', 'S1', { tabOrder: 2 }),
+      record('eeeeeeeeee', 'S1', { kind: 'agent', tabOrder: 0 }),
+      record('ffffffffff', 'S1', { tabOrder: 1, state: 'exited', exitCode: 0, endedAt: 2 }),
+    ])
+    const plans: number[] = []
+    let onPlan: (() => void) | null = null
+    const reconciled = () => new Promise<void>((r) => (onPlan = r))
+    const options = { version: '0', log: noopLogger, env: async () => ({}), records, onReconciled: () => (plans.push(plans.length), onPlan?.()) }
+    let t = new Terminals(options)
+    const numbers = (ids: string[]) => ids.map((id) => t.store.get(id)?.number)
+    // at core start, before ptyhost has answered
+    expect(numbers(['bbbbbbbbbb', 'aaaaaaaaaa', 'cccccccccc', 'ffffffffff', 'dddddddddd', 'eeeeeeeeee'])).toEqual([1, 2, 3, 1, 2, undefined])
+    const holders = () => ['aaaaaaaaaa', 'bbbbbbbbbb', 'cccccccccc'].map((id) => info(id)).concat([info('dddddddddd', { sessionId: 'S1' }), info('eeeeeeeeee', { sessionId: 'S1', kind: 'agent' })])
+    const ph = numberingPtyhost(holders())
+    let done = reconciled()
+    t.setControl(ph.coreSide)
+    await done
+    expect(numbers(['bbbbbbbbbb', 'aaaaaaaaaa', 'cccccccccc', 'ffffffffff', 'dddddddddd'])).toEqual([1, 2, 3, 1, 2])
+    expect(await call(t, 'terminal.close', { ptyId: 'aaaaaaaaaa' })).toEqual({ ok: true })
+
+    // ptyhost restarts under the running core: a new control port, the same holders, the same numbers
+    const again = numberingPtyhost(holders().filter((h) => h.ptyId !== 'aaaaaaaaaa'))
+    done = reconciled()
+    t.setControl(again.coreSide)
+    await done
+    expect(plans).toHaveLength(2)
+    expect(numbers(['bbbbbbbbbb', 'cccccccccc', 'ffffffffff', 'dddddddddd'])).toEqual([1, 3, 1, 2])
+
+    // core restarts: its records are numbered again in their order, so the gap closes
+    t.dispose()
+    t = new Terminals(options)
+    expect(numbers(['bbbbbbbbbb', 'cccccccccc', 'ffffffffff', 'dddddddddd'])).toEqual([1, 2, 1, 2])
+    t.dispose()
+    ph.peer.dispose()
+    again.peer.dispose()
+
+    // the records lost: rebuilt from the holders at the first reconciliation, all at tab order 0 and made at once,
+    // numbered by their holder's start time, then their PTY id
+    const lost = new MemoryRecords()
+    const rebuilt = numberingPtyhost([
+      info('cccccccccc', { holderStartedAt: 5 }),
+      info('aaaaaaaaaa', { holderStartedAt: 9 }),
+      info('bbbbbbbbbb', { holderStartedAt: 5 }),
+      info('dddddddddd', { sessionId: 'S1', holderStartedAt: 7 }),
+      info('eeeeeeeeee', { sessionId: 'S1', kind: 'agent', holderStartedAt: 1 }),
+    ])
+    const r = new Terminals({ version: '0', log: noopLogger, env: async () => ({}), records: lost, now: () => 42 })
+    r.setControl(rebuilt.coreSide)
+    await call(r, 'terminal.restored', {})
+    expect(lost.list().map((x) => [x.ptyId, x.tabOrder, x.createdAt])).toEqual(expect.arrayContaining([['aaaaaaaaaa', 0, 42], ['bbbbbbbbbb', 0, 42], ['cccccccccc', 0, 42]]))
+    expect(['bbbbbbbbbb', 'cccccccccc', 'aaaaaaaaaa', 'dddddddddd', 'eeeeeeeeee'].map((id) => r.store.get(id)?.number)).toEqual([1, 2, 3, 1, undefined])
+    expect(lost.list().filter((x) => 'number' in x)).toEqual([])
+    r.dispose()
+    rebuilt.peer.dispose()
+  })
+
+  it('U-PTY-75 · the numbers live in core’s memory only: neither `terminals.json` nor a `ptys` row holds one', async () => {
+    const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'kea-u-pty-75-')))
+    const { db } = openDatabase({ file: ':memory:', log: noopLogger })
+    try {
+      const session = '01K00000000000000000000S01'
+      db.tx(() => db.run("INSERT INTO projects (id, name, root_path, sort_order, created_at) VALUES ('01K00000000000000000000P01', 'p', '/repos/p', 1, 0)"))
+      const row: SessionRow = {
+        id: session, projectId: '01K00000000000000000000P01', slug: 's1', title: 'S', titleSource: 'auto', isolation: 'inplace', cwd: '/repos/p', worktreeRoot: null, branch: null,
+        baseBranch: null, baseCommit: null, portBase: null, agent: 'shell', agentSessionId: null, transcriptPath: null, launchConfig: '{}', lifecycle: 'live',
+        endReason: null, deletedAt: null, snapshotRef: null, creationStep: null, diskBytes: null, diskAt: null, sortOrder: 0, pinnedOrder: 0, createdAt: 0, archivedAt: null,
+      }
+      db.tx(() => insertSession(db, row))
+      const records = new RoutedRecords(FileRecords.open(home, noopLogger), new DbRecords(db), noopLogger)
+      const ph = numberingPtyhost()
+      const t = new Terminals({ version: '0', log: noopLogger, env: async () => ({}), records })
+      t.setControl(ph.coreSide)
+      await call(t, 'terminal.restored', {})
+      const plain = [(await call<{ ptyId: string }>(t, 'terminal.openShell', { cols: 80, rows: 24 })).ptyId, (await call<{ ptyId: string }>(t, 'terminal.openShell', { cols: 80, rows: 24 })).ptyId]
+      const tabs = [(await t.launch({ ...shellIn(session), cwd: '/repos/p' })).ptyId, (await t.launch({ ...shellIn(session), cwd: '/repos/p' })).ptyId]
+      expect([...plain, ...tabs].map((id) => t.store.get(id)?.number)).toEqual([1, 2, 1, 2])
+
+      const file = fs.readFileSync(recordsPath(home), 'utf8')
+      const written = (JSON.parse(file) as { records: Record<string, unknown>[] }).records
+      expect(written.map((x) => x.ptyId)).toEqual(plain)
+      expect(written.filter((x) => 'number' in x), 'terminals.json').toEqual([])
+      expect(file).not.toContain('"number"')
+      const rows = db.all<Record<string, unknown>>('SELECT * FROM ptys ORDER BY tab_order')
+      expect(rows.map((x) => x.id)).toEqual(tabs)
+      expect(JSON.stringify(rows), 'the ptys rows').not.toMatch(/number/)
+      expect(records.list().filter((x) => 'number' in x)).toEqual([])
+      t.dispose()
+      ph.peer.dispose()
+    } finally {
+      db.abandon()
+      fs.rmSync(home, { recursive: true, force: true })
+    }
   })
 })

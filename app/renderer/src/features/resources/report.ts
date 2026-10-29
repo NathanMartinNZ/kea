@@ -14,6 +14,7 @@
 //                                holds and the rows it lists (0 while closed; rows ≤ `paletteResults`)
 //   renderer.paletteUsage        commands with a usage count (≤ one per command of the table)
 //   renderer.tooltips            tooltip elements in the document (0 or 1)
+//   renderer.menus               floating menus in the document (0 or 1: one is open at a time)
 //   renderer.storeSubscriptions  core stores this window follows on its RPC port
 //   renderer.storeRows           rows in its copies of them (`projects`, `sessions`, `terminals`, `banners`,
 //                                `status.conditions`, `agents`: the frame-coalesced stores)
@@ -65,6 +66,7 @@ const GAUGES: readonly Gauge[] = [
   { rows: ['keyChords', 'keyOverrides', 'keyNotices'], read: () => ({ keyChords: bindingChords(), ...bindingsResources() }) },
   { rows: ['paletteOpen', 'paletteCandidates', 'paletteRows', 'paletteUsage'], read: () => ({ paletteOpen: palette.open ? 1 : 0, paletteCandidates: paletteHolds.candidates, paletteRows: paletteHolds.rows, paletteUsage: usage.size }) },
   { rows: ['tooltips'], read: () => ({ tooltips: document.querySelectorAll('.kea-tooltip').length }) },
+  { rows: ['menus'], read: () => ({ menus: document.querySelectorAll('.kea-menu').length }) },
   { rows: ['storeSubscriptions'], read: () => ({ storeSubscriptions: rpcStats().subscriptions }) },
   {
     rows: ['storeRows', 'storeListeners', 'mru'],

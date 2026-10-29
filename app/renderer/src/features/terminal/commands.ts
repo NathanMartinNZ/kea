@@ -1,8 +1,10 @@
 // The terminal feature's commands (the command table's Terminal category). Titles and bindings come from the command
 // table; this file only says what each one does and when it is available. `terminal.copy` / `terminal.paste` are
-// native menu roles (main), so they are not registered here.
+// native menu roles (main), so they are not registered here. A command the terminal menu runs is given the terminal it
+// was opened on (`{ ptyId }`); from a key, the menu bar or the palette, it acts on the terminal on screen.
 
 import { tick } from 'svelte'
+import { SELECT_ALL_COMMAND } from '@kea/protocol'
 import type { Disposable } from '@kea/terminal'
 import { disposeAll } from '@kea/terminal'
 import { call } from '../../lib/rpc.ts'
@@ -10,7 +12,7 @@ import { commands } from '../commands/registry.ts'
 import { watch } from '../../lib/reactive.svelte.ts'
 import { prefs } from './prefs.ts'
 import { uiState } from './ui.svelte.ts'
-import { activeView, clearAllAtlases } from './views.ts'
+import { activeView, clearAllAtlases, viewFor } from './views.ts'
 
 export interface TerminalCommandDeps {
   /** The strip's tabs in order: the terminals, then the file and diff tabs. */
@@ -53,6 +55,11 @@ export function registerTerminalCommands(d: TerminalCommandDeps): Disposable {
     }),
     commands.register('terminal.nextTab', { run: () => step(1), when: () => d.tabs().length > 1, unavailableReason: () => 'Only one tab' }),
     commands.register('terminal.previousTab', { run: () => step(-1), when: () => d.tabs().length > 1, unavailableReason: () => 'Only one tab' }),
+    commands.register(SELECT_ALL_COMMAND, {
+      run: (args) => viewFor(args)?.selectAll(),
+      when: (args) => (args === undefined ? hasTerminal() : viewFor(args) !== undefined),
+      unavailableReason: noTerminal,
+    }),
     commands.register('terminal.find', { run: () => d.openFind(), when: hasTerminal, unavailableReason: noTerminal }),
     commands.register('terminal.clear', {
       run: () => {

@@ -77,7 +77,7 @@ input[type='checkbox'] {
   outline-offset: -2px;
 }
 
-/* ── the header row: one continuous drag region, --size-header high, except its controls ── */
+/* ── the header row: one drag region, --size-header high, except its clusters of controls ── */
 
 .column-header {
   flex: none;
@@ -86,7 +86,7 @@ input[type='checkbox'] {
   gap: var(--space-1);
   height: var(--size-header);
   box-sizing: border-box;
-  padding: 0 var(--space-2);
+  padding: 0;
   background: var(--surface-1);
   border-bottom: 1px solid var(--line);
   -webkit-app-region: drag;
@@ -99,11 +99,30 @@ input[type='checkbox'] {
   -webkit-app-region: no-drag;
 }
 
-/* the traffic lights sit in the leftmost visible header */
+/* A header's controls sit in clusters that are not drag regions: the header's full height, with --space-2 of their own
+   beside the controls. On Linux a drag region gets no pointer events, so a pointer leaving a control crosses page area
+   before it reaches one (the control's tooltip and hover go), and a press beside a control is the page's. The header
+   between the clusters (`.header-spacer`) drags the window. */
+.header-cluster {
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: 0 var(--space-2);
+  -webkit-app-region: no-drag;
+}
+
+/* While a menu is open no header drags: a press there reaches the page and closes the menu, as outside a native menu. */
+.kea-menu-open .column-header {
+  -webkit-app-region: no-drag;
+}
+
+/* the traffic lights sit in the leftmost visible header, before its first cluster's own --space-2 */
 .sidebar-header,
 .window.no-sidebar .panel-header,
 .window.no-sidebar.no-tree .main-header {
-  padding-left: var(--size-traffic-lights);
+  padding-left: calc(var(--size-traffic-lights) - var(--space-2));
 }
 
 /* Linux: the Window Controls Overlay's rectangle, on the right, on the left or both, as the desktop's button layout
@@ -112,11 +131,11 @@ input[type='checkbox'] {
 .window.menu-button .sidebar-header,
 .window.menu-button.no-sidebar .panel-header,
 .window.menu-button.no-sidebar.no-tree .main-header {
-  padding-left: calc(env(titlebar-area-x, 0px) + var(--space-2));
+  padding-left: env(titlebar-area-x, 0px);
 }
 
 .window.menu-button .main-header {
-  padding-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw) + var(--space-2));
+  padding-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw));
 }
 
 .header-spacer {
@@ -172,6 +191,7 @@ input[type='checkbox'] {
 .link-button[aria-disabled='true']:hover {
   color: var(--text-3);
   text-decoration: none;
+  cursor: default;
 }
 
 /* the only filled accent button on screen */
@@ -209,12 +229,16 @@ input[type='checkbox'] {
   color: var(--text-3);
 }
 
+/* The hand is for what reads as text yet is clicked: a link, and the text-like buttons (the branch chip, the config
+   summary, the diff stat, the dev server's URL chip). Controls drawn as buttons, tabs, rows and menu items keep the
+   arrow; selectable text has the I-beam. */
 .link-button {
   padding: 0;
   margin: 0 0 0 var(--space-2);
   border: 0;
   background: transparent;
   color: var(--info);
+  cursor: pointer;
 }
 
 .link-button:hover {
@@ -531,27 +555,24 @@ textarea.field {
 
 /* ── main header ── */
 
+/* the title starts --space-3 in: --space-1 of header that drags, then its cluster's --space-2 */
 .main-header {
-  justify-content: space-between;
-  gap: var(--space-2);
-  padding: 0 var(--space-2) 0 var(--space-3);
+  gap: 0;
+  padding-left: var(--space-1);
 }
 
-.header-left,
-.header-right {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-width: 0;
+/* a long title, branch and summary are cut before the header loses the area it drags by */
+.main-header .header-spacer {
+  min-width: var(--size-header);
 }
 
 .header-left {
-  flex: 1;
+  flex: 0 1 auto;
+  gap: var(--space-2);
 }
 
 .header-right {
   flex: none;
-  gap: var(--space-1);
 }
 
 /* The dev-server control's slot: as wide as the control's widest state, with its buttons at the slot's right end, so
@@ -592,6 +613,7 @@ textarea.field {
   font-family: var(--font-mono);
   font-size: var(--type-mono-size);
   white-space: nowrap;
+  cursor: pointer;
 }
 
 .branch-chip:hover {
@@ -618,6 +640,7 @@ textarea.field {
   border: 0;
   background: transparent;
   font: inherit;
+  cursor: pointer;
 }
 
 .config-summary:hover,
