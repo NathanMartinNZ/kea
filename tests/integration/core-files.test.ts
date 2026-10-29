@@ -1,13 +1,15 @@
 // The file tree in core: `tree:<sessionId>` kept current from the real file watcher, what git ignores, big
 // directories, folders that are not repositories, the refresh triggers and the finder. Harness: core-files-support.ts.
 
+import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { afterEach, describe, expect, it } from 'vitest'
-import { isAvailable, L } from '@kea/protocol'
-import type { NativeCallback, NativeEvent, NativeWatcher } from '@kea/core/src/platform/watch/native.ts'
-import { mediumRepo } from '@kea-tools/repo-factory/src/index.ts'
+import { setGitBinary } from '@kea/kit'
+import { isAvailable, L, type Project } from '@kea/protocol'
+import { loadNativeWatcher, type NativeCallback, type NativeEvent, type NativeOptions, type NativeWatcher } from '@kea/core/src/platform/watch/native.ts'
+import { fixtureGitEnv, mediumRepo } from '@kea-tools/repo-factory/src/index.ts'
 import { ManualClock } from '../../app/ptyhost/src/test-support.ts'
 import { until } from '../support/holders.ts'
 import { cleanup, gitIn, later, linkedWorktree, repo, startFiles, tempDir, write, type FilesUnderTest } from './core-files-support.ts'
@@ -32,6 +34,35 @@ async function seen(what: string, t0: number, cond: () => boolean): Promise<numb
     return true
   })
   return at
+}
+
+/** Core's git is a script that writes down the folder of each `rev-parse` asking whether it is a repository. */
+function countingRevParse(): (root: string) => number {
+  const real = execFileSync('/usr/bin/which', ['git'], { env: fixtureGitEnv() }).toString().trim() // os-ok: in /usr/bin on both systems
+  const dir = tempDir('kea-git-count-')
+  const log = path.join(dir, 'asked')
+  fs.writeFileSync(log, '')
+  const file = path.join(dir, 'git')
+  fs.writeFileSync(file, `#!/bin/sh\ncase " $* " in *" rev-parse --path-format=absolute --show-toplevel "*) pwd -P >> '${log}' ;; esac\nexec '${real}' "$@"\n`, { mode: 0o755 })
+  setGitBinary(file) // put back by cleanup()
+  return (root) => fs.readFileSync(log, 'utf8').split('\n').filter((l) => l === root).length
+}
+
+/** The real native watcher, counting the streams opened on each folder. */
+function countingNative(): { native: NativeWatcher; opened(dir: string): number } {
+  const real = loadNativeWatcher()
+  const opened = new Map<string, number>()
+  return {
+    native: {
+      async subscribe(dir: string, fn: NativeCallback, opts: NativeOptions) {
+        opened.set(dir, (opened.get(dir) ?? 0) + 1)
+        return real.subscribe(dir, fn, opts)
+      },
+      unsubscribe: (dir: string, fn: NativeCallback, opts: NativeOptions) => real.unsubscribe(dir, fn, opts),
+      keaPatch: real.keaPatch,
+    },
+    opened: (dir) => opened.get(dir) ?? 0,
+  }
 }
 
 describe('the file tree in core', () => {
@@ -210,17 +241,13 @@ describe('the file tree in core', () => {
     await until('the stream to be live', () => t?.watcher?.followed()[0]?.mode === 'live')
     write(root, 'new.py')
     await until('the new file', () => t!.names('s1').includes('new.py'))
-    expect(t.statusRuns('s1')).toBe(0) // no git ran
+    expect(t.statusRuns('s1')).toBe(0) // no status ran (a folder that becomes a repository: I-FT-29)
     expect(await t.files.base('s1', 'branch')).toBeNull()
     expect(t.files.entry('s1', 'new.py')).toBeNull()
     // the finder works from a walk of the folder
     const found = await t.call<{ hits: { path: string }[]; total: number }>('files.find', { sessionId: 's1', query: 'todo' })
     expect(found.hits.map((h) => h.path)).toEqual(['notes/todo.md'])
     expect(found.total).toBe(3)
-    // `git init` later: the session is a repository the next time it is looked at
-    gitIn(root, 'init', '-q')
-    t.show(null)
-    t.session('s1', root)
     // a working directory that does not exist
     t.session('s2', path.join(root, 'gone'))
     t.show('s2')
@@ -229,7 +256,117 @@ describe('the file tree in core', () => {
     expect(t.head('s2')?.state).toBe('notGit')
   })
 
-  it.runIf(watching)('I-FT-2 · 60 000 files written under `node_modules`: no tree update, at most 3 status runs, the event queue within L.watchRescanThreshold; the same for an ignored folder the kernel does not exclude', async () => {
+  it.runIf(watching)('I-FT-29 · a folder on screen that becomes a repository (`git init` in its terminal) is one with no other trigger: the tree and Changes show what git says, then `git add` and `git commit`; its stream opens again once, leaving `.git` out; git is asked again only when `.git` changed on disk. The same for a folder made a repository while hidden and for a `.git` that is a file; a `.git` that is no repository opens the stream again once and stays out of the finder; a folder whose `.git` is removed is a plain folder again; its project becoming a repository is a reason to look', async () => {
+    const asked = countingRevParse()
+    const native = countingNative()
+    const plain = tempDir()
+    write(plain, 'main.py')
+    write(plain, 'notes/todo.md')
+    t = await startFiles({ watcher: { native: native.native } })
+    const u = t
+    const followed = (root: string) => u.watcher?.followed().find((f) => f.root === root)
+    const live = (root: string) => until(`the stream on ${root} to be live`, () => followed(root)?.mode === 'live')
+    type Found = { hits: { path: string }[] }
+    const found = async (id: string, query: string): Promise<string[]> => (await u.call<Found>('files.find', { sessionId: id, query })).hits.map((h) => h.path)
+
+    u.session('s1', plain)
+    u.show('s1')
+    await u.ready('s1')
+    await live(plain)
+    expect(u.treeHead('s1')).toEqual({ git: false, live: true, missing: false })
+    expect(followed(plain)?.excluded).not.toContain(path.join(plain, '.git')) // heard when it is made
+    expect(asked(plain)).toBe(1)
+    // a change, with no `.git`: git is not asked again
+    write(plain, 'new.py')
+    await until('the new file', () => u.names('s1').includes('new.py'))
+    await u.idle('s1')
+    expect(asked(plain)).toBe(1)
+    expect(await found('s1', 'todo')).toEqual(['notes/todo.md']) // the finder's index, from a walk of the folder
+
+    gitIn(plain, 'init', '-q')
+    await until('the folder to be a repository', () => u.treeHead('s1')?.git === true && u.codes('s1')['main.py'] === 'U')
+    expect(u.codes('s1')).toEqual({ 'main.py': 'U', 'new.py': 'U', 'notes/todo.md': 'U' })
+    await until('the stream to leave `.git` out', () => followed(plain)?.mode === 'live' && followed(plain)?.excluded.includes(path.join(plain, '.git')) === true)
+    expect(native.opened(plain)).toBe(2)
+    expect((await found('s1', 'config')).filter((p) => p.startsWith('.git/'))).toEqual([]) // built again, from git
+    gitIn(plain, 'add', '-A')
+    await until('the files to be added', () => u.codes('s1')['main.py'] === 'A')
+    gitIn(plain, 'commit', '-qm', 'first')
+    await until('the work tree to be clean', () => u.head('s1')?.state === 'ok' && Object.keys(u.codes('s1')).length === 0)
+    expect(native.opened(plain)).toBe(2)
+
+    // made a repository while hidden: the stream opens again without anyone looking, the session finds it when shown
+    const hidden = tempDir()
+    write(hidden, 'a.md')
+    u.session('s2', hidden)
+    u.show('s2')
+    await u.ready('s2')
+    await live(hidden)
+    u.show(null)
+    gitIn(hidden, 'init', '-q')
+    await until('the hidden stream to leave `.git` out', () => followed(hidden)?.excluded.includes(path.join(hidden, '.git')) === true)
+    expect(native.opened(hidden)).toBe(2)
+    expect(asked(hidden)).toBe(1)
+    u.show('s2')
+    await until('the shown folder to be a repository', () => u.treeHead('s2')?.git === true && u.codes('s2')['a.md'] === 'U')
+    expect(asked(hidden)).toBe(2)
+
+    // `.git` a file (`git init --separate-git-dir`): its git dir is followed elsewhere
+    const linked = tempDir()
+    const elsewhere = path.join(tempDir(), 'repo.git')
+    write(linked, 'b.md')
+    u.session('s3', linked)
+    u.show('s3')
+    await u.ready('s3')
+    await live(linked)
+    gitIn(linked, 'init', '-q', `--separate-git-dir=${elsewhere}`)
+    await until('the folder with a `.git` file to be a repository', () => u.treeHead('s3')?.git === true && u.codes('s3')['b.md'] === 'U')
+    gitIn(linked, 'add', '-A')
+    await until('the file to be added', () => u.codes('s3')['b.md'] === 'A')
+
+    // a `.git` that is no repository: the stream opens again once to leave it out; git is not asked at each change
+    const bad = tempDir()
+    write(bad, 'c.md')
+    u.session('s4', bad)
+    u.show('s4')
+    await u.ready('s4')
+    await live(bad)
+    expect(await found('s4', 'c')).toEqual(['c.md'])
+    write(bad, '.git/config', '[core]\n')
+    await until('the stream to leave the bad `.git` out', () => followed(bad)?.mode === 'live' && followed(bad)?.excluded.includes(path.join(bad, '.git')) === true)
+    write(bad, 'd.md')
+    await until('the next file', () => u.names('s4').includes('d.md'))
+    await u.idle('s4')
+    expect(native.opened(bad)).toBe(2)
+    expect(asked(bad)).toBe(2)
+    expect(u.treeHead('s4')?.git).toBe(false)
+    expect(await found('s4', 'config')).toEqual([])
+
+    // `.git` removed: a plain folder again, and `.git` is heard if it comes back
+    u.show('s1')
+    await u.ready('s1')
+    fs.rmSync(path.join(plain, '.git'), { recursive: true, force: true })
+    await until('the folder to be plain again', () => u.treeHead('s1')?.git === false && u.head('s1')?.state === 'notGit')
+    expect(u.entries('s1')).toEqual({})
+    await until('the stream to hear `.git` again', () => followed(plain)?.mode === 'live' && followed(plain)?.excluded.includes(path.join(plain, '.git')) === false)
+
+    // the project made a repository (Initialise git…) is a reason to look again, also where nothing is heard
+    await u.dispose()
+    t = await startFiles({ watcher: false })
+    const v = t
+    const quiet = tempDir()
+    write(quiet, 'e.md')
+    v.session('s5', quiet)
+    v.show('s5')
+    await v.ready('s5')
+    gitIn(quiet, 'init', '-q')
+    await v.idle('s5')
+    expect(v.treeHead('s5')?.git).toBe(false) // no watch service: nothing heard
+    v.projects.set('p1', { id: 'p1', settings: {}, isGit: true } as Project)
+    await until('the session to be a repository', () => v.treeHead('s5')?.git === true && v.codes('s5')['e.md'] === 'U')
+  })
+
+  it.runIf(watching)('I-FT-2 ·60 000 files written under `node_modules`: no tree update, at most 3 status runs, the event queue within L.watchRescanThreshold; the same for an ignored folder the kernel does not exclude', async () => {
     const r = repo()
     fs.writeFileSync(path.join(r.root, '.gitignore'), 'node_modules/\n.cache/\n')
     gitIn(r.root, 'commit', '-qam', 'ignore the cache')

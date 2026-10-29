@@ -55,6 +55,8 @@ export interface FilesBinding {
   projects: KeyedStore<Project>
   stores: SimpleStoreRegistry
   gitUsable: Promise<boolean>
+  /** A session's folder became a repository (`git init` in its terminal): its project's root is looked at again. */
+  repository?(sessionId: string): void
 }
 
 /** `kv` rows, one per repository whose `extensions.worktreeConfig` Kea turned on: `{ prior }`, by common dir. */
@@ -195,7 +197,7 @@ export class FilesService implements GitFacts, Disposable {
 
   private target(view: SessionView | undefined): SessionTarget {
     const project = view ? this.bound?.projects.get(view.projectId) : undefined
-    return { cwd: view?.cwd ?? '', baseBranch: view?.baseBranch ?? null, baseCommit: view?.baseCommit ?? null, useFsmonitor: project?.settings.useFsmonitor === true }
+    return { cwd: view?.cwd ?? '', baseBranch: view?.baseBranch ?? null, baseCommit: view?.baseCommit ?? null, useFsmonitor: project?.settings.useFsmonitor === true, isGit: project?.isGit === true }
   }
 
   private mounts(): Promise<string> {
@@ -265,6 +267,7 @@ export class FilesService implements GitFacts, Disposable {
       fsmonitor: this.fsmonitor,
       trashTool: this.o.trashTool ?? null,
       persist: (sid, files) => this.save(sid, files),
+      repository: (sid) => this.bound?.repository?.(sid),
       changed: (sid) => {
         for (const l of [...this.listeners]) {
           try {

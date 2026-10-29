@@ -7,7 +7,7 @@
 // What is excluded in the kernel is never heard of again, so a name is not enough: a repository may track its `build/`
 // or `dist/`. In a git work tree a candidate is excluded only when git ignores it whole (`gitExclusions`); the
 // repository's own `.git` always is. A folder that is not a repository has nothing to say, and its candidates are
-// excluded by name.
+// excluded by name, all but a `.git` that is not there yet (`plainExclusions`).
 
 import fs from 'node:fs'
 import path from 'node:path'
@@ -55,6 +55,15 @@ export function pickExclusions(root: string, candidates: readonly string[], kind
 
 /** The candidate a git work tree always excludes: the repository's own data, which no status reports from. */
 export const GIT_DIR_NAME = '.git'
+
+/**
+ * The exclusion paths for a stream on `root`, a folder that is not a repository: as `pickExclusions`, but a `.git` only
+ * while it is a directory there. One that does not exist yet is heard when it is made (`git init`), so the folder can
+ * be found to be a repository; the watch service then opens the stream again, leaving it out.
+ */
+export function plainExclusions(root: string, candidates: readonly string[], kindOf: (p: string) => EntryKind = kindOnDisk, max: number | null = systemMax()): string[] {
+  return pickExclusions(root, candidates.filter((n) => n !== GIT_DIR_NAME || kindOf(path.join(root, n)) === 'dir'), kindOf, max)
+}
 
 /** The names git is asked about for a work tree: every candidate but its own `.git`. */
 export function askedOfGit(candidates: readonly string[]): string[] {

@@ -120,10 +120,9 @@ describe("a diff's two sides and the gutter's ranges", () => {
     expect(text(renamed.new)).toBe(`${LINES.join('\n')}\nkept\nappended\n`)
     expect((await readChanges(run, 'new-name.txt', branch(entry('new-name.txt', 'R', 'old-name.txt')))).changes).toEqual([{ kind: 'added', from: 14, to: 14 }])
 
-    // no base at all (no commit yet, or the status has not said): everything is new
+    // no base at all: no old side (which lines the gutter marks then is U-DF-5's)
     const fresh = await readDiff(run, 'src/a.ts', { scope: 'branch', base: null, entry: null })
     expect(fresh).toMatchObject({ kind: 'text', base: null, old: { exists: false }, new: { exists: true } })
-    expect(await readChanges(run, 'src/a.ts', { scope: 'branch', base: null, entry: null })).toMatchObject({ changes: [], whole: true })
     // a base that is not an object id is never given to git
     expect(await readDiff(run, 'src/a.ts', { scope: 'branch', base: '--output=/tmp/x', entry: null })).toMatchObject({ base: null, old: { exists: false } })
     // a base git does not have: no old side, no markers, no error
@@ -178,6 +177,17 @@ describe("a diff's two sides and the gutter's ranges", () => {
     for (const [name, line] of names) write(name, `${LINES.map((l, i) => (i === line - 1 ? `${l} (changed)` : l)).join('\n')}\n`)
     const facts = (p: string): DiffFacts => ({ scope: 'uncommitted', base, entry: entry(p, 'M') })
     for (const [name, line] of names) expect((await readChanges(run, name, facts(name))).changes, name).toEqual([{ kind: 'modified', from: line, to: line }])
+  })
+
+  it('U-DF-5 · with nothing to compare against, the gutter marks only a file the status lists: no entry (a folder that is not a repository, an ignored file, a status not read yet) marks nothing; an untracked file, or one added before the first commit, is marked whole', async () => {
+    const run = { cwd: repo, env }
+    for (const scope of ['branch', 'uncommitted'] as const) {
+      expect(await readChanges(run, 'src/a.ts', { scope, base: null, entry: null }), scope).toMatchObject({ changes: [], whole: false })
+      expect(await readChanges(run, 'untracked.ts', { scope, base: null, entry: entry('untracked.ts', 'U') }), scope).toMatchObject({ changes: [], whole: true })
+      expect(await readChanges(run, 'added.ts', { scope, base: null, entry: entry('added.ts', 'A') }), scope).toMatchObject({ changes: [], whole: true })
+    }
+    // with a base, an untracked file is still whole without asking git
+    expect(await readChanges(run, 'untracked.ts', { scope: 'uncommitted', base: head, entry: entry('untracked.ts', 'U') })).toMatchObject({ changes: [], whole: true })
   })
 
   it('U-DF-4 · a file added to git and then deleted from disk (the row marked as the index’s alone): the base has no such file, so the old side is the file as git’s index has it, shown as fully removed, in either scope and whatever the file is called; an unmarked row of a path the base lacks still has no old side', async () => {

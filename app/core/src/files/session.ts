@@ -13,9 +13,9 @@ import path from 'node:path'
 import { fileName, git, type Disposable, type Logger, type Scope } from '@kea/kit'
 import { GIT_HEAD_KEY, gitKey, KeyedStore, L, TREE_HEAD_KEY, treeKey, type DiffScope, type DiscardAction, type DiscardResult, type FilesUi, type GitEntry, type GitHead, type GitRow, type GitState, type TreeDir, type TreeHead, type TreeRow } from '@kea/protocol'
 import type { Changes } from '../platform/watch/batcher.ts'
-import { askedOfGit, WORKTREE_EXCLUSIONS } from '../platform/watch/exclusions.ts'
+import { askedOfGit, GIT_DIR_NAME, WORKTREE_EXCLUSIONS } from '../platform/watch/exclusions.ts'
 import type { GitChange, RescanReason, Watcher, WatchMode, WorktreeWatch } from '../platform/watch/watcher.ts'
-import { canonical, type RepoFacts } from '../worktrees/git.ts'
+import { canonical, gitStamp, type RepoFacts } from '../worktrees/git.ts'
 import { discardFile } from './discard.ts'
 import { FinderIndex, type FinderAnswer } from './finder.ts'
 import { IgnoreIndex } from './ignore.ts'
@@ -35,6 +35,8 @@ export interface SessionTarget {
   baseCommit: string | null
   /** The project uses git's fsmonitor. */
   useFsmonitor: boolean
+  /** The project is a repository (it may have become one since the session last asked git). */
+  isGit: boolean
 }
 
 /** What is kept in the database per session. */
@@ -73,6 +75,8 @@ export interface SessionDeps {
   persist(sessionId: string, files: PersistedFiles): void
   /** The session's status changed anything (GitFacts.onChange). */
   changed(sessionId: string): void
+  /** The session's folder, known to be no repository, was found to be one (its project may be one now too). */
+  repository(sessionId: string): void
 }
 
 export interface SessionStats {
@@ -104,6 +108,12 @@ const sameEntries = (a: TreeDir, b: TreeDir): boolean => {
 
 const sameRow = (a: GitRow, b: GitRow): boolean => JSON.stringify(a) === JSON.stringify(b)
 
+const exists = (p: string): Promise<boolean> =>
+  fs.promises.stat(p).then(
+    () => true,
+    () => false,
+  )
+
 export class SessionFiles {
   readonly id: string
   private target: SessionTarget
@@ -123,6 +133,11 @@ export class SessionFiles {
   private settle: (() => void) | null = null
   /** git did not answer whether this is a repository: asked again with the next refresh. */
   private gitUnknown = false
+  /** `<root>/.git` as it was when git last said this is no repository (`gitStamp`). */
+  private gitSeen: string | null = null
+  /** git is asked again at the next look, whatever `.git` looks like (the project became a repository). */
+  private lookDue = false
+  private looking: Promise<boolean> | null = null
   /** On screen with no stream: released for another session on screen (the worktree cap), until shown again. */
   private unwatched = false
   private attachedGitDir: string | null = null
@@ -211,7 +226,7 @@ export class SessionFiles {
   /** The session's view changed (its directory, its base) or its project's settings did. */
   retarget(target: SessionTarget): void {
     const was = this.target
-    if (was.cwd === target.cwd && was.baseBranch === target.baseBranch && was.baseCommit === target.baseCommit && was.useFsmonitor === target.useFsmonitor && !this.missing) return
+    if (was.cwd === target.cwd && was.baseBranch === target.baseBranch && was.baseCommit === target.baseCommit && was.useFsmonitor === target.useFsmonitor && was.isGit === target.isGit && !this.missing) return
     this.target = target
     if (was.cwd !== target.cwd) {
       // another directory: nothing known holds
@@ -221,6 +236,11 @@ export class SessionFiles {
       this.dropCaches()
       if (this.visible) void this.activate()
       return
+    }
+    if (target.isGit && !was.isGit && !this.repo && this.known) {
+      // the project became a repository (Initialise git…): git is asked again, now if the session is on screen
+      this.lookDue = true
+      if (this.visible) this.scheduler.now()
     }
     if (this.root !== null && this.repo) this.status?.retarget({ root: this.root, toplevel: this.repo.toplevel, gitDir: this.repo.gitDir, baseBranch: target.baseBranch, baseCommit: target.baseCommit })
     if (was.useFsmonitor !== target.useFsmonitor) void this.applyFsmonitor()
@@ -324,7 +344,12 @@ export class SessionFiles {
       if (root === null) return
       // the tree does not wait for git: one that hangs holds up nothing else
       void this.firstPaint()
-      if (await this.d.gitUsable()) await this.inspect(root)
+      if (await this.d.gitUsable()) {
+        // taken before git is asked: a `.git` made while it answers is a change at the next look
+        const seen = await gitStamp(root)
+        await this.inspect(root)
+        this.gitSeen = seen
+      }
       // what the worktree's stream may leave out is git's to say. Asked now, beside what follows, so the answer is
       // there when the worktree is attached and its stream opens as fast as it did by name
       const whole = this.repo && this.d.watcher && this.visible ? this.askWhole(root) : null
@@ -364,7 +389,13 @@ export class SessionFiles {
     const r = await git(['rev-parse', '--path-format=absolute', '--show-toplevel', '--git-dir', '--git-common-dir'], { cwd: root, env: await this.d.env(), readOnly: true, collect: true, timeoutMs: this.d.statusTimeoutMs ?? L.gitStatusTimeoutMs }).catch(() => null)
     if (root !== this.root) return
     this.gitUnknown = !r || r.timedOut || r.truncated || r.cancelled
-    if (!r || this.gitUnknown || r.code !== 0) return // exit 128: not a repository
+    if (!r || this.gitUnknown) return
+    if (r.code !== 0) {
+      // exit 128: not a repository (any more)
+      this.repo = null
+      this.status = null
+      return
+    }
     const [toplevel, gitDir, commonDir] = (r.stdout ?? Buffer.alloc(0)).toString('utf8').split('\n')
     if (!toplevel || !gitDir || !commonDir) return
     const real = (p: string): string => {
@@ -375,8 +406,69 @@ export class SessionFiles {
       }
     }
     const facts = { toplevel: real(toplevel), gitDir: real(gitDir), commonDir: real(commonDir) }
+    const was = this.repo
+    if (was && was.toplevel === facts.toplevel && was.gitDir === facts.gitDir && was.commonDir === facts.commonDir) return
     this.repo = { ...facts, linked: facts.gitDir !== facts.commonDir }
     if (this.d.facts) this.status = new GitStatus({ root, toplevel: facts.toplevel, gitDir: facts.gitDir, baseBranch: this.target.baseBranch, baseCommit: this.target.baseCommit }, this.d.env, this.d.statusTimeoutMs)
+  }
+
+  /**
+   * Whether this is a repository may have changed since git last said: a folder that was none has a `.git` now, or
+   * another one (`git init`, a clone into it, Initialise git…), or a repository's git dir is gone. Looked at with a
+   * stat, which runs no process; git is asked again only when that changed since its last answer, when the project
+   * became a repository, or when git did not answer last time. At every refresh and each time the session is shown.
+   * True: what git says changed, and the session follows and reads the folder again as what it is now.
+   */
+  private redetect(): Promise<boolean> {
+    return (this.looking ??= this.lookAgain().finally(() => {
+      this.looking = null
+    }))
+  }
+
+  private async lookAgain(): Promise<boolean> {
+    const root = this.root
+    if (root === null || this.disposed) return false
+    const before = this.repo
+    // a session's folder may lie below its repository's top: its git dir, not its own `.git`, says it is gone
+    if (before && !this.gitUnknown && (await exists(before.gitDir))) return false
+    const seen = await gitStamp(root)
+    if (!before && !this.gitUnknown && !this.lookDue && (seen === null || seen === this.gitSeen)) {
+      this.gitSeen = seen
+      return false
+    }
+    if (this.disposed || root !== this.root || !(await this.d.gitUsable())) return false
+    this.lookDue = false
+    await this.inspect(root)
+    if (this.disposed || root !== this.root) return false
+    this.gitSeen = seen
+    if (this.gitUnknown || this.repo === before) return false
+    this.d.log?.info('the folder’s git state changed', { session: this.id, git: this.repo !== null })
+    this.repoChanged()
+    if (this.repo && !before) this.d.repository(this.id)
+    return true
+  }
+
+  /** git's answer changed: what was known under the old one goes; the folder is followed and read again as it is now. */
+  private repoChanged(): void {
+    this.statusAbort?.abort()
+    this.statusAbort = null
+    this.snapshot = null
+    this.manual = false
+    this.slow = false
+    this.ignore = null
+    this.checkQueue.clear()
+    this.wholeAsked = null
+    // the finder's index was a walk of the folder, or the old repository's `git ls-files`
+    this.dropFinder()
+    this.fullDue = true
+    // the stream is asked for again with the git dirs it now has: the watch service decides again what it leaves out
+    if (this.watch && !this.watch.released && !this.unwatched) this.attach()
+    if (this.repo) {
+      this.loadIgnore()
+      void this.applyFsmonitor()
+    }
+    this.publishTreeHead()
+    this.publishGit()
   }
 
   /** Ask git which of the stream's candidate folders it ignores whole, ahead of the watch service asking. */
@@ -431,6 +523,11 @@ export class SessionFiles {
     // a folder that was not there at the last look may have been put back: looked for again
     if (this.missing && this.known) this.inited = null
     await this.init()
+    if (this.disposed || !this.visible || show !== this.shows) return
+    // made a repository (or no longer one) while nobody looked: found before the stream is asked for, so that the
+    // request carries the git dirs the folder has now (a stream another session on it shares is never asked for as a
+    // plain folder's)
+    if (this.root !== null) await this.redetect()
     if (this.disposed || !this.visible || show !== this.shows) return
     this.publishTreeHead()
     if (this.root === null) {
@@ -546,6 +643,8 @@ export class SessionFiles {
     this.repo = null
     this.status = null
     this.gitUnknown = false
+    this.gitSeen = null
+    this.lookDue = false
     this.unwatched = false
     this.mode = 'live'
     this.treeStore?.replace({ [TREE_HEAD_KEY]: this.treeHead() })
@@ -774,6 +873,12 @@ export class SessionFiles {
     const add: string[] = []
     const del: string[] = []
     for (const [p, kind] of changes) {
+      if (!this.repo && (p === GIT_DIR_NAME || p.startsWith(`${GIT_DIR_NAME}/`))) {
+        // a folder that is not a repository: what its `.git` holds is no file of the tree or the finder, but a sign that
+        // it may have become one (looked at by the refresh this asks for)
+        trigger = true
+        continue
+      }
       const parent = parentPath(p)
       if (this.tree.has(parent)) this.dirty.add(parent)
       if (kind === 'delete' && this.tree.has(p)) {
@@ -888,15 +993,10 @@ export class SessionFiles {
         await this.activate()
         return
       }
-      if (this.gitUnknown && this.root !== null) {
-        // git did not say whether this is a repository: asked again now
-        await this.inspect(this.root)
+      if (this.root !== null) {
+        // whether this is a repository may have changed (`git init`, its git dir removed), or git did not say last time
+        await this.redetect()
         if (this.disposed || !this.visible) return
-        if (this.repo) {
-          if (!this.unwatched && this.attach()) this.watch?.setActive(true)
-          this.loadIgnore()
-          this.publishTreeHead()
-        }
       }
       const full = this.fullDue
       this.fullDue = false

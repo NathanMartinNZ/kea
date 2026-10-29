@@ -10,6 +10,7 @@ import { GIT_IDENTITY, STEP_MS, until } from '../support/app.ts'
 import { diffStatText, panelModes, treeRow, waitTree } from '../support/app-files.ts'
 import { addProject, agentTerminal, plainFolder, promptBox, startSession, waitLive } from '../support/app-sessions.ts'
 import { viewerShown } from '../support/app-tabs.ts'
+import { changeMarker, waitViewer } from '../support/app-viewer.ts'
 import { expect, test } from './fixtures.ts'
 import { sysKey } from '../support/keys.ts'
 
@@ -83,5 +84,44 @@ test('E-PRJ-2 · a plain folder as a project: sessions in place only, no git UI,
   await waitLive(kea, isolated)
   await expect(page.getByRole('main', { name: 'Session' }).getByRole('button', { name: /^Branch kea\// }), 'the branch chip of a worktree session').toBeVisible({ timeout: STEP_MS })
   expect(gitIn(folder, 'worktree', 'list').trim().split('\n'), 'a worktree beside the folder’s own checkout').toHaveLength(2)
+  await kea.assertUnfocused()
+})
+
+test('E-PRJ-3 · a plain folder made a repository in a shell tab, with no focus: before, no file is marked and the open file has no gutter markers; after `git init` the tree marks the files untracked, Changes is there, the gutter marks the file new as a whole and the composer’s Worktree switch unlocks; `git add` marks them added, and `git commit` clears the tree, Changes and the gutter', async ({ run, launch }) => {
+  const kea = await launch()
+  const page = await kea.page()
+  const folder = plainFolder(run, 'notes')
+  await addProject(kea, folder)
+  const composer = page.getByRole('region', { name: 'New session' })
+  const toggle = composer.getByRole('switch', { name: 'Worktree' })
+  await expect(toggle).toBeDisabled({ timeout: STEP_MS })
+  const session = await startSession(kea, 'take notes', { open: false })
+  await waitLive(kea, session)
+  await waitTree(kea, 'the folder’s file, undecorated', (rows) => rows.some((r) => r.path === 'notes.txt' && r.git === null))
+  await treeRow(page, 'notes.txt').click()
+  await waitViewer(kea, 'the file in the viewer', (v) => v.ui.path === 'notes.txt' && v.text !== null)
+  expect(await changeMarker(kea, 1), 'no marker in a folder that is not a repository').toBeNull()
+
+  const shell = await kea.newTab()
+  await kea.enter('git init -q')
+  await waitTree(kea, 'the file marked untracked', (rows) => rows.some((r) => r.path === 'notes.txt' && r.git === 'U'))
+  expect((await panelModes(kea)).map((m) => m.label), 'Changes, with its one file').toEqual(['Files', 'Changes 1'])
+  await treeRow(page, 'notes.txt').click()
+  await waitViewer(kea, 'the file in the viewer again', (v) => v.ui.path === 'notes.txt' && v.text !== null)
+  await expect.poll(() => changeMarker(kea, 1), { timeout: STEP_MS, message: 'an untracked file is new as a whole' }).toBe('added')
+
+  await kea.select(shell)
+  await kea.enter('git add -A')
+  await waitTree(kea, 'the file marked added', (rows) => rows.some((r) => r.path === 'notes.txt' && r.git === 'A'))
+  await kea.enter('git commit -qm first')
+  await waitTree(kea, 'the file committed', (rows) => rows.some((r) => r.path === 'notes.txt' && r.git === null))
+  expect(await diffStatText(kea), 'nothing left to commit').toBeNull()
+  await treeRow(page, 'notes.txt').click()
+  await waitViewer(kea, 'the committed file in the viewer', (v) => v.ui.path === 'notes.txt' && v.text !== null)
+  await expect.poll(() => changeMarker(kea, 1), { timeout: STEP_MS, message: 'a commit clears the gutter' }).toBeNull()
+
+  // the project is a git project now: a worktree session can be asked for
+  await page.keyboard.press(sysKey('Meta+n'))
+  await expect(toggle).toBeEnabled({ timeout: STEP_MS })
   await kea.assertUnfocused()
 })

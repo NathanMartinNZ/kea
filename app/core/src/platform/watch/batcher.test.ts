@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { L } from '@kea/protocol'
 import { ChangeBatcher, coalesce, type ChangeKind, type Changes } from './batcher.ts'
-import { pickExclusions, WORKTREE_EXCLUSIONS, type EntryKind } from './exclusions.ts'
+import { pickExclusions, plainExclusions, WORKTREE_EXCLUSIONS, type EntryKind } from './exclusions.ts'
 
 describe('the change batcher', () => {
   beforeEach(() => void vi.useFakeTimers())
@@ -92,5 +92,17 @@ describe('kernel-side exclusions', () => {
     expect(some.slice(0, 3)).toEqual(['/w/.git', '/w/.venv', '/w/out'])
     expect(some).toHaveLength(L.watchExclusionsMax)
     expect(some.slice(3)).toEqual(['/w/node_modules', '/w/dist', '/w/build', '/w/.next', '/w/target'])
+  })
+
+  it('U-FT-23 · a folder that is not a repository leaves out a `.git` only while it is a directory there: one not made yet is heard when it is made, and its slot goes to the next candidate; the rest are left out by name as in a work tree', () => {
+    const kinds = (m: Record<string, EntryKind>) => (p: string) => m[p.slice('/w/'.length)] ?? 'none'
+    const rest = WORKTREE_EXCLUSIONS.filter((n) => n !== '.git').map((n) => `/w/${n}`)
+    // nothing there yet: every candidate but `.git`, cut to the cap
+    expect(plainExclusions('/w', WORKTREE_EXCLUSIONS, kinds({}), L.watchExclusionsMax)).toEqual(rest.slice(0, L.watchExclusionsMax))
+    expect(plainExclusions('/w', WORKTREE_EXCLUSIONS, kinds({}), null)).toEqual(rest)
+    // a `.git` directory (made, or no repository): left out, first among the directories that exist
+    expect(plainExclusions('/w', WORKTREE_EXCLUSIONS, kinds({ '.git': 'dir', out: 'dir' }), L.watchExclusionsMax).slice(0, 3)).toEqual(['/w/.git', '/w/out', '/w/node_modules'])
+    // a `.git` file (`--separate-git-dir`): never left out, as in a work tree
+    expect(plainExclusions('/w', WORKTREE_EXCLUSIONS, kinds({ '.git': 'file' }), null)).toEqual(rest)
   })
 })

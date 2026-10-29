@@ -21,7 +21,9 @@
 // answer is asked for again, for an active worktree, when it may have changed: a `.gitignore` anywhere in the worktree,
 // `info/exclude`, `HEAD`, and the index while anything but `.git` is left out (a file added with `-f` inside an ignored
 // folder). A directory that is no longer ignored whole restarts the stream without it, and everything is read again
-// (`onRescan('restart')`); one that became ignored is only a saving missed, taken with the next start.
+// (`onRescan('restart')`); one that became ignored is only a saving missed, taken with the next start. In a folder
+// that is not a repository the candidates are left out by name, but a `.git` only once it is there: one being made is
+// heard (the folder may be becoming a repository), and the stream opens again once to leave it out.
 //
 // Errors: "must be re-scanned" does not end a stream: it is one `onRescan`. Any other error, and the
 // watched root being deleted, ends the stream: the worktree is in poll mode until a restart L.watchRestartMs later
@@ -44,7 +46,7 @@ import { fileName, LruCache, Scope, type Clock, type Disposable, type Logger } f
 import { isAvailable, L } from '@kea/protocol'
 import { coreOs, type WatchLimits } from '../../os/index.ts'
 import { ChangeBatcher, type Changes } from './batcher.ts'
-import { askedOfGit, COMMON_DIR_EXCLUSIONS, gitExclusions, isExcluded, pickExclusions, WORKTREE_EXCLUSIONS } from './exclusions.ts'
+import { askedOfGit, COMMON_DIR_EXCLUSIONS, GIT_DIR_NAME, gitExclusions, isExcluded, pickExclusions, plainExclusions, WORKTREE_EXCLUSIONS } from './exclusions.ts'
 import { WatchLimitGuard, type LimitBanners } from './limits.ts'
 import { isMustRescan, isPatched, loadNativeWatcher, nativeOptions, watcherBindingPath, type NativeCallback, type NativeEvent, type NativeOptions, type NativeWatcher } from './native.ts'
 import type { FileWatch, FileWatchRequest, WatchService } from './service.ts'
@@ -335,6 +337,8 @@ class WorktreeSub {
   private recheckTimer: Disposable | null = null
   /** The start's time limit on git's answer while the stream waits to open. */
   private openTimer: Disposable | null = null
+  /** A folder that is not a repository heard its `.git` made: the stream opens again, leaving it out. */
+  private gitMadeTimer: Disposable | null = null
   mode: WatchMode = 'starting'
   // bounded: one per session attached to this worktree (FilesService holds one per session in the watch LRU)
   readonly attachments = new Set<Attachment>()
@@ -395,12 +399,13 @@ class WorktreeSub {
   }
 
   /**
-   * What the worktree's stream leaves out in the kernel. A folder that is not a repository: the candidates by name. A
-   * git work tree: `.git` and the candidates git ignores whole; `.git` alone when git does not say.
+   * What the worktree's stream leaves out in the kernel. A folder that is not a repository: the candidates by name, but
+   * a `.git` only once it is there. A git work tree: `.git` and the candidates git ignores whole; `.git` alone when git
+   * does not say.
    */
   private async exclusions(): Promise<string[]> {
     const ask = this.ignored
-    if (!ask) return pickExclusions(this.root, WORKTREE_EXCLUSIONS)
+    if (!ask) return plainExclusions(this.root, WORKTREE_EXCLUSIONS)
     this.recheckDue = false // this answer is as new as any
     let whole: readonly string[] | null = null
     try {
@@ -419,6 +424,9 @@ class WorktreeSub {
     const seq = ++this.openSeq
     this.openTimer?.dispose()
     this.openTimer = null
+    // this opening decides what is left out, a `.git` made since the last one included
+    this.gitMadeTimer?.dispose()
+    this.gitMadeTimer = null
     this.opening = true
     const open = (excluded: string[]): void => {
       if (this.released || seq !== this.openSeq || !this.opening) return
@@ -438,7 +446,7 @@ class WorktreeSub {
       })
     }
     if (known) return open(known)
-    if (!this.ignored) return open(pickExclusions(this.root, WORKTREE_EXCLUSIONS))
+    if (!this.ignored) return open(plainExclusions(this.root, WORKTREE_EXCLUSIONS))
     // the start's time limit holds for the question too: a git that never answers keeps no worktree `starting`
     this.openTimer = this.w.scope.timeout(() => {
       this.w.log?.warn('watch exclusions: no answer in time', { root: this.root, ms: L.watchStartTimeoutMs })
@@ -611,10 +619,33 @@ class WorktreeSub {
       any = true
       // what git ignores may have changed, and with it what the kernel may leave out
       if (this.ignored && path.basename(rel) === '.gitignore') this.recheckSoon()
+      if (!this.ignored && (rel === GIT_DIR_NAME || rel.startsWith(GIT_DIR_NAME + path.sep))) this.gitMadeSoon()
       if (riders) this.ride(p)
       if (active) this.batcher.add(path.sep === '/' ? rel : rel.split(path.sep).join('/'), e.type)
     }
     if (any) this.markStale()
+  }
+
+  /**
+   * A folder that is not a repository heard a path at or below its `.git` (`git init`, a clone into it, a folder made
+   * by hand). Once it is a directory it is left out like any other: the stream opens again without it, once,
+   * L.gitDebounceMs after the first sign, whether or not anyone looks and whatever git makes of it. Any other opening
+   * meanwhile (the folder found to be a repository) decides that instead. A `.git` file changes nothing that is left out.
+   */
+  private gitMadeSoon(): void {
+    if (this.gitMadeTimer || this.released || this.network) return
+    this.gitMadeTimer = this.w.scope.timeout(() => {
+      this.gitMadeTimer = null
+      const stream = this.stream
+      if (this.released || this.ignored || this.opening || !stream || stream.state !== 'live') return
+      const next = plainExclusions(this.root, WORKTREE_EXCLUSIONS)
+      if (next.length === stream.excluded.length && next.every((p, i) => p === stream.excluded[i])) return
+      this.w.log?.info('a .git folder was made: the stream is opened again', { root: this.root })
+      stream.kill()
+      this.markStale()
+      this.openStream(next)
+      this.settle()
+    }, L.gitDebounceMs)
   }
 
   private lost(): void {
@@ -817,7 +848,8 @@ class WorktreeSub {
     this.riderTimer?.dispose()
     this.recheckTimer?.dispose()
     this.openTimer?.dispose()
-    this.gitTimer = this.poll = this.restart = this.riderTimer = this.recheckTimer = this.openTimer = null
+    this.gitMadeTimer?.dispose()
+    this.gitTimer = this.poll = this.restart = this.riderTimer = this.recheckTimer = this.openTimer = this.gitMadeTimer = null
     this.opening = false
     this.stream?.close()
     this.unwireGit()
@@ -854,20 +886,22 @@ class CommonSub {
       lost: () => {
         for (const s of this.refs) s.git({ head: true, index: true, refs: true, state: true, exclude: true })
       },
-      died: (why) => {
-        if (stream.state !== 'live') return
-        this.w.log?.warn('watcher stream ended; restarting', { dir: this.dir, why, afterMs: L.watchRestartMs })
-        stream.kill()
-        for (const s of [...this.refs]) {
-          s.settle()
-          s.scheduleRestart()
-        }
-      },
+      died: (why) => this.died(stream, why),
     })
     void stream.start().then(() => {
       for (const s of [...this.refs]) s.settle()
     })
     return stream
+  }
+
+  private died(stream: Stream, why: string): void {
+    if (stream.state !== 'live' || stream !== this.stream) return
+    this.w.log?.warn('watcher stream ended; restarting', { dir: this.dir, why, afterMs: L.watchRestartMs })
+    stream.kill()
+    for (const s of [...this.refs]) {
+      s.settle()
+      s.scheduleRestart()
+    }
   }
 
   reopen(): void {
@@ -887,7 +921,14 @@ class CommonSub {
 
   private events(evs: readonly NativeEvent[]): void {
     for (const e of evs) {
-      const rel = below(this.dir, fileName(e.path))
+      const p = fileName(e.path)
+      if (p === this.dir && e.type === 'delete') {
+        // the repository's data was removed (`rm -rf .git`), often reported as that one event: whatever git says may
+        // have changed for each of its worktrees, and the stream is dead, with no error to say so
+        for (const s of this.refs) s.git({ head: true, index: true, refs: true, state: true, exclude: true })
+        return this.died(this.stream, 'root deleted')
+      }
+      const rel = below(this.dir, p)
       if (rel === null || rel.endsWith('.lock')) continue
       if (rel === 'packed-refs' || rel.startsWith(`refs${path.sep}`)) {
         for (const s of this.refs) s.git({ ...noGit(), refs: true })

@@ -6,8 +6,8 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { ulid } from '@kea/kit'
-import { SETTINGS, type Project, type SessionView } from '@kea/protocol'
+import { setGitBinary, ulid } from '@kea/kit'
+import { SETTINGS, treeStoreName, type Project, type SessionView, type TreeHead } from '@kea/protocol'
 import { INIT_COMMIT_MESSAGE } from '@kea/core/src/sessions/projects.ts'
 import { insertSession, type SessionRow } from '@kea/core/src/sessions/rows.ts'
 import { fixtureGitEnv, tinyRepo } from '@kea-tools/repo-factory/src/index.ts'
@@ -365,5 +365,71 @@ describe('projects', () => {
     c.core.projects.reload()
     await expect(c.call('projects.initGit', { id })).rejects.toMatchObject({ code: 'git_failed' })
     expect(fs.existsSync(path.join(sub, '.git')), 'no nested repository').toBe(false)
+  })
+  it('I-PRJ-7 · a plain folder made a repository outside Kea (`git init` in a terminal) is a git project at the next root check (launch, window focus), when it is added again, or as soon as a session on screen in it finds it one, and no commit is made; a `.git` that is no repository costs one question to git, not one at each focus; a git project is not made plain again', async () => {
+    const h = await harness()
+    // core's git writes down the folder of each question whether a folder is a repository
+    const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'kea-git-count-')))
+    cleanup.push(() => fs.rmSync(dir, { recursive: true, force: true }))
+    cleanup.push(() => setGitBinary('git'))
+    const log = path.join(dir, 'asked')
+    fs.writeFileSync(log, '')
+    const real = execFileSync('/usr/bin/which', ['git'], { env: fixtureGitEnv() }).toString().trim() // os-ok: in /usr/bin on both systems
+    const counting = path.join(dir, 'git')
+    fs.writeFileSync(counting, `#!/bin/sh\ncase " $* " in *" rev-parse --path-format=absolute --show-toplevel "*) pwd -P >> '${log}' ;; esac\nexec '${real}' "$@"\n`, { mode: 0o755 })
+    const asked = (root: string) => fs.readFileSync(log, 'utf8').split('\n').filter((l) => l === root).length
+    const c = startFullCore(h, { env: testEnv(), opts: { gitBinary: counting } })
+    cleanup.push(() => c.dispose())
+    const plainFolder = () => {
+      const d = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'kea-plain-')))
+      cleanup.push(() => fs.rmSync(d, { recursive: true, force: true }))
+      fs.writeFileSync(path.join(d, 'notes.txt'), 'hello\n')
+      return d
+    }
+    const add = async (p: string) => (await c.call<{ project: Project; existing: boolean }>('projects.add', { path: p }))
+    const focus = () => c.call('projects.checkRoots', {})
+
+    // at a root check
+    const plain = plainFolder()
+    const p = (await add(plain)).project
+    expect(p.isGit).toBe(false)
+    const n = asked(plain)
+    await focus()
+    expect(asked(plain), 'no `.git`: git is not asked').toBe(n)
+    gitIn(plain, 'init', '-q')
+    await focus()
+    expect(c.core.projects.get(p.id)).toMatchObject({ isGit: true, rootPath: plain })
+    expect(() => gitIn(plain, 'rev-parse', '--verify', '-q', 'HEAD'), 'no commit was made').toThrow()
+    fs.rmSync(path.join(plain, '.git'), { recursive: true, force: true })
+    await focus()
+    expect(c.core.projects.get(p.id)?.isGit, 'not made plain again').toBe(true)
+
+    // added again
+    const again = plainFolder()
+    const a = (await add(again)).project
+    gitIn(again, 'init', '-q')
+    expect(await add(again)).toMatchObject({ existing: true, project: { id: a.id, isGit: true } })
+
+    // a `.git` that is no repository: one question, then none at each focus
+    const bad = plainFolder()
+    const b = (await add(bad)).project
+    fs.mkdirSync(path.join(bad, '.git'))
+    const m = asked(bad)
+    await focus()
+    await focus()
+    expect(asked(bad)).toBe(m + 1)
+    expect(c.core.projects.get(b.id)?.isGit).toBe(false)
+
+    // a session on screen in the folder finds it a repository, with no focus
+    const shown = plainFolder()
+    const s = (await add(shown)).project
+    const id = session(c, s.id, { cwd: shown })
+    c.core.sessions.reload()
+    c.core.visible.set({ window: 1 }, id)
+    await until('the session to be read', () => (c.core.stores.get(treeStoreName(id))?.get('head') as TreeHead | undefined)?.git === false)
+    gitIn(shown, 'init', '-q')
+    await until('the project to be a git project', () => c.core.projects.get(s.id)?.isGit === true)
+    expect((c.core.stores.get(treeStoreName(id))?.get('head') as TreeHead | undefined)?.git).toBe(true)
+    c.core.visible.set({ window: 1 }, null)
   })
 })

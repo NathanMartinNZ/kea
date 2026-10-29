@@ -89,8 +89,9 @@ export async function readDiff(run: GitRun, rel: string, facts: DiffFacts): Prom
 export async function readChanges(run: GitRun, rel: string, facts: DiffFacts): Promise<LineChanges> {
   const base = facts.base !== null && OBJECT_ID.test(facts.base) ? facts.base : null
   const none = { scope: facts.scope, base, changes: [], whole: false, truncated: false }
-  // nothing to compare against, or a file git does not track yet: all of it is new
-  if (base === null || facts.entry?.code === 'U') return { ...none, whole: facts.entry !== null || base === null }
+  // a file the status lists as untracked, or with nothing to compare it against, is new as a whole; one it does not list
+  // (a folder that is not a repository, an ignored file, a status not read yet) carries no markers
+  if (base === null || facts.entry?.code === 'U') return { ...none, whole: facts.entry !== null }
   const parser = new HunkParser(L.viewerChangeRangesMax)
   const orig = facts.entry?.origPath ?? null
   const args = ['diff', '--no-ext-diff', '--no-textconv', '--no-color', '-U0', ...(orig ? ['-M'] : ['--no-renames']), base, '--', ...(orig ? [orig] : []), rel]

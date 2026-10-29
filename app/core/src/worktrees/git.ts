@@ -92,6 +92,19 @@ export interface RepoFacts {
   linked: boolean
 }
 
+/**
+ * `<dir>/.git` as it is on disk (its inode and times), or null when there is none. Compared with the one taken when git
+ * last said `dir` is no repository, it tells whether git need be asked again, without running it.
+ */
+export async function gitStamp(dir: string): Promise<string | null> {
+  try {
+    const st = await fs.promises.stat(path.join(dir, '.git'), { bigint: true })
+    return `${st.ino}:${st.mtimeNs}:${st.ctimeNs}`
+  } catch {
+    return null
+  }
+}
+
 /** Null when `dir` is not inside a git working tree (or git cannot tell). */
 export async function inspectRepo(dir: string): Promise<RepoFacts | null> {
   const r = await git(['rev-parse', '--path-format=absolute', '--show-toplevel', '--git-dir', '--git-common-dir'], { cwd: dir, readOnly: true, collect: true })

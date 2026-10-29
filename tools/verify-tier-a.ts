@@ -7,8 +7,9 @@ export type TierAProject = 'integration' | 'contract' | 'chaos' | 'memory'
 
 /** The Tier A selection. Unit tests (the U-ST-7 status-report replays included) and Rust unit tests run in full. */
 export const TIER_A: Record<TierAProject, string[]> = {
-  // I-PLT-*: the Linux rows (the instance lock, holders hidden by hidepid), each a named skip where it cannot run
-  integration: ['I-HLD-*', 'I-PTY-1…6', 'I-PTY-13', 'I-WT-3', 'I-AGT-1/2', 'I-PLT-*'],
+  // I-PLT-*: the Linux rows (the instance lock, holders hidden by hidepid), each a named skip where it cannot run.
+  // I-FT-29, I-PRJ-7: a folder made a repository outside Kea, heard through each system's own file watcher
+  integration: ['I-HLD-*', 'I-PTY-1…6', 'I-PTY-13', 'I-WT-3', 'I-AGT-1/2', 'I-PLT-*', 'I-FT-29', 'I-PRJ-7'],
   // static contract K-CL-1…6 (from its cache; a miss launches nothing), K-CM-1…5 (the same); fixture contract K-FX-1…3 and the
   // fixture privacy scan K-FX-8
   contract: ['K-CL-1…6', 'K-CM-1…5', 'K-FX-1…3', 'K-FX-8'],

@@ -34,7 +34,7 @@ import {
 } from '@kea/protocol'
 import type { KeaDb } from '../platform/db/db.ts'
 import { RepoMutex } from '../worktrees/mutex.ts'
-import { bareRepository, canonicalAsync, inspectRepo, mainEntry } from '../worktrees/git.ts'
+import { bareRepository, canonicalAsync, gitStamp, inspectRepo, mainEntry } from '../worktrees/git.ts'
 import { runningSessions, sessionIdsOf } from './rows.ts'
 
 type Registered = (typeof REGISTERED_AS)[number]
@@ -148,6 +148,9 @@ export class Projects {
   private readonly mutex: RepoMutex
   /** Calls that change projects run one at a time (an add racing a locate cannot register one root twice). */
   private queue: Promise<unknown> = Promise.resolve()
+  /** A non-git project's `<root>/.git` (`gitStamp`) when git was last asked about it, by project id. */
+  // bounded: one per project; removed with it
+  private readonly gitSeen = new Map<string, string | null>()
 
   constructor(opts: ProjectsOptions) {
     this.opts = opts
@@ -197,7 +200,11 @@ export class Projects {
     return this.serially(async () => {
       const r = await resolveRoot(p, await this.gitUsable())
       const known = this.db.get<ProjectRow>(BY_ROOT, r.root)
-      if (known) return { project: this.refresh(known.id), existing: true, registered: r.registered }
+      if (known) {
+        // a folder made a repository since it was added is a git project from here on (never the other way)
+        if (r.isGit && known.is_git === 0) this.becameGit(known.id, r)
+        return { project: this.refresh(known.id), existing: true, registered: r.registered }
+      }
       const id = ulid(this.now())
       const order = (this.db.get<{ m: number | null }>(MAX_ORDER)?.m ?? 0) + 1
       this.db.tx(() => this.db.run(INSERT, id, defaultProjectName(r), r.root, isGitColumn(r), null, order, 0, '{}', 0, 0, this.now()))
@@ -223,6 +230,7 @@ export class Projects {
         await this.opts.releaseSessions(id, sessions)
       }
       this.db.tx(() => this.db.run('DELETE FROM projects WHERE id = ?', id)) // cascades to its sessions (invariant 5)
+      this.gitSeen.delete(id)
       this.store.delete(id)
       this.opts.log.info('project removed', { id, sessions: sessions.length, restorableEnded: facts.restorable })
       return { removed: true, ...facts }
@@ -285,10 +293,14 @@ export class Projects {
     })
   }
 
-  /** Flag every project whose root is not a directory now (and clear the flag of those that are back). */
+  /**
+   * Flag every project whose root is not a directory now (and clear the flag of those that are back), and make a git
+   * project of each non-git one whose folder became a repository (`git init` in a terminal, a clone into it).
+   */
   checkRoots(): Promise<string[]> {
     return this.serially(async () => {
       const missing: string[] = []
+      const usable = await this.gitUsable()
       for (const p of this.list()) {
         const gone = await fs.promises.stat(p.rootPath).then(
           (s) => !s.isDirectory(),
@@ -300,9 +312,33 @@ export class Projects {
           this.refresh(p.id)
           this.opts.log.info(gone ? 'project root missing' : 'project root back', { id: p.id, root: p.rootPath })
         }
+        if (!gone && !p.isGit && usable) await this.lookForGit(p)
       }
       return missing
     })
+  }
+
+  /**
+   * A non-git project's folder may have become a repository. Looked at with a stat of its `.git`, which runs no
+   * process; git is asked only when that changed since it last answered, so a `.git` that is no repository costs one
+   * question, not one at each focus. A git project is never made plain again here: its worktree sessions would be
+   * stranded.
+   */
+  private async lookForGit(p: Project): Promise<void> {
+    const seen = await gitStamp(p.rootPath)
+    const was = this.gitSeen.get(p.id)
+    this.gitSeen.set(p.id, seen)
+    if (seen === null || seen === was) return
+    const r = await resolveRoot(p.rootPath, true).catch(() => null)
+    // a `.git` that names a repository elsewhere (another worktree's, a bare one) registers that one, not this folder
+    if (r?.isGit && r.root === p.rootPath) this.becameGit(p.id, r)
+  }
+
+  private becameGit(id: string, r: ResolvedRoot): void {
+    this.db.tx(() => this.db.run('UPDATE projects SET is_git = ? WHERE id = ? AND is_git = 0', isGitColumn(r), id))
+    this.gitSeen.delete(id)
+    this.refresh(id)
+    this.opts.log.info('project became a repository', { id, root: r.root, bare: r.bare })
   }
 
   /** "Locate…": register a missing project's root at a new path. */

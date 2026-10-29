@@ -1,7 +1,7 @@
 // The files service under test: `FilesService` with the real watch service, a real database for the per-session panel
 // state, real git (hermetic: no user or system config) and repositories from tools/repo-factory in temp directories.
 // Sessions are rows of a `sessions` store set by hand: what the service reads of a session is its directory and its
-// base. Used by the core-files and core-git suites in tests/integration, tests/chaos, tests/memory and tests/perf. The
+// base. The viewer's gutter (`changes`) is asked of a viewer service on the same git facts. Used by the core-files and core-git suites in tests/integration, tests/chaos, tests/memory and tests/perf. The
 // wiring into core (core.ts) is tested through the whole core (core-files-wiring.test.ts).
 
 import { execFileSync } from 'node:child_process'
@@ -9,12 +9,13 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createMemoryLogger, setGitBinary, type MemoryLogger } from '@kea/kit'
-import { gitStoreName, KeyedStore, SimpleStoreRegistry, treeStoreName, type GitHead, type GitEntry, type GitRow, type Project, type SessionView, type TreeDir, type TreeHead, type TreeRow } from '@kea/protocol'
+import { gitStoreName, KeyedStore, SimpleStoreRegistry, treeStoreName, type GitHead, type GitEntry, type GitRow, type LineChanges, type Project, type SessionView, type TreeDir, type TreeHead, type TreeRow } from '@kea/protocol'
 import { FilesService, type FilesOptions } from '@kea/core/src/files/service.ts'
 import type { SessionFiles } from '@kea/core/src/files/session.ts'
 import { openDatabase } from '@kea/core/src/platform/db/db.ts'
 import { VisibleSet } from '@kea/core/src/platform/visible.ts'
 import { Watcher, type WatcherOptions } from '@kea/core/src/platform/watch/watcher.ts'
+import { ViewerService } from '@kea/core/src/viewer/service.ts'
 import { fixtureGitEnv, tinyRepo, type FixtureRepo } from '@kea-tools/repo-factory/src/index.ts'
 import { until } from '../support/holders.ts'
 
@@ -49,6 +50,8 @@ export interface FilesUnderTest {
   idle(id: string): Promise<void>
   /** Status pipelines run for the session so far. */
   statusRuns(id: string): number
+  /** `viewer.changes` for a file of the session, asked by window `w` (which must show it): the gutter's ranges. */
+  changes(id: string, rel: string, w?: number): Promise<LineChanges>
   dispose(): Promise<void>
 }
 
@@ -117,6 +120,7 @@ export async function startFiles(o: { watcher?: WatcherOptions | false; files?: 
   files.bind({ sessions, projects, stores, gitUsable: Promise.resolve(true) })
   const handlers = files.handlers() as Record<string, (a: object, ctx: never) => unknown>
   const windows: object[] = Array.from({ length: 8 }, (_, i) => ({ window: i }))
+  let viewer: ViewerService | null = null
   const t: FilesUnderTest = {
     files,
     watcher,
@@ -170,7 +174,14 @@ export async function startFiles(o: { watcher?: WatcherOptions | false; files?: 
       await until(`session ${id} to be idle`, () => files.session(id)?.scheduler.idle !== false)
     },
     statusRuns: (id) => files.session(id)?.statusCounters?.status ?? 0,
+    async changes(id, rel, w = 0) {
+      if (!watcher) throw new Error('the viewer follows files through the watch service')
+      viewer ??= new ViewerService({ log, cwd: (sid) => sessions.get(sid)?.cwd ?? null, visible, watch: watcher, git: files, gitEnv: async () => gitEnv(), openTool: null })
+      const h = viewer.handlers() as Record<string, (a: object, ctx: never) => unknown>
+      return (await (h['viewer.changes'] as (a: object, ctx: never) => unknown)({ sessionId: id, path: rel }, { peer: windows[w], signal: new AbortController().signal } as never)) as LineChanges
+    },
     async dispose() {
+      viewer?.dispose()
       files.dispose()
       watcher?.dispose()
       if (watcher) await until('the watch service’s streams to close', () => watcher.streams === 0)

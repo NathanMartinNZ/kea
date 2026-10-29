@@ -572,7 +572,14 @@ export function createCore(o: CoreOptions): Core {
 
   // `tree:<sessionId>` and `git:<sessionId>` come and go with the visible set; a finished tool may have written files,
   // so the files service hears of each one
-  files.bind({ sessions: sessions.store, projects: projects.store, stores, gitUsable: gitReady })
+  files.bind({
+    sessions: sessions.store,
+    projects: projects.store,
+    stores,
+    gitUsable: gitReady,
+    // the composer's Worktree switch follows a folder made a repository in a session's terminal, without a focus
+    repository: () => void projects.checkRoots().catch((e: unknown) => log.warn('project root check failed', { error: String(e) })),
+  })
   const toolFinished = status.toolFinished.event((id) => files.toolFinished(id))
 
   // the viewer reads a visible session's files and follows the one each window has open. "Open with default app" runs
