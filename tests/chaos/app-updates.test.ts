@@ -10,14 +10,15 @@ import http from 'node:http'
 import type { AddressInfo } from 'node:net'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { releaseFileNames, systemOf } from '@kea/protocol'
+import { releaseFileNames } from '@kea/protocol'
+import { harnessOs } from '../../tools/perf/src/os/index.ts'
 import { KeaRun, until, type Kea } from '../support/app.ts'
 
 type Phase = { k: string; version?: string | null; reason?: string }
 type Probe = { state: { phase: Phase; notice: boolean; lastChecked: number | null }; title: string; core: boolean | null; timers: number }
 type Api = { updates(): Probe; checkUpdates(): void }
 
-const SYSTEM = systemOf(process.platform)
+const SYSTEM = harnessOs.system
 const ARCH = process.arch === 'x64' ? 'x64' : 'arm64'
 /** This system's file in a release, as the install kind the hooks force reads it. */
 const KIND = SYSTEM === 'darwin' ? 'mac' : 'tarball'
@@ -71,7 +72,11 @@ async function launch(o: { switchOff?: boolean } = {}) {
   cleanups.push(() => feed.close())
   const run = KeaRun.create()
   cleanups.push(() => run.dispose())
-  if (o.switchOff) fs.writeFileSync(path.join(run.home, 'settings.json'), JSON.stringify({ 'updates.check': false }))
+  if (o.switchOff) {
+    // settings.json nests a dotted key by its parts; the harness's own settings in the file stay
+    const file = path.join(run.home, 'settings.json')
+    fs.writeFileSync(file, `${JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), updates: { check: false } }, null, 2)}\n`)
+  }
   const kea = await run.launch({ args: [`--kea-test-install-kind=${KIND}`, `--kea-test-update-feed=${feed.base}`, '--kea-test-update-delay=0', '--kea-test-update-command'] })
   return { feed, kea }
 }
