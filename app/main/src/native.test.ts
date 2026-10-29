@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { SIZE_PX } from '@kea/ui/tokens'
-import { FolderQueue, parseWindowState, readWindowState, revealablePath, writeWindowState } from './native.ts'
+import { firstLaunchSize, FolderQueue, parseWindowState, readWindowState, revealablePath, writeWindowState } from './native.ts'
 
 const MIN = { width: SIZE_PX['window-min-width'], height: SIZE_PX['window-min-height'] }
 const SCREEN = { x: 0, y: 0, width: 1728, height: 1117 }
@@ -33,6 +33,15 @@ describe('window bounds and native requests', () => {
     } finally {
       fs.rmSync(dir, { recursive: true, force: true })
     }
+  })
+
+  it('U-LAYOUT-4 · a first launch opens at the default size, clamped to the display’s work area and never below the minimum', () => {
+    const def = { width: SIZE_PX['window-default-width'], height: SIZE_PX['window-default-height'] }
+    expect(firstLaunchSize(def, SCREEN, MIN)).toEqual(def)
+    // a 14-inch laptop's work area, narrower than the default
+    const laptop = { x: 0, y: 25, width: 1512, height: 944 }
+    expect(firstLaunchSize({ width: 1600, height: 1000 }, laptop, MIN)).toEqual({ width: 1512, height: 944 })
+    expect(firstLaunchSize(def, { x: 0, y: 0, width: MIN.width - 100, height: MIN.height - 100 }, MIN), 'a tiny display: the minimum').toEqual(MIN)
   })
 
   it('U-PRJ-3 · Reveal in Finder takes only an existing absolute path; under --kea-perf a folder pick returns what the harness queued, else nothing', () => {

@@ -394,6 +394,7 @@ const shownView = (page: Page): Promise<{ ptyId: string; findOpen: boolean; deco
 test('E-KB-2 · keyboard details: the app’s shortcuts act from the sidebar, the file panel, the header and the terminal alike; ⌘W on the Agent tab closes nothing and the menu’s Close Tab is disabled there; ⌘R never reloads the window; a tooltip names its command’s key; keybindings.json changes a key live — the router, the menu bar, the palette, the tooltip and the keyboard list all follow, a conflict and the entries left out are reported, a file that does not parse keeps the keys that did, and without the file the defaults are back', async ({ run, launch }) => {
   claudeByDefault(run)
   const kea = await launch()
+  await kea.oneColumn()
   await kea.pretendFocused(true)
   const page = await kea.page()
   await project(kea, run, NESTED)
@@ -553,7 +554,7 @@ test('E-KB-2 · keyboard details: the app’s shortcuts act from the sidebar, th
   // the keyboard back in the terminal before the pointer goes to the button: arriving there during the tip's delay,
   // it would rightly cancel the tip
   await until('the keyboard in the terminal', () => inTerminal(kea))
-  const add = page.getByRole('tablist', { name: 'Terminals' }).getByRole('button', { name: `New Terminal (${RESTART})` })
+  const add = page.locator('.tabstrip').getByRole('button', { name: `New Terminal (${RESTART})` })
   await add.hover()
   await expect(tooltip(page).locator('kbd')).toHaveText(RESTART)
   await expect(tooltip(page).locator('span')).toHaveText('New Terminal')
@@ -627,6 +628,7 @@ function clipboardEvent(page: Page, type: 'copy' | 'paste', data: { text?: strin
 test('E-TERM-3 · terminal interactions: in a terminal whose program reads every key raw, keys without ⌘ reach it byte for byte (Esc, ⌃C, ⇧Tab, ⇧↵, ⌥ and function keys), ⌘← ⌘→ ⌘⌫ arrive as ⌃A ⌃E ⌃U, and only F6, ⇧F6, ⌃Tab, ⌃⇧Tab and the ⌘ keys do not; a copy takes the terminal’s selection; a paste reaches the program, an image-only clipboard sends ⌃V, several lines into a shell tab ask first and into the Agent tab do not; find counts and marks its matches; scrolled up, new output leaves the view where it is and Jump to bottom appears', async ({ run, launch }) => {
   claudeByDefault(run)
   const kea = await launch()
+  await kea.oneColumn()
   await kea.pretendFocused(true)
   const page = await kea.page()
   await project(kea, run)
@@ -835,6 +837,7 @@ test('E-KB-1 · the mouse-free tour: with keys alone a project is added (⌘O), 
   editors.editor('vscode')
   claudeByDefault(run)
   const kea = await launch()
+  await kea.oneColumn()
   await kea.pretendFocused(true)
   const page = await kea.page()
   await page.evaluate(() => {
@@ -1359,6 +1362,7 @@ test('E-PLT-1 · Linux’s application menu is drawn in the window: the button a
 test('E-TERM-15 · the terminal menu: a right-click opens it (Copy, Paste, Select All, Find, Clear) and Esc gives the terminal the keyboard back; its picks act on that terminal when the keyboard was elsewhere; with mouse reports on a plain right-click is the program’s, the override or a selection opens the menu and reports nothing, the selection stays; the Menu key opens it; Shift+F10 reaches the program; a right-click copies nothing on select', async ({ run, launch }) => {
   fs.writeFileSync(path.join(run.home, 'settings.json'), `${JSON.stringify({ general: { defaultAgent: 'claude' }, terminal: { copyOnSelect: true } }, null, 2)}\n`)
   const kea = await launch()
+  await kea.oneColumn()
   await kea.pretendFocused(true)
   const page = await kea.page()
   await recordClipboard(page)

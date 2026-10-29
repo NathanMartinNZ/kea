@@ -30,6 +30,7 @@ function key(spec: string, mac = true): KeyLike {
     insert: ['Insert', 'Insert'],
     home: ['Home', 'Home'],
     pageup: ['PageUp', 'PageUp'],
+    pagedown: ['PageDown', 'PageDown'],
     ';': ['Semicolon', ';', ':'],
   }
   let code: string
@@ -225,6 +226,8 @@ describe('key routing on Linux', () => {
       expect(route(k('ctrl+shift+='), ctx)).toEqual({ do: 'command', id: 'terminal.fontBigger' })
       expect(route(k('ctrl+shift+-'), ctx)).toEqual({ do: 'command', id: 'terminal.fontSmaller' })
       expect(route(k('ctrl+shift+f5'), ctx)).toEqual({ do: 'command', id: 'server.restart' })
+      expect(route(k('ctrl+shift+pagedown'), ctx)).toEqual({ do: 'command', id: 'view.focusAgent' })
+      expect(route(k('ctrl+shift+pageup'), ctx)).toEqual({ do: 'command', id: 'view.focusWork' })
     }
     for (const c of COMMANDS) {
       if (c.keyScope || NATIVE_ROLES[c.id] || MAIN_COMMANDS.includes(c.id)) continue
@@ -248,7 +251,7 @@ describe('key routing on Linux', () => {
       expect(route(k(s), outside), s).toEqual({ do: 'pass' })
     }
     // a program tells these from the plain ones (CSI 1;6D), so it gets them
-    for (const s of ['ctrl+shift+left', 'ctrl+shift+up', 'ctrl+shift+home', 'ctrl+shift+pageup', 'ctrl+shift+f2', 'ctrl+shift+enter']) expect(route(k(s), term), s).toEqual({ do: 'pass' })
+    for (const s of ['ctrl+shift+left', 'ctrl+shift+up', 'ctrl+shift+home', 'ctrl+pageup', 'ctrl+pagedown', 'ctrl+shift+f2', 'ctrl+shift+enter']) expect(route(k(s), term), s).toEqual({ do: 'pass' })
     // a command's key that cannot run now is still never the program's
     expect(route(k('ctrl+shift+w'), { inTerminal: true, has: () => false })).toEqual({ do: 'swallow' })
     expect(route(k('ctrl+shift+backspace'), { inTerminal: true, has: () => false })).toEqual({ do: 'swallow' })

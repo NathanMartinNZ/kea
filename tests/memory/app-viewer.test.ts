@@ -38,11 +38,15 @@ const READINGS = 3
 /** How long a test waits for the session's git status to list a change. */
 const GIT_MS = 45_000
 
-/** Kea with one session of a demo repository holding `files`; the session's Agent terminal is on screen. */
+/**
+ * Kea with one session of a demo repository holding `files`; the session's Agent terminal is on screen. In one column,
+ * where a file tab covers the Agent tab and closing it shows the Agent again (the split's work pane is L-TERM-13's).
+ */
 async function start(files: Record<string, string>): Promise<{ run: KeaRun; kea: Kea; renderer: RendererProbe; id: string; worktree: string }> {
   const run = KeaRun.create()
   runs.push(run)
   const kea = await run.launch()
+  await kea.oneColumn()
   const repo = demoRepo(run)
   // `big/` holds what a test writes while it runs: ignored, so the session's git status does not grow with it
   writeFiles(repo.root, { '.gitignore': 'big/\n', ...files })

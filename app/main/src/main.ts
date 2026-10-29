@@ -21,7 +21,7 @@ import { findMenuItem, menuTemplate, windowMenuState, windowMenuTree, type Windo
 import { BackgroundTray, DockIcon, isQuitChoice, lastWindowAction, markQuitSheetSeen, MenuBarItemRemoval, QuitSheetAnswer, quitAction, quitSheetSeen, trayTemplate, trayTitle, trayTooltip, type QuitChoice } from './menuBar.ts'
 import { trayIcon } from './trayIcon.ts'
 import { openLink, RecordingOpener, type ExternalOpener } from './external.ts'
-import { FolderQueue, PICK_PURPOSES, readWindowState, revealablePath, writeWindowState, type PickPurpose } from './native.ts'
+import { firstLaunchSize, FolderQueue, PICK_PURPOSES, readWindowState, revealablePath, writeWindowState, type PickPurpose } from './native.ts'
 import { Notifier, RecordingSurfaces, type NativeNotification, type NativeSurfaces } from './notifier.ts'
 import { mainOs, type DesktopServiceState, type IdleSource, type OpenVia } from './os/index.ts'
 import { webglState } from './platformLines.ts'
@@ -354,7 +354,7 @@ function createWindow(o: { handoff?: boolean } = {}): BrowserWindow {
   // On Wayland a window cannot place itself, so only its size comes back
   const at = saved && chrome.restoresPosition(DISPLAY) ? { x: saved.x, y: saved.y } : {}
   const w = new BrowserWindow({
-    ...(saved ? { ...at, width: saved.width, height: saved.height } : { width: SIZE_PX['window-default-width'], height: SIZE_PX['window-default-height'] }),
+    ...(saved ? { ...at, width: saved.width, height: saved.height } : firstLaunchSize({ width: SIZE_PX['window-default-width'], height: SIZE_PX['window-default-height'] }, screen.getPrimaryDisplay().workArea, min)),
     minWidth: min.width,
     minHeight: min.height,
     // On Linux the window is made shown, since GNOME's Wayland session may never send `ready-to-show` to a hidden one

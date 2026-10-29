@@ -24,6 +24,23 @@ function term() {
   return v.xterm
 }
 
+/**
+ * The lines on screen, a line wrapped across rows joined into one (a pane as narrow as the agent's wraps long lines),
+ * each with its trailing blanks trimmed.
+ */
+function screenLines(t: ReturnType<typeof term>): string[] {
+  const b = t.buffer.active
+  const out: string[] = []
+  for (let i = b.viewportY; i < b.viewportY + t.rows; i++) {
+    const line = b.getLine(i)
+    // a row that continues on the next keeps its trailing blanks: they are part of the line
+    const text = line?.translateToString(!b.getLine(i + 1)?.isWrapped) ?? ''
+    if (line?.isWrapped && out.length > 0) out[out.length - 1] += text
+    else out.push(text)
+  }
+  return out
+}
+
 /** The character just before the cursor (the one most recently echoed). */
 function charBeforeCursor(): string {
   const t = term()
@@ -220,20 +237,12 @@ export function installPerfProbes(): void {
     },
     /** The active terminal's visible text (harness diagnostics). */
     screen(): string {
-      const t = term()
-      const b = t.buffer.active
-      const out: string[] = []
-      for (let i = b.viewportY; i < b.viewportY + t.rows; i++) out.push(b.getLine(i)?.translateToString(true) ?? '')
-      return out.join('\n')
+      return screenLines(term()).join('\n')
     },
     /** Resolves when `text` appears on the visible screen. */
     waitText(text: string, timeoutMs = 120_000): Promise<number> {
       const t = term()
-      const visible = () => {
-        const b = t.buffer.active
-        for (let i = b.viewportY; i < b.viewportY + t.rows; i++) if (b.getLine(i)?.translateToString(true).includes(text)) return true
-        return false
-      }
+      const visible = () => screenLines(t).some((l) => l.includes(text))
       return new Promise((resolve, reject) => {
         if (visible()) return resolve(performance.now())
         const timer = setTimeout(() => {

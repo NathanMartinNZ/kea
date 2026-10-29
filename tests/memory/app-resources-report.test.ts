@@ -156,10 +156,10 @@ describe('resource reports and resources.ndjson (app)', () => {
     expect(core['core.terminalRecords'], 'core terminal records').toBe(records.length)
     expect(core['core.orphans'], 'core orphans').toBe(orphans.length)
 
-    // renderer: a handler per command registered now (every command of the table but the viewer's two, which a
-    // session's pane registers), the menu state it last reported (as main holds it), the terminal rows of L-MEM-13;
-    // every row dotted under `renderer.` like every other process's
-    expect(COMMANDS.map((c) => c.id).filter((id) => !state.commands.some((c) => c.id === id)), 'every command of the table registered but the session pane’s two').toEqual(['viewer.open', 'viewer.pinTab'])
+    // renderer: a handler per command registered now (every command of the table but the four a session's pane
+    // registers: the viewer's two and its pane keys), the menu state it last reported (as main holds it), the terminal
+    // rows of L-MEM-13; every row dotted under `renderer.` like every other process's
+    expect(COMMANDS.map((c) => c.id).filter((id) => !state.commands.some((c) => c.id === id)), 'every command of the table registered but the session pane’s four').toEqual(['viewer.open', 'viewer.pinTab', 'view.focusAgent', 'view.focusWork'])
     expect(renderer['renderer.commandHandlers'], 'renderer command handlers').toBe(state.commands.length)
     expect(renderer['renderer.menuStateEntries'], 'renderer menu state').toBe(state.commands.length + Object.keys(state.keys ?? {}).length)
     expect(renderer['renderer.terminals'], 'renderer terminals').toBe(views)

@@ -305,7 +305,7 @@ test('E-FT-3 · Changes with real clicks: the header’s diff stat shows it; the
   await expect(changesList(page)).toBeVisible()
 })
 
-test('E-FT-4 · ⌘P finds a file: the finder opens as a floating layer with the keyboard in it, each key narrows the list and marks what matched, Enter shows the file in the preview tab, ⌘↵ opens it in the editor, ⌥↵ types its path at the agent’s prompt and shows the Agent tab, and Esc puts the keyboard back where it was', async ({ run, launch }) => {
+test('E-FT-4 · ⌘P finds a file: the finder opens as a floating layer with the keyboard in it, each key narrows the list and marks what matched, Enter shows the file in the preview tab, ⌘↵ opens it in the editor, ⌥↵ types its path at the agent’s prompt and gives the agent the keyboard (in one column it shows the Agent tab), and Esc puts the keyboard back where it was', async ({ run, launch }) => {
   const editors = new EditorWorld(run)
   editors.editor('vscode')
   const kea = await launch()
@@ -346,15 +346,16 @@ test('E-FT-4 · ⌘P finds a file: the finder opens as a floating layer with the
   await expect(finder(page)).toHaveCount(0)
   expect((await editors.waitLaunches(1)).at(-1)?.argv.join(' ')).toContain('packages/app/src/main.ts')
 
-  // ⌥↵: the path at the agent's prompt, shell-escaped and not submitted, and the Agent tab on screen
+  // ⌥↵: the path at the agent's prompt, shell-escaped and not submitted, and the keyboard the agent's; the file stays
+  // in the work pane beside it
   await page.keyboard.press(sysKey('Meta+p'))
   await page.keyboard.type('my notes')
   await until('the notes lead', async () => (await finderRows(kea))[0]?.path === 'docs/my notes (draft).md' || undefined)
   await page.keyboard.press('Alt+Enter')
-  await until('the Agent terminal on screen', async () => (await kea.shown()) === agent || undefined)
+  await until('the Agent terminal with the keyboard', async () => (await kea.keyboard()) === agent || undefined)
   const screen = await kea.waitScreen('the path at the prompt', (s) => s.includes('docs/my\\ notes\\ \\(draft\\).md'))
   expect(screen.trimEnd().endsWith('docs/my\\ notes\\ \\(draft\\).md'), `not submitted: nothing follows it\n${screen}`).toBe(true)
-  expect(await viewerShown(kea)).toBeNull()
+  expect(await viewerShown(kea)).toEqual({ path: 'packages/app/src/util.ts', mode: 'file', focused: false })
 
   // nothing matches
   await page.keyboard.press(sysKey('Meta+p'))
@@ -362,9 +363,22 @@ test('E-FT-4 · ⌘P finds a file: the finder opens as a floating layer with the
   await expect(finder(page).getByRole('status')).toHaveText('No matching files.')
   expect(await finderRows(kea)).toEqual([])
   await page.keyboard.press('Escape')
+
+  // one column: ⌥↵ with the file on screen shows the Agent tab in its place
+  await kea.oneColumn()
+  await page.keyboard.press(sysKey('Meta+p'))
+  await page.keyboard.type('util')
+  await until('util.ts leads', async () => (await finderRows(kea))[0]?.path === 'packages/app/src/util.ts' || undefined)
+  await page.keyboard.press('Enter')
+  await until('the file on screen, with the keyboard', async () => (await viewerShown(kea))?.focused || undefined)
+  await page.keyboard.press(sysKey('Meta+p'))
+  await page.keyboard.type('my notes')
+  await until('the notes lead', async () => (await finderRows(kea))[0]?.path === 'docs/my notes (draft).md' || undefined)
+  await page.keyboard.press('Alt+Enter')
+  await until('the Agent tab on screen in place of the file', async () => ((await viewerShown(kea)) === null && (await kea.shown()) === agent) || undefined)
 })
 
-test('E-FT-7 · ⌘P while the viewer is on screen: ⌥↵ with a file tab on screen types the file’s relative path at the fake agent’s prompt, not submitted, and brings the Agent tab forward with the keyboard, so what is typed next follows the path; Enter with a diff tab on screen shows the chosen file in the preview tab, flips the diff tab itself to the file view when the file is its own, and leaves a pinned diff tab alone', async ({ run, launch }) => {
+test('E-FT-7 · ⌘P while the viewer is on screen: ⌥↵ with a file tab on screen types the file’s relative path at the fake agent’s prompt, not submitted, and gives the agent the keyboard, the file tab staying beside it, so what is typed next follows the path; Enter with a diff tab on screen shows the chosen file in the preview tab, flips the diff tab itself to the file view when the file is its own, and leaves a pinned diff tab alone', async ({ run, launch }) => {
   claudeByDefault(run)
   const kea = await launch()
   const page = await kea.page()
@@ -393,12 +407,13 @@ test('E-FT-7 · ⌘P while the viewer is on screen: ⌥↵ with a file tab on sc
   await find('my notes', 'docs/my notes (draft).md')
   await page.keyboard.press('Alt+Enter')
   await expect(finder(page)).toHaveCount(0)
-  // the Agent tab comes forward, the path is at the agent's prompt, shell-escaped, and nothing was submitted
-  await until('the Agent terminal on screen', async () => (await kea.shown()) === agent || undefined)
-  expect(await viewerShown(kea)).toBeNull()
+  // the agent has the keyboard, the path is at its prompt, shell-escaped, and nothing was submitted; the file tab stays
+  // in the work pane
+  await until('the Agent terminal with the keyboard', async () => (await kea.keyboard()) === agent || undefined)
+  expect(await viewerShown(kea)).toEqual({ path: 'src/math.js', mode: 'file', focused: false })
   const typed = await kea.waitScreen('the path at the agent’s prompt', (s) => s.includes(NOTES))
   expect(typed.trimEnd().endsWith(`> ${NOTES}`), `at the prompt, nothing after it\n${typed}`).toBe(true)
-  expect(await shape(), 'the file tab is still in the strip').toEqual(['src/math.js file preview'])
+  expect(await shape(), 'the file tab is still on screen in the work pane').toEqual(['src/math.js file preview *'])
   // the keyboard is the agent's: what a person types next follows the path, and only their Enter submits it
   await until('the keyboard in the Agent terminal', () => focusIn(kea, '.terminal-host.shown'))
   // (a path typed for a shell is followed by a space: the next word starts after it)
@@ -453,7 +468,7 @@ test('E-FT-5 · a row of the file tree dragged onto the terminal types its path 
   await waitTree(kea, 'the root is listed', (rows) => rows.some((r) => r.path === 'README.md'))
   await treeRow(page, 'docs').click()
   await waitTree(kea, 'docs is open', (rows) => rows.some((r) => r.path === 'docs/my notes.md'))
-  const area = page.locator('.terminal-area')
+  const area = page.locator('.agent-pane .terminal-area')
 
   await treeRow(page, 'docs/my notes.md').dragTo(area)
   const typed = await kea.waitScreen('the path at the prompt', (s) => s.includes('docs/my\\ notes.md'))
@@ -515,9 +530,9 @@ test('E-KB-3 · a column hidden while the keyboard is in it gives the keyboard t
   await until('the file tab closed', async () => (await viewerShown(kea)) === null || undefined)
   await inTerminal()
 
-  // the sidebar: ⇧F6 from the terminal puts the keyboard on its row; ⌘B hides it, and the terminal has the keyboard
-  await page.keyboard.press('Shift+F6')
-  await page.keyboard.press('Shift+F6')
+  // the sidebar: F6 from the terminal, the last stop, puts the keyboard on its row; ⌘B hides it, and the terminal has
+  // the keyboard
+  await page.keyboard.press('F6')
   await until('the keyboard in the sidebar', () => focusIn(kea, 'aside.sidebar-column'))
   await page.keyboard.press(sysKey('Meta+b'))
   await expect(page.locator('aside.sidebar-column')).toBeHidden()

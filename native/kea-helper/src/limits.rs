@@ -139,7 +139,7 @@ pub const SHELL_CLOSE_GRACE_MS: u64 = 2000;
 pub const TAB_TITLE_STAT_MS: u64 = 250;
 /// WebGL contexts alive at once, well below Chromium's ≈ 16 (count)
 pub const WEBGL_CONTEXTS_MAX: u64 = 4;
-/// other sessions' Agent terminals kept warm with WebGL (count)
+/// other sessions' Agent terminals kept alive and hidden, with WebGL while the context cap leaves room (count)
 pub const WARM_TERMINALS: u64 = 3;
 /// glyph atlas pages summed above this are cleared (tuned with tools/perf/src/gpu-soak.ts) (bytes)
 pub const ATLAS_GUARD_BYTES: u64 = 134217728;
@@ -155,6 +155,14 @@ pub const OSC52_NOTE_MS: u64 = 2000;
 pub const OSC_TEXT_MAX_CHARS: u64 = 120;
 /// ⌘+ / ⌘− change the terminal font size by this much, within terminal.fontSize's range (px)
 pub const TERMINAL_FONT_STEP: u64 = 1;
+/// the agent pane's narrowest width beside the work pane; below it the agent shows as a tab (cols)
+pub const AGENT_MIN_COLS: u64 = 60;
+/// the work pane's narrowest width beside the agent pane (cols)
+pub const WORK_MIN_COLS: u64 = 40;
+/// the agent pane's share of the main column until its divider is dragged (ratio)
+pub const AGENT_FIRST_SHARE: f64 = 0.5;
+/// xterm's scrollbar track, which its fit leaves out of the columns: a pane's width in columns counts it (px)
+pub const TERMINAL_SCROLLBAR_PX: u64 = 14;
 /// a logical terminal line (its wrapped rows joined) is searched for file references up to this length (chars)
 pub const TERMINAL_LINK_LINE_MAX_CHARS: u64 = 2048;
 /// a printed path longer than this is not a file link (chars)

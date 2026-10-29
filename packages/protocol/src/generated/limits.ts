@@ -140,7 +140,7 @@ export const L = {
   tabTitleStatMs: 250,
   /** WebGL contexts alive at once, well below Chromium's ≈ 16 (count) */
   webglContextsMax: 4,
-  /** other sessions' Agent terminals kept warm with WebGL (count) */
+  /** other sessions' Agent terminals kept alive and hidden, with WebGL while the context cap leaves room (count) */
   warmTerminals: 3,
   /** glyph atlas pages summed above this are cleared (tuned with tools/perf/src/gpu-soak.ts) (bytes) */
   atlasGuardBytes: 134217728,
@@ -156,6 +156,14 @@ export const L = {
   oscTextMaxChars: 120,
   /** ⌘+ / ⌘− change the terminal font size by this much, within terminal.fontSize's range (px) */
   terminalFontStep: 1,
+  /** the agent pane's narrowest width beside the work pane; below it the agent shows as a tab (cols) */
+  agentMinCols: 60,
+  /** the work pane's narrowest width beside the agent pane (cols) */
+  workMinCols: 40,
+  /** the agent pane's share of the main column until its divider is dragged (ratio) */
+  agentFirstShare: 0.5,
+  /** xterm's scrollbar track, which its fit leaves out of the columns: a pane's width in columns counts it (px) */
+  terminalScrollbarPx: 14,
   /** a logical terminal line (its wrapped rows joined) is searched for file references up to this length (chars) */
   terminalLinkLineMaxChars: 2048,
   /** a printed path longer than this is not a file link (chars) */
@@ -757,7 +765,7 @@ export const LIMIT_META: Record<LimitName, { unit: string; why: string; whyLinux
   shellCloseGraceMs: { unit: "ms", why: "a closed shell tab's session is hung up; anything still alive this long after is terminated" },
   tabTitleStatMs: { unit: "ms", why: "a shell tab on screen asks its holder what runs in the foreground (`STAT`) at most once in this long when its output starts or a key is typed (a pause of its output is asked at once)" },
   webglContextsMax: { unit: "count", why: "WebGL contexts alive at once, well below Chromium's ≈ 16" },
-  warmTerminals: { unit: "count", why: "other sessions' Agent terminals kept warm with WebGL" },
+  warmTerminals: { unit: "count", why: "other sessions' Agent terminals kept alive and hidden, with WebGL while the context cap leaves room" },
   atlasGuardBytes: { unit: "bytes", why: "glyph atlas pages summed above this are cleared (tuned with tools/perf/src/gpu-soak.ts)" },
   searchHighlightsMax: { unit: "count", why: "find highlight decorations cap" },
   findQueryMaxChars: { unit: "chars", why: "longest find-bar query kept; longer input is cut" },
@@ -765,6 +773,10 @@ export const LIMIT_META: Record<LimitName, { unit: string; why: string; whyLinux
   osc52NoteMs: { unit: "ms", why: "'Copied by terminal' shown this long" },
   oscTextMaxChars: { unit: "chars", why: "titles, bells and OSC 9/777 text truncated before display" },
   terminalFontStep: { unit: "px", why: "⌘+ / ⌘− change the terminal font size by this much, within terminal.fontSize's range" },
+  agentMinCols: { unit: "cols", why: "the agent pane's narrowest width beside the work pane; below it the agent shows as a tab" },
+  workMinCols: { unit: "cols", why: "the work pane's narrowest width beside the agent pane" },
+  agentFirstShare: { unit: "ratio", why: "the agent pane's share of the main column until its divider is dragged" },
+  terminalScrollbarPx: { unit: "px", why: "xterm's scrollbar track, which its fit leaves out of the columns: a pane's width in columns counts it" },
   terminalLinkLineMaxChars: { unit: "chars", why: "a logical terminal line (its wrapped rows joined) is searched for file references up to this length" },
   terminalLinkPathMaxChars: { unit: "chars", why: "a printed path longer than this is not a file link" },
   terminalLinkCandidatesMax: { unit: "count", why: "file references checked per terminal line (one existence check in core for all of them)" },

@@ -1,6 +1,10 @@
 // The terminal-view registry: views keyed by ptyId, outside any rune state. Components hold ids and mount
 // a view's element; this registry decides which views live and which hold a WebGL context (`warm.ts`), and
 // disposes the rest in the disposal contract's order: the view's own `dispose`, then removal from here.
+//
+// A window shows a terminal in each of its panes (`Slot`): the work pane, and the agent pane beside it. Every
+// activation names both, so one pane's switch never lets go of the other's terminal, and a view that moves from one
+// pane to the other is never disposed on the way.
 
 import { L } from '@kea/protocol'
 import { retention, touch } from './warm.ts'
@@ -15,9 +19,24 @@ export interface ManagedView {
   readonly isAttached?: boolean
 }
 
+/** The panes a terminal can be on screen in. */
+export type Slot = 'work' | 'agent'
+export const SLOTS: readonly Slot[] = ['work', 'agent']
+
+/** What each pane is to show (null: no terminal); a pane left out shows none. */
+export interface SlotTargets {
+  readonly work: string | null
+  readonly agent?: string | null
+}
+
 export interface RegistryPolicy {
   warm: number
   glMax: number
+  /**
+   * Runs `fn` once the renderer is idle and returns what cancels it. A warm view that gave up its WebGL context for a
+   * switch gets it back here, never inside the switch's reveal (building a context is synchronous).
+   */
+  idle?: (fn: () => void) => () => void
 }
 
 /** What a switch is made in: the active session's tabs are `tabs`; these say how the rest are judged. */
@@ -32,48 +51,62 @@ export interface ActivateOptions {
   representative?: string | null
 }
 
+function whenIdle(fn: () => void): () => void {
+  if (typeof requestIdleCallback === 'function') {
+    const h = requestIdleCallback(() => fn())
+    return () => cancelIdleCallback(h)
+  }
+  const t = setTimeout(fn, 0)
+  return () => clearTimeout(t)
+}
+
+const none = (): Record<Slot, string | null> => ({ work: null, agent: null })
+
 export class TerminalRegistry<V extends ManagedView> {
   private readonly views = new Map<string, V>() // bounded: visible + leaving + pinned + policy.warm
   // bounded: ≤ existing PTYs, ids that are gone dropped on every switch
   private mru: string[] = []
-  private visibleId: string | null = null
-  private shownId: string | null = null
+  private readonly visibleBy = none()
+  private readonly shownBy = none()
+  private readonly withGl = new Set<string>() // bounded: ≤ policy.glMax, the views this registry gave a context
+  private cancelRegain: (() => void) | null = null
   private ctx: { exists: (id: string) => boolean; pinned: readonly string[]; warmable?: (id: string) => boolean } = { exists: () => false, pinned: [] }
   private readonly create: (ptyId: string) => V
   private readonly policy: RegistryPolicy
-  /** Told when the terminal on screen changes (screen-reader mode follows it). */
-  private readonly onShown: ((ptyId: string | null) => void) | null
+  /** Told when the terminal on screen in a pane changes (screen-reader mode follows the active pane's). */
+  private readonly onShown: ((ptyId: string | null, slot: Slot) => void) | null
 
-  constructor(create: (ptyId: string) => V, policy: RegistryPolicy = { warm: L.warmTerminals, glMax: L.webglContextsMax }, onShown: ((ptyId: string | null) => void) | null = null) {
+  constructor(create: (ptyId: string) => V, policy: RegistryPolicy = { warm: L.warmTerminals, glMax: L.webglContextsMax }, onShown: ((ptyId: string | null, slot: Slot) => void) | null = null) {
     this.create = create
     this.policy = policy
     this.onShown = onShown
   }
 
   /**
-   * `ptyId` becomes the visible terminal (null: none), one of `tabs` (the active context's open tabs). Creates the
-   * visible view if needed; evicts what the instance policy does not keep. The terminal on screen until now
-   * stays until the switch is shown (`setShown`).
+   * What each pane is to show (a ptyId alone is the work pane's, null: none), among `tabs` (the active context's open
+   * tabs, both panes'). Creates the visible views if needed; evicts what the instance policy does not keep. The
+   * terminal on screen in a pane until now stays until that pane's switch is shown (`setShown`). Returns the work
+   * pane's view (the agent pane's: `visible('agent')`).
    */
-  activate(ptyId: string | null, tabs: readonly string[], o: ActivateOptions = {}): V | undefined {
+  activate(target: string | null | SlotTargets, tabs: readonly string[], o: ActivateOptions = {}): V | undefined {
+    const t: SlotTargets = target === null || typeof target === 'string' ? { work: target } : target
     const open = new Set(tabs)
     const exists = o.exists ? (id: string) => open.has(id) || o.exists!(id) : (id: string) => open.has(id)
-    this.ctx = { exists, pinned: (o.pinned ?? []).filter((id) => id !== ptyId), ...(o.warmable ? { warmable: o.warmable } : {}) }
-    this.visibleId = ptyId !== null && open.has(ptyId) ? ptyId : null
+    for (const s of SLOTS) {
+      const id = t[s] ?? null
+      this.visibleBy[s] = id !== null && open.has(id) ? id : null
+    }
+    const visible = this.visibleIds()
+    this.ctx = { exists, pinned: (o.pinned ?? []).filter((id) => !visible.includes(id)), ...(o.warmable ? { warmable: o.warmable } : {}) }
     let mru = this.mru.filter(exists)
     if (o.representative && exists(o.representative)) mru = touch(mru, o.representative, exists)
-    if (this.visibleId !== null) mru = touch(mru, this.visibleId, exists)
+    for (const id of [...visible].reverse()) mru = touch(mru, id, exists)
     this.mru = mru
-    let v: V | undefined
-    if (this.visibleId !== null) {
-      v = this.views.get(this.visibleId)
-      if (!v) {
-        v = this.create(this.visibleId)
-        this.views.set(this.visibleId, v)
-      }
+    for (const id of visible) {
+      if (!this.views.has(id)) this.views.set(id, this.create(id))
     }
-    this.apply()
-    return v
+    this.apply(false)
+    return this.visible('work')
   }
 
   /** A tab was closed: dispose its view now. */
@@ -83,11 +116,14 @@ export class TerminalRegistry<V extends ManagedView> {
       v.dispose()
       this.views.delete(ptyId)
     }
+    this.withGl.delete(ptyId)
     this.mru = this.mru.filter((id) => id !== ptyId)
-    if (this.visibleId === ptyId) this.visibleId = null
-    if (this.shownId === ptyId) {
-      this.shownId = null
-      this.onShown?.(null)
+    for (const s of SLOTS) {
+      if (this.visibleBy[s] === ptyId) this.visibleBy[s] = null
+      if (this.shownBy[s] === ptyId) {
+        this.shownBy[s] = null
+        this.onShown?.(null, s)
+      }
     }
   }
 
@@ -95,26 +131,39 @@ export class TerminalRegistry<V extends ManagedView> {
     return this.views.get(ptyId)
   }
 
-  /** The terminal the user is switching to or looking at. */
-  visible(): V | undefined {
-    return this.visibleId !== null ? this.views.get(this.visibleId) : undefined
+  /** The terminal the user is switching to or looking at in a pane. */
+  visible(slot: Slot = 'work'): V | undefined {
+    const id = this.visibleBy[slot]
+    return id !== null ? this.views.get(id) : undefined
   }
 
-  /** The terminal actually on screen (the visible one once it has painted); OSC 52's "visible". */
-  shown(): V | undefined {
-    return this.shownId !== null ? this.views.get(this.shownId) : undefined
+  /** The terminal actually on screen in a pane (the visible one once it has painted). */
+  shown(slot: Slot = 'work'): V | undefined {
+    const id = this.shownBy[slot]
+    return id !== null ? this.views.get(id) : undefined
   }
 
-  /** The switch is on screen: the terminal it replaced is judged like any other now (kept warm, pinned, or let go). */
-  setShown(ptyId: string | null): void {
-    const was = this.shownId
-    this.shownId = ptyId
-    if (was !== ptyId) this.onShown?.(ptyId)
-    if (was !== null && was !== ptyId) this.apply()
+  /** A pane's switch is on screen: the terminal it replaced is judged like any other now (kept warm, pinned, or let go). */
+  setShown(ptyId: string | null, slot: Slot = 'work'): void {
+    const was = this.shownBy[slot]
+    this.shownBy[slot] = ptyId
+    if (was !== ptyId) this.onShown?.(ptyId, slot)
+    if (was !== null && was !== ptyId) this.apply(false)
   }
 
+  /** On screen in either pane: OSC 52's "visible". */
   isShown(ptyId: string): boolean {
-    return this.shownId === ptyId
+    return SLOTS.some((s) => this.shownBy[s] === ptyId)
+  }
+
+  /** On screen in a pane other than `slot`: that pane's find, scroll and layers are its own. */
+  shownElsewhere(ptyId: string, slot: Slot): boolean {
+    return SLOTS.some((s) => s !== slot && this.shownBy[s] === ptyId)
+  }
+
+  /** The pane a terminal is on screen in, if any. */
+  slotOf(ptyId: string): Slot | null {
+    return SLOTS.find((s) => this.shownBy[s] === ptyId) ?? null
   }
 
   all(): IterableIterator<V> {
@@ -135,18 +184,48 @@ export class TerminalRegistry<V extends ManagedView> {
     return this.mru.length
   }
 
+  /** The views holding a WebGL context, as this registry gave them (read by the retention tests). */
+  webglIds(): string[] {
+    return [...this.withGl]
+  }
+
+  private visibleIds(): string[] {
+    const ids: string[] = []
+    for (const s of SLOTS) {
+      const id = this.visibleBy[s]
+      if (id !== null && !ids.includes(id)) ids.push(id)
+    }
+    return ids
+  }
+
   private rank(id: string): number {
-    if (id === this.visibleId) return -1
+    const v = this.visibleIds().indexOf(id)
+    if (v >= 0) return v - SLOTS.length
     const i = this.mru.indexOf(id)
     return i < 0 ? Number.MAX_SAFE_INTEGER : i
   }
 
-  private apply(): void {
+  /** The terminals still on screen while their pane's visible one paints: a switch to a view that has painted is shown at once. */
+  private leavingIds(): string[] {
+    const ids: string[] = []
+    for (const s of SLOTS) {
+      const shown = this.shownBy[s]
+      const want = this.visibleBy[s]
+      const target = want !== null ? this.views.get(want) : undefined
+      if (shown !== null && shown !== want && !target?.isAttached && !ids.includes(shown)) ids.push(shown)
+    }
+    return ids
+  }
+
+  /**
+   * Judge every view. The terminals on screen and arriving get their WebGL at once; a warm view owed one gets it in
+   * idle time (`regainWarm`), unless `warmToo`.
+   */
+  private apply(warmToo: boolean): void {
     const { exists, pinned, warmable } = this.ctx
-    // a switch to a view that has painted is shown at once: nothing is left on screen meanwhile
-    const target = this.visibleId !== null ? this.views.get(this.visibleId) : undefined
-    const leaving = this.shownId !== this.visibleId && !target?.isAttached ? this.shownId : null
-    const r = retention({ visible: this.visibleId, mru: this.mru, exists, alive: (id) => this.views.has(id), pinned, leaving, warm: this.policy.warm, glMax: this.policy.glMax, ...(warmable ? { warmable } : {}) })
+    const visible = this.visibleIds()
+    const leaving = this.leavingIds()
+    const r = retention({ visible, mru: this.mru, exists, alive: (id) => this.views.has(id), pinned, leaving, warm: this.policy.warm, glMax: this.policy.glMax, ...(warmable ? { warmable } : {}) })
     const keep = new Set(r.keep)
     const gl = new Set(r.webgl)
     for (const [id, v] of [...this.views]) {
@@ -154,10 +233,36 @@ export class TerminalRegistry<V extends ManagedView> {
       v.released?.()
       v.dispose() // The view releases everything, then it leaves the registry
       this.views.delete(id)
-      if (this.shownId === id) this.shownId = null
+      this.withGl.delete(id)
+      for (const s of SLOTS) if (this.shownBy[s] === id) this.shownBy[s] = null
     }
     // release before loading, so the context count never goes above the cap, even for a moment
-    for (const [id, v] of this.views) if (!gl.has(id)) v.setWebgl(false)
-    for (const id of r.webgl) this.views.get(id)?.setWebgl(true)
+    for (const [id, v] of this.views) {
+      if (gl.has(id)) continue
+      v.setWebgl(false)
+      this.withGl.delete(id)
+    }
+    const now = new Set([...visible, ...leaving])
+    let owed = false
+    for (const id of r.webgl) {
+      // asked again of a view that has one: it reloads a context it could not get (the window-wide count was full)
+      if (!warmToo && !now.has(id) && !this.withGl.has(id)) {
+        owed = true
+        continue
+      }
+      this.views.get(id)?.setWebgl(true)
+      this.withGl.add(id)
+    }
+    if (owed) this.regainWarm()
+  }
+
+  /** The warm views owed a context get it once the renderer is idle: after the reveal, never inside it. */
+  private regainWarm(): void {
+    if (this.cancelRegain) return
+    const idle = this.policy.idle ?? whenIdle
+    this.cancelRegain = idle(() => {
+      this.cancelRegain = null
+      this.apply(true)
+    })
   }
 }

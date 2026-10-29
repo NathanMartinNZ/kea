@@ -38,6 +38,7 @@ async function goToLine(kea: Kea, line: number): Promise<void> {
 test('E-SES-13 · two sessions, each with its own file panel and file tabs: the folders open in the tree, its scroll position and the row the keyboard is on, Files or Changes, the Changes list’s row, the file tabs with the one on screen and where it was scrolled to all come back when the session does, by ⌘1 / ⌘2 and by a click in the sidebar, and nothing of the session that left is shown meanwhile', async ({ run, launch }) => {
   test.setTimeout(120_000)
   const kea = await launch()
+  await kea.oneColumn()
   const page = await kea.page()
   await kea.pretendFocused(true)
   const repo = demoRepo(run)
@@ -435,9 +436,9 @@ test('E-FV-9 · the file viewer’s journey, by clicks only, in one session and 
     const launches = await world.waitLaunches(1)
     expect(launches.map((l) => l.argv), 'the bundle’s own CLI, with the worktree').toEqual([[dir]])
 
-    // the end of the sitting: one session, its diff still on screen, the Agent and Server tabs, nothing running
+    // the end of the sitting: one session, its diff still in the work pane beside the agent, nothing running
     expect(await tabShape(kea)).toEqual(['src/math.js diff preview *'])
-    expect(await kea.shown(), 'no terminal took the screen').not.toBe(agent)
+    expect(await kea.shown('work'), 'no terminal took the work pane').toBeNull()
     expect(left()).toEqual([])
     expect(await listening(at.port)).toBe(false)
     await kea.assertUnfocused()

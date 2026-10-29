@@ -33,16 +33,16 @@ describe('OSC 52 write policy', () => {
     vi.useRealTimers()
   })
 
-  it('U-TERM-15 · an applied write shows “Copied by terminal” for the note’s duration; another write restarts it', () => {
+  it('U-TERM-15 · an applied write shows “Copied by terminal” for the note’s duration, on the terminal that wrote; another write restarts it', () => {
     vi.useFakeTimers()
-    terminalUi.copiedByTerminal()
-    expect(uiState.snapshot().copied).toBe(true)
+    terminalUi.copiedByTerminal('p1')
+    expect(uiState.snapshot().copied).toBe('p1')
     vi.advanceTimersByTime(L.osc52NoteMs - 1)
-    terminalUi.copiedByTerminal()
+    terminalUi.copiedByTerminal('p2')
     vi.advanceTimersByTime(L.osc52NoteMs - 1)
-    expect(uiState.snapshot().copied).toBe(true)
+    expect(uiState.snapshot().copied).toBe('p2')
     vi.advanceTimersByTime(1)
-    expect(uiState.snapshot().copied).toBe(false)
+    expect(uiState.snapshot().copied).toBeNull()
     expect(vi.getTimerCount()).toBe(0)
   })
 })

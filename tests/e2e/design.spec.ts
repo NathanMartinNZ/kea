@@ -258,6 +258,7 @@ test('A-2 · every interactive element has an accessible name, icon-only buttons
   test.setTimeout(240_000)
   claudeByDefault(run)
   const kea = await launch()
+  await kea.oneColumn()
   const page = await kea.page()
   const names = await Names.of(page)
   try {
@@ -462,7 +463,8 @@ const REGIONS = [
   ['sidebar', 'aside.sidebar-column'],
   ['file panel', 'section.file-panel'],
   ['header', '.main-header'],
-  ['terminal', '.main-pane'],
+  ['work pane', '.work-pane'],
+  ['agent pane', '.agent-pane'],
 ] as const
 type RegionName = (typeof REGIONS)[number][0]
 
@@ -558,7 +560,7 @@ class FocusTrail {
   }
 }
 
-test('A-3 · the keyboard follows the regions’ order and focus always shows: F6 goes sidebar → file panel → header → terminal and ⇧F6 back, Tab walks the same four regions in that order, every stop shows where the keyboard is, a row that goes while it holds the keyboard hands it on, and a sheet taller than the pane keeps its title and its buttons in view', async ({ run, launch }) => {
+test('A-3 · the keyboard follows the regions’ order and focus always shows: F6 goes sidebar → file panel → header → work pane → agent pane and ⇧F6 back, Tab walks the same five regions in that order, every stop shows where the keyboard is, a row that goes while it holds the keyboard hands it on, and a sheet taller than the pane keeps its title and its buttons in view', async ({ run, launch }) => {
   test.setTimeout(120_000)
   claudeByDefault(run)
   const kea = await launch()
@@ -599,20 +601,20 @@ test('A-3 · the keyboard follows the regions’ order and focus always shows: F
   await expect(sheet).toHaveCount(0)
   await until('the keyboard back in the terminal', () => focusIn(kea, '.terminal-host.shown'))
 
-  // ── F6 and ⇧F6: the four regions, in order, both ways ──
+  // ── F6 and ⇧F6: the five regions, in order, both ways (the work pane holds only + here) ──
   const trail = new FocusTrail(page)
   await trail.note('the sheet closed')
   for (let i = 0; i < REGIONS.length; i++) {
     await page.keyboard.press('F6')
     await trail.note(`F6 × ${i + 1}`)
   }
-  expect(trail.regions(1), 'F6 from the terminal').toEqual(['sidebar', 'file panel', 'header', 'terminal'])
+  expect(trail.regions(1), 'F6 from the agent').toEqual(['sidebar', 'file panel', 'header', 'work pane', 'agent pane'])
   let from = trail.stops.length
   for (let i = 0; i < REGIONS.length; i++) {
     await page.keyboard.press('Shift+F6')
     await trail.note(`⇧F6 × ${i + 1}`)
   }
-  expect(trail.regions(from), '⇧F6 from the terminal').toEqual(['header', 'file panel', 'sidebar', 'terminal'])
+  expect(trail.regions(from), '⇧F6 from the agent').toEqual(['work pane', 'header', 'file panel', 'sidebar', 'agent pane'])
 
   // ── Tab: the same regions in the same order, every stop of them ──
   await page.keyboard.press('F6')
@@ -624,8 +626,10 @@ test('A-3 · the keyboard follows the regions’ order and focus always shows: F
     await trail.note(`Tab × ${i + 1}`)
   }
   expect(trail.stops.at(-1)!.terminal, `Tab reaches the terminal within ${TAB_STOPS_MAX} stops: ${trail.stops.slice(from).map((s) => s.what).join(' → ')}`).toBe(true)
-  expect(trail.regions(from), 'Tab from the sidebar').toEqual(['sidebar', 'file panel', 'header', 'terminal'])
+  expect(trail.regions(from), 'Tab from the sidebar').toEqual(['sidebar', 'file panel', 'header', 'work pane', 'agent pane'])
   // and back with ⇧Tab from the header's first control: the file panel, then the sidebar
+  await page.keyboard.press('Shift+F6')
+  await trail.note('⇧F6 to the work pane')
   await page.keyboard.press('Shift+F6')
   from = trail.stops.length
   await trail.note('⇧F6 to the header')

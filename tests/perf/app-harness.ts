@@ -11,6 +11,10 @@
 // stops producing frames for an occluded window, which would stall every frame-based measurement; the tests therefore
 // turn background throttling off for the window (`webContents.setBackgroundThrottling(false)`, a harness setting
 // through Playwright, not a product change), so the page keeps rendering whether or not it is on top.
+//
+// The window is sized at WINDOW whatever the first-launch default is, so the window-sized costs (the compositor's
+// buffers, the terminals' grids) move only when this does. A display smaller than WINDOW shrinks it: the size it ran
+// at is recorded with each result, and a result is compared only with a previous one of the same size.
 
 import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
@@ -22,7 +26,12 @@ import { BUDGETS, type BudgetId } from '../../tools/perf/src/generated/budgets.t
 import { isZygote, processInfo, processTable, repoRoot, runAppProcesses, type ProcInfo } from '../../tools/perf/src/launch.ts'
 import { check, recordResult, type Check, type Entry, type PerfResult } from '../../tools/perf/src/record.ts'
 import { quantile } from '../../tools/perf/src/stats.ts'
-import { KeaRun, PROMPT, STEP_MS, testAppDist, type Kea } from '../support/app.ts'
+import { KeaRun, PROMPT, STEP_MS, testAppDist, until, type Kea } from '../support/app.ts'
+
+/** The perf window's content size (inside Linux's Xvfb screen, tools/perf/src/os/linux.ts). */
+export const WINDOW = { width: 1600, height: 1000 } as const
+/** The size the last started window has (WINDOW, or smaller on a smaller display). */
+let windowRan: { width: number; height: number } | undefined
 
 /** Each scenario runs this many times after one warm-up. */
 export const RUNS = 3
@@ -108,8 +117,28 @@ export async function startKea(o: { args?: string[]; settings?: Record<string, R
   }
   const kea = await run.launch(o.args ? { args: o.args } : {})
   await unthrottle(kea)
+  windowRan = await sizeWindow(kea)
   await kea.waitScreen('the first shell prompt', (s) => s.includes(PROMPT))
   return { run, kea }
+}
+
+/** Give the window WINDOW's content size, or as much of it as the display holds; resolves with the size it has. */
+export async function sizeWindow(kea: Kea): Promise<{ width: number; height: number }> {
+  const page = await kea.page()
+  const size = () => page.evaluate(() => ({ width: window.innerWidth, height: window.innerHeight }))
+  const before = JSON.stringify(await size())
+  await kea.app.evaluate(({ BrowserWindow }, s) => BrowserWindow.getAllWindows()[0]?.setContentSize(s.width, s.height), WINDOW)
+  // the page at WINDOW, or at whatever else the display left it (it may not have changed at all), once it is still
+  let last = ''
+  const patience = Date.now() + 2000
+  return until('the window sized', async () => {
+    const now = await size()
+    const key = JSON.stringify(now)
+    const done = key === last && (key !== before || (now.width === WINDOW.width && now.height === WINDOW.height) || Date.now() > patience)
+    last = key
+    await measureFor(50)
+    return done ? now : undefined
+  })
 }
 
 /** Keep the window's page rendering while another app's window covers it (see the header). */
@@ -332,7 +361,7 @@ export { check, type Check }
 
 /** Record a result in tools/perf/last.json and print it; resolves with the entry (its `pass` is every check's). */
 export function record(r: PerfResult): Entry {
-  const e = recordResult(r)
+  const e = recordResult(windowRan && !r.window ? { ...r, window: windowRan } : r)
   const checks = e.checks.map((c) => `${c.name} ${c.measured.toFixed(2)} ${c.kind === 'max' ? '≤' : '≥'} ${c.limit} ${c.unit}${c.pass ? '' : ' MISSED'}`).join('; ')
   console.info(`${r.id} · ${checks}\n  ${Object.entries(r.values)
     .map(([k, v]) => `${k} ${Number.isInteger(v) ? v : v.toFixed(2)}`)

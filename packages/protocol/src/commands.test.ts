@@ -103,17 +103,19 @@ describe('command table', () => {
     const fromCode = COMMANDS.map(({ keyArgs: _, titles: __, ...c }) => ({ ...c, ...(c.keys ? { keys: [...c.keys] } : {}), ...(c.surfaces ? { surfaces: [...c.surfaces] } : {}) }))
     expect(fromCode).toEqual(specCommands())
     // a row's titles by state are its one title in the specification read apart: `Run / Stop Dev Server` → Run Dev
-    // Server, Stop Dev Server; a title with a note on it is shown without the note: `Open in… (each detected editor)` →
-    // Open in…
+    // Server, Stop Dev Server, or two whole titles as they are (`Show Agent Beside Terminals / Show Agent as a Tab`); a
+    // title with a note on it is shown without the note: `Open in… (each detected editor)` → Open in…
     for (const c of COMMANDS) {
       if (!c.titles) continue
       const bare = c.title.replace(/\s*\([^)]*\)$/, '')
       const parts = bare.split(' / ')
       const last = parts.at(-1) as string
       const tail = last.includes(' ') ? last.slice(last.indexOf(' ')) : ''
-      expect(c.titles, c.id).toEqual(parts.map((p, i) => (i < parts.length - 1 ? p + tail : p)))
+      const shared = parts.map((p, i) => (i < parts.length - 1 ? p + tail : p))
+      const whole = parts.every((p) => p.includes(' '))
+      expect([JSON.stringify(shared), ...(whole ? [JSON.stringify(parts)] : [])], c.id).toContain(JSON.stringify(c.titles))
     }
-    expect(COMMANDS.filter((c) => c.titles).map((c) => c.id)).toEqual(['server.toggle', 'view.openIn'])
+    expect(COMMANDS.filter((c) => c.titles).map((c) => c.id)).toEqual(['server.toggle', 'view.toggleAgentPane', 'view.openIn'])
   })
 
   it('U-KB-2 · unique ids, a category for every command, every default binding unique in its scope', () => {

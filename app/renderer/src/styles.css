@@ -80,7 +80,7 @@ kbd {
 .tabstrip {
   display: flex;
   align-items: stretch;
-  justify-content: space-between;
+  justify-content: flex-start;
   background: var(--surface-1);
   border-bottom: 1px solid var(--line);
   min-width: 0;
@@ -152,6 +152,7 @@ kbd {
 .tab-note {
   align-self: center;
   flex: none;
+  margin-left: auto;
   color: var(--text-3);
   font-size: var(--type-micro-size);
   line-height: var(--type-micro-line);

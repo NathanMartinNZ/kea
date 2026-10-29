@@ -1,13 +1,15 @@
 <!--
 The terminal area: one host per live view, all stacked in the same place. The component holds ids only; views come
-from the registry (never in `$state`), which decides which live.
+from the registry (never in `$state`), which decides which live. An area belongs to one pane (`pane`); its host
+activates the registry for every pane at once, so one pane's switch never lets go of the other's terminal.
 
 Switching (P-TERM-7): a warm view is shown at once. A view created for the switch is laid out but invisible
 until its snapshot has painted; the previous terminal stays on screen meanwhile, so there is no blank frame. Every
 step runs in effects, after the DOM is updated and before the frame is painted. A session switch replaces the whole
 pane (and this area with it): the area that comes keeps the terminal the old one had on screen until its own has
 painted, whichever of the two Svelte makes first. Views no area hosts wait, hidden and alive, in the window's dock
-(`views.ts`: other sessions' warm terminals).
+(`views.ts`: other sessions' warm terminals). An area's switch closes find and "Jump to bottom" on its own terminals
+only.
 -->
 <script lang="ts">
   import { tick, untrack } from 'svelte'
@@ -20,9 +22,8 @@ painted, whichever of the two Svelte makes first. Views no area hosts wait, hidd
   import { dropText, mentionText, parseDraggedPath, PATH_DRAG_TYPE, takesDrop, type Dropped } from './drop.ts'
   import FindBar from './FindBar.svelte'
   import Overlays from './Overlays.svelte'
-  import { NO_RESULTS } from './find.ts'
   import { terminalUi } from './ui.svelte.ts'
-  import type { ActivateOptions } from './registry.ts'
+  import type { Slot } from './registry.ts'
   import { sendText } from './sendText.ts'
   import { dockView, enterArea, followScroll, leaveArea, terminals } from './views.ts'
 
@@ -32,19 +33,29 @@ painted, whichever of the two Svelte makes first. Views no area hosts wait, hidd
     tabs,
     active,
     sessionId = null,
-    options = () => ({}),
+    pane = 'work',
+    activate,
+    claims = () => true,
+    seize = () => false,
   }: {
+    /** The pane's tabs: the terminals this area can show. */
     tabs: readonly string[]
     active: string | null
     /** The session whose terminals these are; null for the plain shells (a drop is then typed by the view itself). */
     sessionId?: string | null
-    /** How the switch judges the terminals outside `tabs` (pinned tabs, the other sessions' Agent terminals). */
-    options?: (next: string | null, open: readonly string[]) => ActivateOptions
+    /** The pane this area draws. */
+    pane?: Slot
+    /** The host's activation of the registry: what every pane shows, among all of the host's tabs. */
+    activate: () => void
+    /** The area takes the keyboard when its terminal is shown and nothing has it (in the split, the active pane only). */
+    claims?: () => boolean
+    /** The area takes the keyboard when it shows terminal `id`, wherever the keyboard is (asked once per reveal). */
+    seize?: (id: string) => boolean
   } = $props()
   let live = $state.raw<string[]>([])
   // the terminal the area before this one had on screen stays on screen here until this one's has painted
   const token = {}
-  let shown = $state<string | null>(enterArea(token))
+  let shown = $state<string | null>(enterArea(token, untrack(() => pane)))
   // focus moves once the revealed host is visible (a hidden or invisible element cannot take focus)
   let focusOnShow = false
 
@@ -64,16 +75,28 @@ painted, whichever of the two Svelte makes first. Views no area hosts wait, hidd
     return shown && !ids.includes(shown) && terminals.get(shown) ? [...ids, shown] : ids
   }
 
-  /** The switch is on screen. Find belongs to the terminal on screen: every other view's search closes. */
+  /**
+   * The switch is on screen. Find belongs to the terminal on screen: the search of every other terminal of this area
+   * (its tabs, and the one handed over to it) closes, and the bar closes if it was on one of them. A terminal the
+   * other pane shows now (the Agent, moved beside when the split is drawn) keeps its search and scroll state.
+   */
   function reveal(id: string | null, open: readonly string[], hadFocus: boolean): void {
-    for (const view of terminals.all()) if (view.ptyId !== id) view.closeFind()
-    terminals.setShown(id)
+    terminals.setShown(id, pane)
+    const own = new Set([...live, ...open].filter((x) => !terminals.shownElsewhere(x, pane)))
+    if (shown !== null && !terminals.shownElsewhere(shown, pane)) own.add(shown)
+    for (const x of own) if (x !== id) terminals.get(x)?.closeFind()
     shown = id
     live = hosted(open)
-    focusOnShow = hadFocus || document.activeElement === document.body || document.activeElement === null
+    const free = document.activeElement === document.body || document.activeElement === null
+    focusOnShow = id !== null && (seize(id) || hadFocus || (free && claims()))
     const now = id ? terminals.get(id) : undefined
-    terminalUi.scrolledUp(now?.state.scrolledUp ?? false)
-    terminalUi.find({ open: false, results: NO_RESULTS })
+    for (const x of own) if (x !== id) terminalUi.scrolledUp(x, false)
+    if (id !== null) terminalUi.scrolledUp(id, now?.state.scrolledUp ?? false)
+    if (id !== null) own.add(id)
+    // the bar closed on the terminal now shown (the Agent come from the other pane as the mode changes) closes its
+    // search too: no highlights or search left with no bar to close them
+    const closed = terminalUi.closeFindOn(own)
+    if (closed !== null && closed === id) terminals.get(closed)?.closeFind()
     commands.changed()
   }
 
@@ -96,8 +119,9 @@ painted, whichever of the two Svelte makes first. Views no area hosts wait, hidd
 
   // (views are used here synchronously only; no closure made here may capture one, see revealWhenPainted)
   function switchTo(next: string | null, open: readonly string[]): (() => void) | undefined {
-    const prevShown = terminals.shown()
-    const v = terminals.activate(next, open, options(next, open))
+    const prevShown = terminals.shown(pane)
+    activate()
+    const v = terminals.visible(pane)
     live = hosted(open)
     for (const id of open) {
       const view = terminals.get(id)
@@ -119,7 +143,7 @@ painted, whichever of the two Svelte makes first. Views no area hosts wait, hidd
   }
 
   // the area goes (a session switch replaces the pane): the terminal on screen is handed to the next area
-  $effect(() => () => leaveArea(token))
+  $effect(() => () => leaveArea(token, untrack(() => pane)))
 
   // the switch follows the active tab and the open tabs, nothing else
   $effect(() => {
@@ -190,11 +214,11 @@ painted, whichever of the two Svelte makes first. Views no area hosts wait, hidd
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions (a drop target only: the terminal inside has the keyboard) -->
-<div class="terminal-area" ondragover={onDragOver} ondrop={onDrop}>
+<div class="terminal-area" data-pane={pane} ondragover={onDragOver} ondrop={onDrop}>
   {#each live as id (id)}
     {@const mode = modeOf(id)}
     <div class="terminal-host {mode}" data-pty={id} aria-hidden={mode !== 'shown'} {@attach mountView(id)}></div>
   {/each}
-  <FindBar />
-  <Overlays />
+  <FindBar ptyId={shown} />
+  <Overlays ptyId={shown} owns={(id) => tabs.includes(id)} />
 </div>

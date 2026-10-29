@@ -15,7 +15,8 @@
 //     replaces in place; a path that already has a tab shows that tab
 //   · pinning (a double-click, ↵, an open with `pin`) keeps it; at most L.viewerPinnedTabsMax are pinned, and pinning
 //     one more closes the least recently viewed pinned tab
-//   · a file tab that closes (Esc, ⌘W, a middle click, that cap) hands the pane back to the Agent terminal
+//   · a file tab that closes (Esc, ⌘W, a middle click, that cap) hands the pane back to the Agent terminal; in the
+//     split, whose work pane has no Agent tab, to the tab before it (`afterClose`)
 //   · a hidden tab keeps only `{path, mode, scroll, selection, folds}` (`features/viewer/tab.ts`)
 
 import { L, type PtyKind, type ViewMode } from '@kea/protocol'
@@ -48,21 +49,23 @@ export function pickActive(tabs: readonly string[], cur: ActiveTab, start: strin
  * reopened, a reload and a restart of Kea all find it). The Server and Setup tabs are named by their kind: a session
  * has one of each, and a re-run's Server tab is a new PTY. A shell is named by its PTY. Nothing is remembered for the
  * Agent terminal, which is where a session starts anyway, nor for a file or diff tab, which is the window's and goes
- * with it.
+ * with it. `split` says it was chosen in the work pane of the split: one column does not restore it, so a shell picked
+ * beside the agent never hides the agent in a narrow window.
  */
-export type TabMemory = { kind: 'server' | 'script' } | { kind: 'shell'; ptyId: string }
+export type TabMemory = ({ kind: 'server' | 'script' } | { kind: 'shell'; ptyId: string }) & { split?: true }
 
 /** What the session remembers while `active` is its tab on screen; null: nothing (its Agent terminal, a file tab, no tab). */
-export function rememberTab(active: string | null, kindOf: (id: string) => PtyKind | undefined): TabMemory | null {
+export function rememberTab(active: string | null, kindOf: (id: string) => PtyKind | undefined, split = false): TabMemory | null {
   if (active === null || isFileTabId(active)) return null
   const kind = kindOf(active)
-  if (kind === 'shell') return { kind, ptyId: active }
-  return kind === 'server' || kind === 'script' ? { kind } : null
+  const mode = split ? { split: true as const } : {}
+  if (kind === 'shell') return { kind, ptyId: active, ...mode }
+  return kind === 'server' || kind === 'script' ? { kind, ...mode } : null
 }
 
 export function sameTabMemory(a: TabMemory | null, b: TabMemory | null): boolean {
   if (a === null || b === null) return a === b
-  return a.kind === b.kind && (a.kind !== 'shell' || (b.kind === 'shell' && a.ptyId === b.ptyId))
+  return a.kind === b.kind && a.split === b.split && (a.kind !== 'shell' || (b.kind === 'shell' && a.ptyId === b.ptyId))
 }
 
 /** The value of the `tabs` key of a session's saved panel state (`sessions.setUi`): null removes the key. */
@@ -74,17 +77,20 @@ export function savedTabs(m: TabMemory | null): { active: TabMemory } | null {
 export function parseTabMemory(v: unknown): TabMemory | null {
   const a = v !== null && typeof v === 'object' ? (v as { active?: unknown }).active : null
   if (a === null || typeof a !== 'object') return null
-  const { kind, ptyId } = a as { kind?: unknown; ptyId?: unknown }
-  if (kind === 'server' || kind === 'script') return { kind }
-  return kind === 'shell' && typeof ptyId === 'string' && ptyId !== '' ? { kind, ptyId } : null
+  const { kind, ptyId, split } = a as { kind?: unknown; ptyId?: unknown; split?: unknown }
+  // a memory saved before the split has no mode: one column's
+  const mode = split === true ? { split: true as const } : {}
+  if (kind === 'server' || kind === 'script') return { kind, ...mode }
+  return kind === 'shell' && typeof ptyId === 'string' && ptyId !== '' ? { kind, ptyId, ...mode } : null
 }
 
 /**
  * Where a session's pane starts when the window has not shown the session before: the tab it remembers while that tab
- * still exists, else `home`, its Agent terminal.
+ * still exists, else `home`, its Agent terminal (in the split, no tab). One column restores only a tab chosen in one
+ * column; the split's work pane restores either.
  */
-export function startTab(terminals: readonly string[], kindOf: (id: string) => PtyKind | undefined, m: TabMemory | null, home: string | null): string | null {
-  if (m === null) return home
+export function startTab(terminals: readonly string[], kindOf: (id: string) => PtyKind | undefined, m: TabMemory | null, home: string | null, split = false): string | null {
+  if (m === null || (m.split && !split)) return home
   if (m.kind === 'shell') return terminals.includes(m.ptyId) && kindOf(m.ptyId) === 'shell' ? m.ptyId : home
   return terminals.find((id) => kindOf(id) === m.kind) ?? home
 }
@@ -195,6 +201,52 @@ export function saveFileTabView(s: FileTabs, id: string, view: TabViewState, max
 /** The strip's order: the terminals, then the file tabs. `⌘⇧]` / `⌘⇧[` step through it, around the ends. */
 export function stripOrder(terminals: readonly string[], files: FileTabs): string[] {
   return [...terminals, ...files.tabs.map((t) => t.id)]
+}
+
+/**
+ * The tab that takes over in the split's work pane when `id` closes while it is shown: the tab before it in the strip,
+ * else the one after it, else none (the work pane's empty state).
+ */
+export function afterClose(strip: readonly string[], id: string): string | null {
+  const i = strip.indexOf(id)
+  if (i < 0) return null
+  return strip[i - 1] ?? strip[i + 1] ?? null
+}
+
+/**
+ * The tab the split's work pane shows once the one it showed, `gone`, has left its strip (a shell closed or exited): the
+ * nearest tab before it in the strip it left (`before`, terminals then files) that is still there, else the nearest
+ * after it; null when none is (the empty state), or when `gone` was not in that strip.
+ */
+export function afterGone(before: readonly string[], gone: string, now: readonly string[]): string | null {
+  const i = before.indexOf(gone)
+  if (i < 0) return null
+  for (let j = i - 1; j >= 0; j--) if (now.includes(before[j]!)) return before[j]!
+  for (let j = i + 1; j < before.length; j++) if (now.includes(before[j]!)) return before[j]!
+  return null
+}
+
+/** The terminals of the split's work pane: every one but the Agent terminal, which the agent pane shows, in order. */
+export function workTabs(terminals: readonly string[], kindOf: (id: string) => PtyKind | undefined): string[] {
+  return terminals.filter((id) => kindOf(id) !== 'agent')
+}
+
+/**
+ * The tab the work pane shows as the split is drawn: the one-column tab unless it is the Agent terminal; else the tab
+ * the work pane showed when last split, while it exists; else its last terminal; else none (its last file tab, or its
+ * empty state, by the pick).
+ */
+export function tabToSplit(active: string | null, agent: string | null, back: string | undefined, exists: (id: string) => boolean, work: readonly string[]): string | null {
+  if (active !== null && active !== agent) return active
+  return back !== undefined && exists(back) ? back : (work.at(-1) ?? null)
+}
+
+/**
+ * The tab one column shows as the split goes: the work pane's when it had the keyboard (`workHad`); otherwise (the
+ * agent pane had it, or nothing did) the Agent terminal, so a narrowed window never hides the agent that was being typed to.
+ */
+export function tabToColumn(active: string | null, agent: string | null, workHad: boolean): string | null {
+  return workHad || agent === null ? active : agent
 }
 
 /** Where a closed file tab leaves the pane: the Agent terminal; a session without one, its first tab. */

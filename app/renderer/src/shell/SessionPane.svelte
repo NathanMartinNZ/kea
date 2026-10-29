@@ -9,7 +9,9 @@ tab strip:
   archived    Archived: Unarchive; nothing runs, the last screens stay readable
 
 A detached session's Agent tab shows its last screen dimmed with the detached overlay over it: what ended · Resume ↵ ·
-Restart ⌘↵; so does a detached session with no Agent tab left.
+Restart ⌘↵; so does a detached session with no Agent tab left. Where the agent is beside the work pane (the split), the
+agent pane draws the overlay, once, and the work pane never does. An agent started or restarted from here is sized to
+the pane it will show in (`agentGrid.ts`).
 
 Mounted per session (MainPane.svelte keys it), following that session's row.
 -->
@@ -21,7 +23,7 @@ Mounted per session (MainPane.svelte keys it), following that session's row.
   import { sessionCall } from '../features/sessions/actions.ts'
   import CreationFailed from '../features/sessions/CreationFailed.svelte'
   import { failed, sessions, terminalsList, ui } from '../features/sessions/state.svelte.ts'
-  import { activeView } from '../features/terminal/views.ts'
+  import { agentGrid } from './agentGrid.ts'
   import CreationLog from './CreationLog.svelte'
   import CreationView from './CreationView.svelte'
   import DetachedOverlay from './DetachedOverlay.svelte'
@@ -53,9 +55,9 @@ Mounted per session (MainPane.svelte keys it), following that session's row.
     return 'The session is not running yet'
   }
 
-  /** The setup strip's Skip, Retry and Start agent anyway; each sends the agent's grid. */
+  /** The setup strip's Skip, Retry and Start agent anyway; each sends the agent's grid (its pane's in the split). */
   async function setupAction(action: 'skip' | 'retry' | 'startAnyway'): Promise<void> {
-    const grid = activeView()?.grid()
+    const grid = agentGrid()
     try {
       await call('sessions.setup', { id, action, ...(grid ? { grid } : {}) })
     } catch (e) {

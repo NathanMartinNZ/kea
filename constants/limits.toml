@@ -359,7 +359,7 @@ why = "WebGL contexts alive at once, well below Chromium's ≈ 16"
 [warm_terminals]
 value = 3
 unit = "count"
-why = "other sessions' Agent terminals kept warm with WebGL"
+why = "other sessions' Agent terminals kept alive and hidden, with WebGL while the context cap leaves room"
 
 [atlas_guard_bytes]
 value = 134217728
@@ -395,6 +395,26 @@ why = "titles, bells and OSC 9/777 text truncated before display"
 value = 1
 unit = "px"
 why = "⌘+ / ⌘− change the terminal font size by this much, within terminal.fontSize's range"
+
+[agent_min_cols]
+value = 60
+unit = "cols"
+why = "the agent pane's narrowest width beside the work pane; below it the agent shows as a tab"
+
+[work_min_cols]
+value = 40
+unit = "cols"
+why = "the work pane's narrowest width beside the agent pane"
+
+[agent_first_share]
+value = 0.5
+unit = "ratio"
+why = "the agent pane's share of the main column until its divider is dragged"
+
+[terminal_scrollbar_px]
+value = 14
+unit = "px"
+why = "xterm's scrollbar track, which its fit leaves out of the columns: a pane's width in columns counts it"
 
 [terminal_link_line_max_chars]
 value = 2048

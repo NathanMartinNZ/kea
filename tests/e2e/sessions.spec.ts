@@ -228,6 +228,7 @@ test('E-TERM-6 · counters running in the Agent tabs of two sessions, the second
 
 test('E-TERM-7 · six sessions with two tabs each visited in turn, a WebGL context lost on an Agent tab: the active session’s other tab stays alive without WebGL; the warm terminals are the Agent terminals of the three most recently viewed other sessions, with WebGL; everything else is rebuilt from a snapshot; never more contexts than the cap allows', async ({ run, launch }) => {
   const kea = await launch()
+  await kea.oneColumn()
   const page = await kea.page()
   const repo = demoRepo(run)
   await addProject(kea, repo.root)
@@ -477,9 +478,9 @@ test('E-SES-7 · every holder killed while Kea is closed (a simulated reboot), r
   const resumed = ids[1]!
   await sessionMenu(again, resumed, 'session.resume')
   await waitRow(again, resumed, 'live after Resume', (r) => r.lifecycle === 'live')
-  // the new agent takes the session's one Agent tab: the lost one it replaces goes
+  // the new agent takes the agent pane: the lost one it replaces goes, and neither has a tab
   await selectSession(again, resumed)
-  await until('one Agent tab', async () => (await tabKinds(page2)).join() === 'agent' || undefined).catch(async (e) => {
+  await until('the new agent in the agent pane', async () => ((await tabKinds(page2)).length === 0 && (await page2.locator('.agent-pane .terminal-frame.ended').count()) === 0) || undefined).catch(async (e) => {
     throw new Error(`${(e as Error).message}: tabs ${JSON.stringify(await tabKinds(page2))}`)
   })
   const agent = await agentTerminal(again, resumed)

@@ -129,6 +129,8 @@ export interface ViewProbe {
   ptyId: string
   shown: boolean
   visible: boolean
+  /** The pane it is on screen in: `work`, `agent` (the split), or null. */
+  slot: 'work' | 'agent' | null
   attached: boolean
   webgl: boolean
   instance: number
@@ -158,6 +160,10 @@ export type KeaProbe = {
   focus?(v: boolean | null): void
   /** Run a command by id with an argument (tests/support/app-tabs.ts `openFile`); false when it is not available. */
   run(id: string, args?: unknown): boolean
+  /** The persisted layout with what is drawn: `split` is the panes' widths in the split, null in one column. */
+  layout(): { agentBeside: boolean; agentWidth: number | null; cellWidth: number | null; drawn: { sidebar: number; tree: number }; split: { agent: number; work: number } | null }
+  /** Change the layout as the View menu or a divider would, persisted. */
+  setLayout(patch: { agentBeside?: boolean; agentWidth?: number | null; sidebarHidden?: boolean; treeHidden?: boolean }): void
 }
 declare const __keaProbe: KeaProbe
 type TestApi = {
@@ -643,8 +649,9 @@ export class Kea {
     await page
       .waitForFunction(
         () => {
-          const host = document.querySelector('.terminal-host.shown')
-          return !!host && !!document.activeElement && host.contains(document.activeElement)
+          // one terminal on screen per pane: the one with the keyboard is any of them (the agent's, in the split)
+          const a = document.activeElement
+          return !!a && [...document.querySelectorAll('.terminal-host.shown')].some((h) => h.contains(a))
         },
         null,
         { timeout: STEP_MS },
@@ -652,7 +659,8 @@ export class Kea {
       .catch(async (e: Error) => {
         throw new Error(`the terminal on screen never took the page's keyboard: ${e.message}\n${await this.diagnosis()}`)
       })
-    await page.waitForFunction(() => document.querySelector('[role=tab].tab:not(.add)') !== null, null, { timeout: STEP_MS })
+    // a tab in the strip, or the agent pane beside a work pane that has none
+    await page.waitForFunction(() => document.querySelector('[role=tab].tab:not(.add), .agent-pane[data-pty]') !== null, null, { timeout: STEP_MS })
     await this.tellPageFocus(page)
     await this.assertUnfocused()
   }
@@ -935,9 +943,55 @@ export class Kea {
     return (await this.page()).locator('[role=tab].tab:not(.add)').count()
   }
 
-  /** The terminal on screen. */
-  async shown(): Promise<string | null> {
-    return (await this.page()).evaluate(() => document.querySelector('.terminal-host.shown')?.getAttribute('data-pty') ?? null)
+  /**
+   * The terminal on screen in `pane` (`work`, or `agent` in the split); with no pane named, the terminal with the
+   * keyboard, else the active pane's (the one that last had it) on screen. In one column there is one pane, `work`.
+   */
+  async shown(pane?: 'work' | 'agent'): Promise<string | null> {
+    return (await this.page()).evaluate((p) => {
+      const inPane = (name: string) => document.querySelector(`.terminal-area[data-pane="${name}"] .terminal-host.shown`)?.getAttribute('data-pty') ?? null
+      if (p) return inPane(p)
+      const kb = document.activeElement?.closest('.terminal-host.shown')?.getAttribute('data-pty')
+      if (kb) return kb
+      const active = document.querySelector('[data-active-pane]')?.getAttribute('data-active-pane') ?? 'work'
+      return inPane(active) ?? document.querySelector('.terminal-host.shown')?.getAttribute('data-pty') ?? null
+    }, pane ?? null)
+  }
+
+  /** The terminal with the keyboard, or null when the keyboard is anywhere else. */
+  async keyboard(): Promise<string | null> {
+    return (await this.page()).evaluate(() => document.activeElement?.closest('.terminal-host.shown')?.getAttribute('data-pty') ?? null)
+  }
+
+  /** Every terminal on screen, one per pane. */
+  async onScreen(): Promise<string[]> {
+    return (await this.page()).evaluate(() => [...document.querySelectorAll('.terminal-host.shown')].map((h) => h.getAttribute('data-pty') ?? ''))
+  }
+
+  /** The window's layout as the renderer's probe reports it. */
+  async layout(): Promise<ReturnType<KeaProbe['layout']>> {
+    return (await this.page()).evaluate(() => __keaProbe.layout())
+  }
+
+  /** Change the window's layout (the split's toggle, the agent's width, a column hidden), as the View menu would. */
+  async setLayout(patch: Parameters<KeaProbe['setLayout']>[0]): Promise<void> {
+    await (await this.page()).evaluate((p) => __keaProbe.setLayout(p), patch)
+  }
+
+  /**
+   * Show the agent as a tab (View ▸ Show Agent as a Tab), for a test of one column: the Agent tab first in the strip, one
+   * terminal on screen. Resolves once the split is not drawn.
+   */
+  async oneColumn(): Promise<void> {
+    await this.setLayout({ agentBeside: false })
+    await until('one column', async () => ((await this.layout()).split === null ? true : undefined))
+  }
+
+  /** Size the window's content as a person dragging its edge would; resolves once the page has the new width. */
+  async resize(width: number, height: number): Promise<void> {
+    await this.app.evaluate(({ BrowserWindow }, s) => BrowserWindow.getAllWindows()[0]?.setContentSize(s.width, s.height), { width, height })
+    const page = await this.page()
+    await until(`the window ${width} px wide`, () => page.evaluate((w) => window.innerWidth === w, width).then((ok) => ok || undefined))
   }
 
   /** Open a shell tab (⌘T); resolves with its ptyId once its prompt is on screen. */
@@ -957,6 +1011,12 @@ export class Kea {
   /** Make `ptyId` the terminal on screen, stepping through the tabs (⌘⇧]); the tab order is the renderer's. */
   async select(ptyId: string): Promise<void> {
     const page = await this.page()
+    // in the split the agent has a pane of its own, not a tab: its key gives that pane the keyboard
+    if ((await this.shown('agent')) === ptyId) {
+      await page.keyboard.press(sysKey('Meta+BracketRight'))
+      await until(`${ptyId} with the keyboard`, async () => (await this.shown()) === ptyId || undefined)
+      return
+    }
     const n = await this.tabCount()
     for (let i = 0; i <= n; i++) {
       if ((await this.shown()) === ptyId) return
@@ -970,7 +1030,9 @@ export class Kea {
   /** Click the tab of `ptyId` (the way a person switches with the mouse); resolves once its terminal is on screen. */
   async clickTab(ptyId: string): Promise<void> {
     const page = await this.page()
-    await page.locator(`[role=tab][data-pty="${ptyId}"]`).click({ timeout: STEP_MS })
+    // in the split the agent has a pane of its own, not a tab: a click in it gives it the keyboard
+    if ((await this.shown('agent')) === ptyId) await page.locator('.agent-pane .terminal-host.shown').click({ position: { x: 20, y: 20 }, timeout: STEP_MS })
+    else await page.locator(`[role=tab][data-pty="${ptyId}"]`).click({ timeout: STEP_MS })
     await until(`${ptyId} on screen`, async () => (await this.shown()) === ptyId || undefined)
   }
 

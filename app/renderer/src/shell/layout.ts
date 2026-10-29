@@ -4,9 +4,14 @@
 // comes back when the window is widened. Hiding is separate from width, so a hidden column comes back at its width.
 // Double-click on a divider resets that column; arrows move it by one grid step.
 //
+// On a session the main column can hold two panes side by side (the split): the work pane (terminals and files) and the
+// agent pane. It is drawn while the person keeps the agent beside (`agentBeside`) and the main column holds both panes
+// at their minimums, which are columns of the terminal font (`cellWidth`, measured for the saved font settings).
+//
 // Persisted per window as JSON in the window's local storage, so the first frame is laid out before core answers;
 // window bounds are main's (window-state.json). Every size is a token.
 
+import { L } from '@kea/protocol'
 import { SIZE_PX, SPACE_PX } from '@kea/ui/tokens'
 
 export type Column = 'sidebar' | 'tree'
@@ -22,6 +27,12 @@ export interface Layout {
   /** `⌘⇧E` pressed again with the panel focused, or Toggle File Panel. */
   treeHidden: boolean
   panelMode: PanelMode
+  /** The agent beside the work pane on a session, where the window is wide enough (the View menu's toggle). */
+  agentBeside: boolean
+  /** The agent pane's width once its divider was dragged, px; null: `agent_first_share` of the main column. */
+  agentWidth: number | null
+  /** A terminal cell's width at the saved font settings, as last measured; null before the first measurement. */
+  cellWidth: number | null
 }
 
 export const RANGE: Readonly<Record<Column, { min: number; max: number; default: number }>> = {
@@ -32,7 +43,7 @@ export const RANGE: Readonly<Record<Column, { min: number; max: number; default:
 /** One keyboard step on a divider: one unit of the spacing grid (`--space-1`). */
 export const STEP = SPACE_PX[0]
 
-export const DEFAULT_LAYOUT: Layout = { sidebarWidth: RANGE.sidebar.default, treeWidth: RANGE.tree.default, sidebarHidden: false, treeHidden: false, panelMode: 'files' }
+export const DEFAULT_LAYOUT: Layout = { sidebarWidth: RANGE.sidebar.default, treeWidth: RANGE.tree.default, sidebarHidden: false, treeHidden: false, panelMode: 'files', agentBeside: true, agentWidth: null, cellWidth: null }
 
 export function clampWidth(c: Column, w: number): number {
   const r = RANGE[c]
@@ -47,12 +58,16 @@ export function parseLayout(raw: unknown): Layout {
   const o = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>
   const num = (v: unknown, c: Column) => (typeof v === 'number' ? clampWidth(c, v) : RANGE[c].default)
   const bool = (v: unknown) => v === true
+  const px = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : null)
   return {
     sidebarWidth: num(o.sidebarWidth, 'sidebar'),
     treeWidth: num(o.treeWidth, 'tree'),
     sidebarHidden: bool(o.sidebarHidden),
     treeHidden: bool(o.treeHidden),
     panelMode: o.panelMode === 'changes' ? 'changes' : 'files',
+    agentBeside: typeof o.agentBeside === 'boolean' ? o.agentBeside : DEFAULT_LAYOUT.agentBeside,
+    agentWidth: px(o.agentWidth) === null ? null : Math.round(px(o.agentWidth)!),
+    cellWidth: px(o.cellWidth),
   }
 }
 
@@ -80,12 +95,20 @@ export function drawn(l: Layout, windowWidth: number): Drawn {
   return { sidebar, tree, treeAuto }
 }
 
-/** A drag on a column's right divider: `from` is its drawn width when the drag began, `dx` the pointer's travel. */
-export function dragTo(l: Layout, c: Column, from: number, dx: number, windowWidth: number): Layout {
+/** The main column's width as drawn. */
+export function mainWidth(l: Layout, windowWidth: number): number {
+  const d = drawn(l, windowWidth)
+  return windowWidth - d.sidebar - d.tree
+}
+
+/**
+ * A drag on a column's right divider: `from` is its drawn width when the drag began, `dx` the pointer's travel. It never
+ * pushes the main column below `mainMin`: `main-min`, or the split's need while the split is drawn.
+ */
+export function dragTo(l: Layout, c: Column, from: number, dx: number, windowWidth: number, mainMin: number = SIZE_PX['main-min']): Layout {
   const d = drawn(l, windowWidth)
   const other = c === 'sidebar' ? d.tree : d.sidebar
-  // never push the main column below its minimum by dragging
-  const room = windowWidth - SIZE_PX['main-min'] - other
+  const room = windowWidth - Math.max(mainMin, SIZE_PX['main-min']) - other
   const w = clampWidth(c, Math.min(from + dx, Math.max(RANGE[c].min, room)))
   return w === l[key(c)] ? l : { ...l, [key(c)]: w }
 }
@@ -96,8 +119,8 @@ export function resetWidth(l: Layout, c: Column): Layout {
 }
 
 /** Arrow keys on a focused divider: one grid step narrower (-1) or wider (1). */
-export function stepWidth(l: Layout, c: Column, dir: -1 | 1, windowWidth: number): Layout {
-  return dragTo(l, c, drawn(l, windowWidth)[c], dir * STEP, windowWidth)
+export function stepWidth(l: Layout, c: Column, dir: -1 | 1, windowWidth: number, mainMin: number = SIZE_PX['main-min']): Layout {
+  return dragTo(l, c, drawn(l, windowWidth)[c], dir * STEP, windowWidth, mainMin)
 }
 
 export function toggleSidebar(l: Layout): Layout {
@@ -112,10 +135,116 @@ export function setPanelMode(l: Layout, mode: PanelMode): Layout {
   return l.panelMode === mode ? l : { ...l, panelMode: mode }
 }
 
+// ── the split: the work pane and the agent pane side by side in the main column ──────────────────────────────
+
+/** The panes' widths, px; the divider's 1 px line is inside the agent pane's. */
+export interface Split {
+  agent: number
+  work: number
+}
+
+/** px for `cols` terminal columns of `cell` px: the terminal's padding, xterm's scrollbar track, and a border `line`. */
+export function paneWidth(cols: number, cell: number, line = 0): number {
+  return Math.ceil(cols * cell + 2 * SIZE_PX['terminal-pad-x'] + L.terminalScrollbarPx + line)
+}
+
+/** The columns a pane `width` px wide holds (the inverse of `paneWidth`). */
+export function paneCols(width: number, cell: number, line = 0): number {
+  return Math.max(0, Math.floor((width - 2 * SIZE_PX['terminal-pad-x'] - L.terminalScrollbarPx - line) / cell))
+}
+
+/** What the split needs of the main column: each pane at its minimum in columns, at the saved font's cell width. */
+export function splitNeed(cell: number): { agent: number; work: number; total: number } {
+  const agent = paneWidth(L.agentMinCols, cell, SIZE_PX.hairline)
+  const work = paneWidth(L.workMinCols, cell)
+  return { agent, work, total: agent + work }
+}
+
+/**
+ * Whether the split is drawn in a main column `main` px wide: the person keeps the agent beside (`agentBeside`) and the
+ * column holds the need. Drawn, it stays until the column falls below the need; one column becomes the split only at
+ * the need plus `split-hysteresis`, so a live drag of the window's edge does not flap. A window's first frame (`was`
+ * null) has no band. While a divider is dragged the mode does not change: it is decided on release.
+ */
+export function splitOn(l: Layout, main: number, cell: number, was: boolean | null, resizing: boolean): boolean {
+  if (!l.agentBeside) return false
+  if (resizing && was !== null) return was
+  const need = splitNeed(cell).total
+  if (was === true || was === null) return main >= need
+  return main >= need + SIZE_PX['split-hysteresis']
+}
+
+/** What the split's mode was at the evaluation before: drawn or not, and chosen or not. */
+export interface SplitWas {
+  drew: boolean
+  chose: boolean
+}
+
+/**
+ * Whether the split is drawn now, from what it was at the evaluation before (`last`; null before the first frame). The
+ * band is for a column that changes width: the split just chosen shows wherever the column holds the need, as on a
+ * window's first frame.
+ */
+export function splitMode(l: Layout, main: number, cell: number, last: SplitWas | null, resizing: boolean): boolean {
+  const was = last === null || (l.agentBeside && !last.chose) ? null : last.drew
+  return splitOn(l, main, cell, was, resizing)
+}
+
+/** Why View ▸ Show Agent Beside Terminals is unavailable: the main column cannot hold the split. */
+export const AGENT_PANE_TOO_NARROW = 'The window is too narrow to show the agent beside terminals'
+
+/**
+ * View ▸ Show Agent Beside Terminals / Show Agent as a Tab: its title for the person's choice, and whether the main
+ * column holds the split now (it is unavailable while not; the choice is kept, and the split appears once it does).
+ */
+export function agentPaneToggle(l: Layout, windowWidth: number, cell: number): { title: string; fits: boolean } {
+  return { title: l.agentBeside ? 'Show Agent as a Tab' : 'Show Agent Beside Terminals', fits: mainWidth(l, windowWidth) >= splitNeed(cell).total }
+}
+
+/**
+ * The panes' widths in the split: the agent's stored width (once its divider was dragged), else `agent_first_share`
+ * of the main column; never narrower than its need, and giving way so the work pane keeps its own.
+ */
+export function splitWidths(l: Layout, main: number, cell: number): Split {
+  const need = splitNeed(cell)
+  const want = l.agentWidth ?? Math.round(main * L.agentFirstShare)
+  const agent = Math.max(need.agent, Math.min(want, main - need.work))
+  return { agent, work: main - agent }
+}
+
+/** A drag on the agent pane's divider: `from` is its drawn width when the drag began, `dx` the pointer's travel (left widens it). */
+export function dragAgent(l: Layout, from: number, dx: number, main: number, cell: number): Layout {
+  const need = splitNeed(cell)
+  const w = Math.round(Math.max(need.agent, Math.min(from - dx, main - need.work)))
+  return w === l.agentWidth ? l : { ...l, agentWidth: w }
+}
+
+/** Double-click on the agent pane's divider: its width is forgotten, `agent_first_share` again. */
+export function resetAgentWidth(l: Layout): Layout {
+  return l.agentWidth === null ? l : { ...l, agentWidth: null }
+}
+
+/** Arrow keys on the focused agent divider: ← moves it left (the agent wider), → right. */
+export function stepAgent(l: Layout, dir: -1 | 1, main: number, cell: number): Layout {
+  return dragAgent(l, splitWidths(l, main, cell).agent, dir * STEP, main, cell)
+}
+
+export function setAgentBeside(l: Layout, on: boolean): Layout {
+  return l.agentBeside === on ? l : { ...l, agentBeside: on }
+}
+
+/** The cell width measured for the saved font settings (`measureCell`). */
+export function setCellWidth(l: Layout, cell: number): Layout {
+  return l.cellWidth === cell || !(cell > 0) ? l : { ...l, cellWidth: cell }
+}
+
 // ── focus regions ────────────────────────────────────────────────────────────────────────────
 
-/** The window's focus regions in focus order: sidebar, file panel, header, the main pane (terminal or prompt). */
-export const REGIONS = ['sidebar', 'files', 'header', 'main'] as const
+/**
+ * The window's focus regions in focus order: sidebar, file panel, header, the main pane (the terminal, file or prompt
+ * it shows; in the split, the work pane), and the agent pane while the split is drawn.
+ */
+export const REGIONS = ['sidebar', 'files', 'header', 'main', 'agent'] as const
 export type Region = (typeof REGIONS)[number]
 
 /** F6 / ⇧F6: the region `step` away from `current` that `can` take focus, wrapping; null when no other region can. */

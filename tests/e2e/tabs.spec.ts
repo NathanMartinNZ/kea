@@ -12,6 +12,7 @@ import { sysKey } from '../support/keys.ts'
 
 test('E-TERM-12 · files opened in a session: the preview tab is reused until pinned, ↵ pins it, ⌘⇧] steps through terminals and file tabs alike, ⌘T from a file tab shows the new shell, Esc and ⌘W close a file tab back to the Agent terminal; the session’s terminals stay alive under a file tab and its tabs are there after the pane was away', async ({ run, launch }) => {
   const kea = await launch()
+  await kea.oneColumn()
   const page = await kea.page()
   await kea.pretendFocused(true)
   const repo = demoRepo(run)
@@ -100,6 +101,7 @@ test('E-TERM-12 · files opened in a session: the preview tab is reused until pi
 
 test('E-TERM-14 · a closable tab has a close button: shell and file tabs show it when active or under the pointer, the Agent tab has none; a click on it closes that tab, not the one on screen, an idle shell at once, a shell running a program after the same question as ⌘W; the keyboard stays in the terminal on screen', async ({ run, launch }) => {
   const kea = await launch()
+  await kea.oneColumn()
   const page = await kea.page()
   await kea.pretendFocused(true)
   const repo = demoRepo(run)

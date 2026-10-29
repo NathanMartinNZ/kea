@@ -124,7 +124,8 @@ steps:
   const hash = createHash('sha256').update(JSON.stringify(started.argv)).digest('hex')
   expect(started.argvHash).toBe(hash)
   await agentFocused(kea)
-  await kea.waitScreen('the agent’s screen with its argv hash', (s) => s.includes(`fake-agent argv sha256=${hash}`) && s.includes('Working'))
+  // (a frame is cut at the pane's width, and the agent pane may be at its narrowest: the hash's first half is on screen)
+  await kea.waitScreen('the agent’s screen with its argv hash', (s) => s.includes(`fake-agent argv sha256=${hash.slice(0, 32)}`) && s.includes('Working'))
 
   // a key ends the turn: the row leaves `working`
   await kea.press('x')
@@ -159,7 +160,8 @@ steps:
   expect(promptOf(started), 'the prompt, one argv element, byte for byte').toBe(hostile)
   expect(Buffer.from(promptOf(started)!, 'utf8').equals(Buffer.from(hostile, 'utf8'))).toBe(true)
   await agentFocused(kea)
-  await kea.waitScreen('the agent running', (s) => s.includes(`fake-agent argv sha256=${started.argvHash}`))
+  // (the frame is cut at the pane's width: the hash's first half is on screen)
+  await kea.waitScreen('the agent running', (s) => s.includes(`fake-agent argv sha256=${started.argvHash.slice(0, 32)}`))
   expect(fs.existsSync(marker), 'nothing in the prompt ran').toBe(false)
   await kea.assertUnfocused()
 })

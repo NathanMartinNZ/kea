@@ -37,8 +37,8 @@ const FLOOD_BYTES = 4 * L.streamSkipAheadBytes
 const STORM_TITLES = 10_000
 
 /**
- * Record every text the tab of `ptyId` shows from now on (a MutationObserver runs after each commit, so no state the
- * tab passes through is missed); returns a reader.
+ * Record every title the tab of `ptyId` shows in its tooltip from now on, where a shell tab shows what its program set
+ * (a MutationObserver runs after each commit, so no state the tab passes through is missed); returns a reader.
  */
 async function watchTab(kea: Kea, ptyId: string): Promise<() => Promise<string[]>> {
   const page = await kea.page()
@@ -46,11 +46,11 @@ async function watchTab(kea: Kea, ptyId: string): Promise<() => Promise<string[]
     const tab = document.querySelector(`[role=tab][data-pty="${id}"]`)
     if (!tab) throw new Error(`no tab for ${id}`)
     const seen: string[] = [] // bounded: one entry per change of one tab during one test
-    let last = tab.textContent ?? ''
+    let last = tab.getAttribute('data-tip') ?? ''
     new MutationObserver(() => {
-      const now = tab.textContent ?? ''
+      const now = tab.getAttribute('data-tip') ?? ''
       if (now !== last) seen.push((last = now))
-    }).observe(tab, { childList: true, subtree: true, characterData: true })
+    }).observe(tab, { attributes: true, attributeFilter: ['data-tip'] })
     ;(window as unknown as { __keaTabTitles: string[] }).__keaTabTitles = seen
   }, ptyId)
   return () => page.evaluate(() => [...(window as unknown as { __keaTabTitles: string[] }).__keaTabTitles])
@@ -257,7 +257,7 @@ describe('window and connection leaks (app)', () => {
     const storm = await kea.newTab()
     const fifos = { flood: path.join(run.home, 'flood.fifo'), storm: path.join(run.home, 'storm.fifo') }
     for (const f of Object.values(fifos)) expect((await runProcess('/usr/bin/mkfifo', [f], { pool: 'other' })).code).toBe(0) // os-ok: in /usr/bin on both systems
-    // the title storm: OSC 2 titles go ptyhost → core's terminals store → the tab strip (latest wins)
+    // the title storm: OSC 2 titles go ptyhost → core's terminals store → the tab's tooltip (latest wins)
     await kea.enter(`read x < ${fifos.storm} && for i in {1..${STORM_TITLES}}; do printf '\\e]2;t%d\\a' $i; done; echo storm-$((40+2))`)
     await kea.select(flood as string)
     await kea.enter(`read x < ${fifos.flood} && ${zooShellCommand('flood', ['--bytes', String(FLOOD_BYTES)])} && echo flood-$((40+2))`)
@@ -285,7 +285,7 @@ describe('window and connection leaks (app)', () => {
     }
     expect((await kea.processes()).renderer?.pid, 'the same renderer resumed').toBe(renderer.pid)
     await kea.waitScreen('the end of the flood', (s) => s.includes('flood-42'))
-    await until('the last title on the tab', async () => (await (await kea.page()).locator('[role=tab]', { hasText: `t${STORM_TITLES}` }).count()) === 1 || undefined)
+    await until('the last title on the tab', async () => (await (await kea.page()).locator(`[role=tab][data-tip="t${STORM_TITLES}"]`).count()) === 1 || undefined)
     const sent = await kea.debug<{ snapshots: number; dataBytes: number }>('ptyhost', 'streams')
     expect(sent.snapshots, 'caught up by snapshot').toBeGreaterThan(0)
     // the stream's back-pressure, exactly: at most a credit window per stream while frozen, then a snapshot and only

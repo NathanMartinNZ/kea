@@ -9,7 +9,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fixtureGitEnv } from '@kea-tools/repo-factory/src/index.ts'
 import { writeAgentShim } from '../../tools/fake-agent/src/index.ts'
-import { STEP_MS, until, writeFifo, type Kea, type KeaRun } from '../support/app.ts'
+import { PROMPT, STEP_MS, until, writeFifo, type Kea, type KeaRun } from '../support/app.ts'
 import { addProject, agentTerminal, demoRepo, paneSession, projectRow, promptBox, rowState, selectSession, sessionMenu, startSession, tabKinds, tabOf, waitLive, waitRow } from '../support/app-sessions.ts'
 import { skipNote } from '../support/skip.ts'
 import { sysLabel } from '../support/keys.ts'
@@ -158,7 +158,7 @@ test('E-SES-5 · first ⌘Q with a live session: the sheet (Keep in Menu Bar the
   expect(run.holderAlive(run.holder(agent)), 'the agent runs on').toBe(true)
 })
 
-test('E-SES-6 · the agent exits while Kea is closed: on relaunch the session is detached, its last screen dimmed under the overlay (Session ended · Resume ↵ · Restart ⌘↵); ↵ in the terminal resumes it through the agent’s resume path and the new agent takes the one Agent tab', async ({ run, launch }) => {
+test('E-SES-6 · the agent exits while Kea is closed: on relaunch the session is detached, its last screen dimmed under the overlay (Session ended · Resume ↵ · Restart ⌘↵); ↵ in the terminal resumes it through the agent’s resume path and the new agent takes the agent pane, with no tab of its own', async ({ run, launch }) => {
   const kea = await launch()
   const repo = demoRepo(run)
   await addProject(kea, repo.root)
@@ -196,9 +196,12 @@ test('E-SES-6 · the agent exits while Kea is closed: on relaunch the session is
   await page.keyboard.press('Enter')
   await waitRow(again, id, 'live after Resume', (r) => r.lifecycle === 'live')
   await until('the agent launched through the resume path', () => again.logLines('core').some((l) => l.msg === 'agent launched' && l.sessionId === id && l.how === 'resume') || undefined)
-  await until('one Agent tab', async () => (await tabKinds(page)).join() === 'agent' || undefined)
-  const next = await agentTerminal(again, id)
-  expect(next, 'a new agent PTY').not.toBe(agent)
+  const next = await until('the new agent in the agent pane', async () => {
+    const pty = await again.shown('agent')
+    return pty !== null && pty !== agent ? pty : undefined
+  })
+  expect(await tabKinds(page), 'no tab for the agent, none for the old one').toEqual([])
+  await until('the new agent’s prompt', async () => (await again.terminalText(next)).includes(PROMPT) || undefined)
   await expect(overlay, 'no overlay over a running agent').toHaveCount(0)
   await again.echo('resumed')
   await again.assertUnfocused()

@@ -1,10 +1,11 @@
-// What the window is viewing, for status (`isBeingViewed`: the session selected, the window focused, its Agent tab the
-// visible tab). Core starts the dwell (L.viewedDwellMs) when told, marks the session read, and keeps notifications off
-// it; the window tells it on every change, and null when nothing is viewed (another tab, the composer, the
-// window unfocused). A runes store: ids and small values only.
+// What the window is viewing, for status (`isBeingViewed`, decided by `viewed.ts`). Core starts the dwell
+// (L.viewedDwellMs) when told, marks the session read, and keeps notifications off it; the window tells it on every
+// change, and null when nothing is viewed (another tab, the composer, the window unfocused). A runes store: ids and
+// small values only.
 //
-//   shown      the tab the terminal pane shows: its session and kind — a terminal's, or `file` / `diff` for a viewer
-//              tab, which is never the Agent tab (`TerminalPane.svelte` reports it)
+//   shown      the tab the terminal pane shows (the work pane's in the split): its session and kind — a terminal's, or
+//              `file` / `diff` for a viewer tab, which is never the Agent tab (`TerminalPane.svelte` reports it)
+//   agentPane  the session whose agent pane is drawn beside the work pane (the split), else null
 //   agentTab   a request to show a session's Agent tab (a notification's click or a menu-bar pick; a reference
 //              sent from the viewer) or its Server tab (Show Server Log); the pane of that session follows it
 //   focus      `document.hasFocus()`, or the test probes' stand-in (a test window can never take keyboard focus)
@@ -14,10 +15,12 @@ import { onCoreConnection } from '../../lib/bridge.ts'
 import { watch } from '../../lib/reactive.svelte.ts'
 import { call } from '../../lib/rpc.ts'
 import { sessions, ui } from '../sessions/state.svelte.ts'
+import { viewed } from './viewed.ts'
 
 class ViewingState {
   focused = $state(false)
   shown = $state.raw<{ context: string; kind: PtyKind | ViewMode | null } | null>(null)
+  agentPane = $state<string | null>(null)
   agentTab = $state.raw<{ sessionId: string; seq: number; kind: 'agent' | 'server' } | null>(null)
 }
 
@@ -41,6 +44,13 @@ export function reportShownTab(context: string, kind: PtyKind | ViewMode | null)
 /** The terminal pane of `context` went. */
 export function clearShownTab(context: string): void {
   if (viewingState.shown?.context === context) viewingState.shown = null
+  if (viewingState.agentPane === context) viewingState.agentPane = null
+}
+
+/** The session's agent pane is drawn beside its work pane (true), or not (one column, the pane gone). */
+export function reportAgentPane(context: string, drawn: boolean): void {
+  if (drawn) viewingState.agentPane = context
+  else if (viewingState.agentPane === context) viewingState.agentPane = null
 }
 
 /** Show this session's Agent tab (its pane follows the request). */
@@ -60,14 +70,10 @@ export function takeAgentTab(sessionId: string): boolean {
   return true
 }
 
-/** The session being viewed now, or null. A detached session with no Agent tab left counts when shown. */
+/** The session being viewed now, or null. */
 export function viewedSession(): string | null {
-  const p = ui.pane
-  if (p.kind !== 'session' || !viewingState.focused) return null
-  const shown = viewingState.shown
-  if (shown?.context !== p.id) return null
-  if (shown.kind === 'agent') return p.id
-  return shown.kind === null && sessions.get(p.id)?.lifecycle !== 'live' ? p.id : null
+  const { focused, agentPane, shown } = viewingState
+  return viewed({ pane: ui.pane, focused, agentPane, shown, live: (id) => sessions.get(id)?.lifecycle === 'live' })
 }
 
 let installed = false

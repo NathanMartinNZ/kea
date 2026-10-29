@@ -41,6 +41,11 @@ export interface PerfResult {
   values: Record<string, number>
   checks: Check[]
   notes?: string[]
+  /**
+   * The window's size the run had (CSS px), for a result of the app: compositor buffers grow with the window, so a
+   * result is compared only with a previous one of the same size.
+   */
+  window?: { width: number; height: number }
 }
 
 export interface PerfEnv {
@@ -62,7 +67,7 @@ export interface Entry extends PerfResult {
   at: string
   env: PerfEnv
   pass: boolean
-  previous: { at: string; values: Record<string, number>; checks: Check[]; pass: boolean } | null
+  previous: { at: string; values: Record<string, number>; checks: Check[]; pass: boolean; window?: { width: number; height: number } } | null
 }
 
 export interface LastJson {
@@ -135,7 +140,10 @@ export function recordResult(r: PerfResult, o: { file?: string; env?: PerfEnv; a
   const file = o.file ?? LAST_JSON
   const last = readLast(file)
   const before = last.results[r.id]
-  const prior = before && before.checks.length ? { at: before.at, values: before.values, checks: before.checks, pass: before.pass } : (before?.previous ?? null)
+  const found = before && before.checks.length ? { at: before.at, values: before.values, checks: before.checks, pass: before.pass, ...(before.window ? { window: before.window } : {}) } : (before?.previous ?? null)
+  // a run at another window size is not compared with this one
+  const sameSize = (a?: { width: number; height: number }, b?: { width: number; height: number }) => a?.width === b?.width && a?.height === b?.height
+  const prior = found && sameSize(found.window, r.window) ? found : null
   const entry: Entry = { ...r, at: (o.at ?? new Date()).toISOString(), env: o.env ?? perfEnv(), pass: r.checks.length > 0 && r.checks.every((c) => c.pass), previous: prior }
   last.results[r.id] = entry
   last.updated = entry.at

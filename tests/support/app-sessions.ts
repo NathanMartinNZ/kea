@@ -131,7 +131,8 @@ export async function paneSession(page: Page): Promise<string | null> {
 /** The ptyId of the shown session's tab of `kind` (agent, setup, shell…), once it is there. */
 export async function tabOf(kea: Kea, kind: string): Promise<string> {
   const page = await kea.page()
-  return until(`a ${kind} tab`, () => page.evaluate((k) => document.querySelector(`[role=tablist][aria-label=Terminals] [role=tab][data-kind="${k}"]`)?.getAttribute('data-pty') ?? undefined, kind))
+  // in the split the Agent terminal has no tab: the agent pane names it
+  return until(`a ${kind} tab`, () => page.evaluate((k) => document.querySelector(`[role=tablist][aria-label=Terminals] [role=tab][data-kind="${k}"], .agent-pane[data-kind="${k}"][data-pty]`)?.getAttribute('data-pty') ?? undefined, kind))
 }
 
 /** The kinds of the shown session's tabs, in strip order (`agent`, `shell`, `script`). */
@@ -145,15 +146,15 @@ export async function activeTabKind(page: Page): Promise<string | null> {
 }
 
 /**
- * Show a session and wait until its Agent tab is on screen with the shell pseudo-agent's prompt; resolves with the
- * agent's ptyId.
+ * Show a session and wait until its Agent terminal is on screen (its tab in one column, the agent pane in the split)
+ * with the shell pseudo-agent's prompt; resolves with the agent's ptyId.
  */
 export async function agentTerminal(kea: Kea, id: string): Promise<string> {
   const page = await kea.page()
   if ((await paneSession(page)) !== id) await selectSession(kea, id)
   const pty = await tabOf(kea, 'agent')
-  await until('the Agent terminal on screen', async () => (await kea.shown()) === pty || undefined)
-  await kea.waitScreen('the agent shell’s prompt', (s) => s.includes(PROMPT))
+  await until('the Agent terminal on screen', async () => (await kea.onScreen()).includes(pty) || undefined)
+  await until('the agent shell’s prompt', async () => (await kea.terminalText(pty)).includes(PROMPT) || undefined)
   return pty
 }
 

@@ -4,6 +4,7 @@
 import type { Project } from '@kea/protocol'
 import { pickFolder, reveal } from '../../lib/bridge.ts'
 import { call } from '../../lib/rpc.ts'
+import { agentGrid } from '../../shell/agentGrid.ts'
 import { listed, moveIndex, orderProjects, orderSessions } from './model.ts'
 import { failed, openComposer, projects, selectSession, sessions, ui } from './state.svelte.ts'
 
@@ -139,10 +140,11 @@ export async function duplicateSession(id: string): Promise<void> {
   }
 }
 
-/** A session call that only needs its id, with its failure toasted. */
+/** A session call that only needs its id, with its failure toasted. One that starts an agent sends the agent's grid. */
 export async function sessionCall(method: 'sessions.stop' | 'sessions.resume' | 'sessions.restart' | 'sessions.unarchive' | 'sessions.retry' | 'sessions.discard' | 'sessions.recreateWorktree' | 'sessions.retryTeardown', id: string, what: string): Promise<void> {
   try {
-    await call(method, { id })
+    const grid = method === 'sessions.resume' || method === 'sessions.restart' || method === 'sessions.retry' ? agentGrid() : undefined
+    await call(method, { id, ...(grid ? { grid } : {}) })
   } catch (e) {
     failed(`Couldn't ${what}`, e)
   }

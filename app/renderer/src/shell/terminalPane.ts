@@ -1,6 +1,7 @@
 // What the terminal pane (`TerminalPane.svelte`) keeps beyond one mount: the `shells` context of plain shell tabs, the
-// tab each session showed last and what the session itself is known to remember of it, the tab order, and the tabs'
-// titles and tooltips.
+// tab each session showed last (in one column, and in the work pane of the split) and what the session itself is known
+// to remember of it, the pane of the split that last had the keyboard, the tab order, and the tabs' titles and
+// tooltips.
 
 import type { PtyInfo } from '@kea/protocol'
 import { terminalText } from '../features/terminal/text.ts'
@@ -26,8 +27,14 @@ export function opensFirstShell(restored: { shells: number; sessions: number }, 
   return restored.shells === 0 && restored.sessions === 0 && !anyListed
 }
 
-/** The tab a session last showed, per session (switching back restores it). */
+/** The tab a session last showed in one column, per session (switching back restores it). */
 export const lastActive = new Map<string, string>() // bounded: one entry per session shown, dropped with the session
+
+/** The tab a session's work pane last showed in the split, per session. */
+export const lastWork = new Map<string, string>() // bounded: one entry per session shown, dropped with the session
+
+/** The pane of the split that last had the keyboard, per session; a session not in here starts with the agent's. */
+export const activePanes = new Map<string, 'work' | 'agent'>() // bounded: one entry per session shown, dropped with the session
 
 /**
  * What each session's saved panel state is known to hold as its tab (`session_ui`'s `tabs` key, read once when the
@@ -38,17 +45,17 @@ export const savedTab = new Map<string, TabMemory | null>() // bounded: one entr
 
 /** Sessions the window remembers a tab of, its own or the session's saved one (the resource report). */
 export function tabMemory(): number {
-  let n = lastActive.size
-  for (const id of savedTab.keys()) if (!lastActive.has(id)) n++
-  return n
+  const ids = new Set([...lastActive.keys(), ...lastWork.keys(), ...activePanes.keys(), ...savedTab.keys()])
+  return ids.size
 }
 
 export function forgetTabs(exists: (sessionId: string) => boolean): void {
   for (const id of [...lastActive.keys()]) if (id !== SHELLS_CONTEXT && !exists(id)) lastActive.delete(id)
+  for (const m of [lastWork, activePanes]) for (const id of [...m.keys()]) if (!exists(id)) m.delete(id)
   for (const id of [...savedTab.keys()]) if (!exists(id)) savedTab.delete(id)
 }
 
-/** A tab's order in the strip: Agent first, then setup, server and shells in the order they came. */
+/** A tab's order in the strip: Agent first (in one column; the split shows it beside), then setup, server and shells in the order they came. */
 export const KIND_ORDER: Record<PtyInfo['kind'], number> = { agent: 0, script: 1, server: 2, shell: 3 }
 
 export function byKind(list: readonly PtyInfo[], id: string): PtyInfo['kind'] {

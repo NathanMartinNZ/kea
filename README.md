@@ -143,9 +143,11 @@ Terminals still running keep running after Kea is gone.
    branch of its own unless you turn Worktree off in the composer; a plain folder runs its sessions in place.
 2. **Start a session:** `⌘N`, describe the task, change the agent, model or permission mode if the defaults do not
    suit, then `⌘↵`. `⌥⌘↵` starts it in the background and keeps the composer open for the next task.
-3. **Work with it:** the Agent tab is the CLI's own terminal; `⌘T` opens a shell in the same folder; Files and Changes
-   show what the agent did; `⌘R` runs the dev server (the project's run command, or `start.sh` in the worktree);
-   `⇧⌘O` opens the worktree in your editor.
+3. **Work with it:** the agent's own CLI runs on the right, beside a pane for your shells and files: `⌘T` opens a shell
+   in the same folder, a file from Files or Changes opens there too, and `⌘[` / `⌘]` move between the two (on Linux
+   `Ctrl+Shift+Page Up` / `Page Down`). In a narrow window, or with View ▸ Show Agent as a Tab, the agent is the first
+   tab instead. `⌘R` runs the dev server (the project's run command, or `start.sh` in the worktree); `⇧⌘O` opens the
+   worktree in your editor.
 
 By default `⌘Q` closes the window and keeps Kea in the menu bar, so notifications and the count of sessions that need
 you keep working; `⌥⌘Q` quits completely. On Linux, `Ctrl+Shift+Q` closes the window and Kea keeps running in the

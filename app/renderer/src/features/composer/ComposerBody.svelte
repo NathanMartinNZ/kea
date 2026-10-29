@@ -38,6 +38,7 @@ Locatable as: `region` "New session", `textbox` "Prompt", `switch` "Worktree", `
   import './composer.css'
   import { primaryDown, primaryHeld, primaryLabel } from '../commands/keys.ts'
   import { claimSelectorKeys, type Selector } from './keys.ts'
+  import { agentGrid } from '../../shell/agentGrid.ts'
   import { afterStart, agentLabel, agentProblem, applicable, createArgs, duplicateDraft, fitConfig, insertPaths, isolationDefault, isolationLockReason, knobs, shownModel, startBlocker, validateArgs, withAgent, type Draft } from './state.ts'
 
   installAgents()
@@ -191,7 +192,9 @@ Locatable as: `region` "New session", `textbox` "Prompt", `switch` "Worktree", `
     if (blocker || starting) return
     starting = true
     try {
-      const r = await call('sessions.create', createArgs(projectId, { ...draft, config }))
+      // the agent starts at its pane's grid (the agent pane's in the split)
+      const grid = agentGrid()
+      const r = await call('sessions.create', { ...createArgs(projectId, { ...draft, config }), ...(grid ? { grid } : {}) })
       // The choices live on in lastLaunch; the draft goes. A background start keeps the composer open
       const next = afterStart(drafts, projectId, draft, background)
       if (next) {

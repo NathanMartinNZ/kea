@@ -91,6 +91,7 @@ const selectedTab = (kea: Kea): Promise<string | null> => kea.page().then((page)
 test('E-TERM-13 · a session’s tab comes back with its window: closed on the first of its two shell tabs and reopened from the Dock, the window shows that shell again, the tabs in their order, and a session left on its Agent tab shows its Agent tab, not its last; the same after a reload, where a session moved back to its Agent tab stays there; and after Kea is quit and started again', async ({ run, launch }) => {
   test.setTimeout(120_000)
   const kea = await launch()
+  await kea.oneColumn()
   const repo = demoRepo(run)
   await addProject(kea, repo.root)
 

@@ -39,4 +39,15 @@ describe('perf results (tools/perf/last.json)', () => {
     expect(table).toMatch(/\| P-TERM-4 \| mbPerS \| ≥ 10 MB\/s \| 60 \| 500 % \| — \| yes \|/)
     expect(summaryTable(last, { ids: (id) => id === 'P-TERM-4' })).not.toContain('P-TERM-1')
   })
+
+  it('U-PERF-3 · a result of the app records the window size it ran at, and is compared only with a previous one of the same size', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kea-perf-record-'))
+    dirs.push(dir)
+    const file = path.join(dir, 'last.json')
+    const at = (width: number) => ({ id: 'P-MEM-1', metric: 'm', method: 'x', values: { mb: width / 10 }, checks: [check('mb', width / 10, 400, 'max', 'MB')], window: { width, height: 1000 } })
+    expect(recordResult(at(1600), { file, env }).previous).toBeNull()
+    expect(recordResult(at(1600), { file, env }).previous?.window, 'the same size: compared').toEqual({ width: 1600, height: 1000 })
+    expect(recordResult(at(1512), { file, env }).previous, 'shrunk to a smaller display: not compared').toBeNull()
+    expect(readLast(file).results['P-MEM-1']?.window).toEqual({ width: 1512, height: 1000 })
+  })
 })

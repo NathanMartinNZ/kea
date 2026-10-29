@@ -41,6 +41,7 @@ is a `separator` "Resize sidebar" / "Resize file panel" with its width as its va
   import ConditionsFooter from '../features/status/ConditionsFooter.svelte'
   import SessionPopover from '../features/status/SessionPopover.svelte'
   import { statusUi } from '../features/status/ui.svelte.ts'
+  import { viewingState } from '../features/status/viewing.svelte.ts'
   import { registerViewerCommands } from '../features/viewer/commands.ts'
   import Banners from './Banners.svelte'
   import Divider from './Divider.svelte'
@@ -187,10 +188,10 @@ is a `separator` "Resize sidebar" / "Resize file panel" with its width as its va
     <MainPane />
   </section>
   {#if d.sidebar > 0}
-    <Divider column="sidebar" x={d.sidebar} label="Resize sidebar" />
+    <Divider column="sidebar" x={d.sidebar} label="Resize sidebar" splitDrawn={viewingState.agentPane !== null} />
   {/if}
   {#if d.tree > 0}
-    <Divider column="tree" x={d.sidebar + d.tree} label="Resize file panel" />
+    <Divider column="tree" x={d.sidebar + d.tree} label="Resize file panel" splitDrawn={viewingState.agentPane !== null} />
   {/if}
   <Menus />
   <TerminalMenu />

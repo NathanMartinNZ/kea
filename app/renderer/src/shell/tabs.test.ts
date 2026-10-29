@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { L, type PtyKind } from '@kea/protocol'
 import { EMPTY_VIEW, type TabViewState } from '../features/viewer/tab.ts'
-import { closeFileTab, fileTabId, fileTabTitle, homeTab, isFileTabId, NO_FILE_TABS, openFileTab, parseTabMemory, pickActive, pickActiveTab, pinFileTab, rememberTab, sameTabMemory, savedTabs, saveFileTabView, startTab, stripOrder, viewFileTab, type FileTabs } from './tabs.ts'
+import { afterClose, afterGone, closeFileTab, fileTabId, fileTabTitle, homeTab, isFileTabId, NO_FILE_TABS, openFileTab, parseTabMemory, pickActive, pickActiveTab, pinFileTab, rememberTab, sameTabMemory, savedTabs, saveFileTabView, startTab, stripOrder, tabToColumn, tabToSplit, viewFileTab, workTabs, type FileTabs } from './tabs.ts'
 
 /** Open paths one after another (as file views unless said), keeping the tabs. */
 function opened(paths: readonly string[], o: { pin?: boolean; from?: FileTabs } = {}): FileTabs {
@@ -216,5 +216,85 @@ describe('the strip with every kind of tab', () => {
     s = pickActiveTab(['agent1'], [], { active: ids[0]!, wanted: 'shell1' }, 'agent1')
     expect(s).toEqual({ active: 'agent1', wanted: 'shell1' })
     expect(pickActiveTab(['agent1', 'shell1'], [], s, 'agent1')).toEqual({ active: 'shell1', wanted: null })
+  })
+})
+
+describe('the work pane of the split', () => {
+  const kinds: Record<string, PtyKind> = { agent1: 'agent', setup1: 'script', server1: 'server', shell1: 'shell', shell2: 'shell' }
+  const kindOf = (id: string) => kinds[id]
+  const terminals = ['agent1', 'setup1', 'server1', 'shell1', 'shell2']
+
+  it('U-TERM-61 · its shown terminal leaves: the nearest tab before it that is still there, else the nearest after; none when nothing is left or it was not in the strip', () => {
+    const before = ['server1', 'shell1', 'shell2', 'shell3', fileTabId('a.ts'), fileTabId('b.ts')]
+    const without = (...gone: string[]) => before.filter((x) => !gone.includes(x))
+    // a shell between others: the one before it, not the last
+    expect(afterGone(before, 'shell1', without('shell1'))).toBe('server1')
+    expect(afterGone(before, 'shell2', without('shell2'))).toBe('shell1')
+    // the one before went too: the nearest before it still there
+    expect(afterGone(before, 'shell2', without('shell1', 'shell2'))).toBe('server1')
+    // the first: the one after it, a file tab when no terminal is left
+    expect(afterGone(['shell1', 'shell2'], 'shell1', ['shell2'])).toBe('shell2')
+    expect(afterGone(['shell1', fileTabId('a.ts'), fileTabId('b.ts')], 'shell1', [fileTabId('a.ts'), fileTabId('b.ts')])).toBe(fileTabId('a.ts'))
+    // nothing left: the empty state; a tab the strip did not have: no answer
+    expect(afterGone(['shell1'], 'shell1', [])).toBeNull()
+    expect(afterGone(before, 'elsewhere', before)).toBeNull()
+  })
+
+  it('U-TERM-58 · the work pane has no Agent tab: Setup, Server and the shells in order, then the file tabs; a closing file tab hands over to the tab before it, else the one after, else none', () => {
+    const work = workTabs(terminals, kindOf)
+    expect(work).toEqual(['setup1', 'server1', 'shell1', 'shell2'])
+    expect(workTabs(['agent1'], kindOf), 'a new session: no tab, only +').toEqual([])
+    const files = opened(['a.ts', 'b.ts', 'c.ts'], { pin: true })
+    const [a, b, c] = files.tabs.map((t) => t.id) as [string, string, string]
+    const strip = stripOrder(work, files)
+    expect(strip).toEqual([...work, a, b, c])
+    // the tab before it: a file tab, or the last terminal for the first file tab
+    expect(afterClose(strip, c)).toBe(b)
+    expect(afterClose(strip, b)).toBe(a)
+    expect(afterClose(strip, a)).toBe('shell2')
+    // no terminal before the first file tab: the one after it; nothing else open: the file view's empty state
+    expect(afterClose(stripOrder([], files), a)).toBe(b)
+    expect(afterClose(stripOrder([], opened(['a.ts'])), a)).toBeNull()
+    expect(afterClose(strip, fileTabId('gone.ts'))).toBeNull()
+    // with no terminal and no memory the work pane starts on its last terminal, else (the pick) its last file tab
+    expect(pickActiveTab(work, [], { active: null, wanted: null }, null, startTab(work, kindOf, null, null, true))).toEqual({ active: 'shell2', wanted: null })
+    expect(pickActiveTab([], [a], { active: null, wanted: null }, null, null)).toEqual({ active: null, wanted: null })
+  })
+
+  it('U-TERM-58 · a mode switch: to the split the work pane keeps the one-column tab (a file included) unless it is the Agent, else the tab it showed when last split, else its last terminal; to one column the Agent unless the work pane had the keyboard', () => {
+    const work = workTabs(terminals, kindOf)
+    const exists = (id: string) => terminals.includes(id) || isFileTabId(id)
+    const file = fileTabId('a.ts')
+    // one column → split
+    expect(tabToSplit('shell1', 'agent1', 'server1', exists, work)).toBe('shell1')
+    expect(tabToSplit(file, 'agent1', 'server1', exists, work), 'a file on screen stays on screen').toBe(file)
+    expect(tabToSplit('agent1', 'agent1', 'server1', exists, work)).toBe('server1')
+    expect(tabToSplit('agent1', 'agent1', 'gone', exists, work), 'the tab it showed is gone').toBe('shell2')
+    expect(tabToSplit('agent1', 'agent1', undefined, exists, work)).toBe('shell2')
+    expect(tabToSplit('agent1', 'agent1', undefined, exists, []), 'no work tab: its empty state').toBeNull()
+    expect(tabToSplit(null, 'agent1', undefined, exists, work)).toBe('shell2')
+    // split → one column: the tab of the pane that had the keyboard
+    expect(tabToColumn('shell1', 'agent1', true)).toBe('shell1')
+    expect(tabToColumn(file, 'agent1', true)).toBe(file)
+    expect(tabToColumn('shell1', 'agent1', false), 'the agent pane had it, or nothing did').toBe('agent1')
+    expect(tabToColumn(null, 'agent1', false)).toBe('agent1')
+    expect(tabToColumn('shell1', null, false), 'no agent yet').toBe('shell1')
+  })
+
+  it('U-TERM-58 · the two tab memories: a tab chosen in the split is remembered as such and is not restored in one column, where the session starts on its Agent; one chosen in one column is restored in both', () => {
+    const inSplit = rememberTab('shell1', kindOf, true)
+    expect(inSplit).toEqual({ kind: 'shell', ptyId: 'shell1', split: true })
+    expect(rememberTab('server1', kindOf, true)).toEqual({ kind: 'server', split: true })
+    expect(rememberTab('agent1', kindOf, true)).toBeNull()
+    expect(sameTabMemory(inSplit, { kind: 'shell', ptyId: 'shell1' }), 'the mode is part of the memory').toBe(false)
+    expect(parseTabMemory(savedTabs(inSplit))).toEqual(inSplit)
+    expect(parseTabMemory({ active: { kind: 'server', split: 'yes' } }), 'anything but true reads as one column').toEqual({ kind: 'server' })
+    // one column does not restore a tab chosen beside the agent: it starts on the Agent
+    expect(startTab(terminals, kindOf, inSplit, 'agent1')).toBe('agent1')
+    expect(startTab(workTabs(terminals, kindOf), kindOf, inSplit, null, true)).toBe('shell1')
+    // a tab chosen in one column comes back in both
+    const inColumn = rememberTab('server1', kindOf)
+    expect(startTab(terminals, kindOf, inColumn, 'agent1')).toBe('server1')
+    expect(startTab(workTabs(terminals, kindOf), kindOf, inColumn, null, true)).toBe('server1')
   })
 })

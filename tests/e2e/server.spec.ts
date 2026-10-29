@@ -40,12 +40,13 @@ test('E-SRV-1 · a worktree with start.sh: ⌘R shows Starting, then Stop with t
   await waitLive(kea, id)
   const agent = await agentTerminal(kea, id)
 
-  // Start.sh is there, so the control offers Run; nothing runs yet and there is no Server tab
+  // Start.sh is there, so the control offers Run; nothing runs yet and there is no Server tab (the agent has its own
+  // pane, not a tab)
   await waitServer(kea, 'stopped')
   const control = serverControl(page)
   await expect(control.getByRole('button', { name: 'Run' })).toBeVisible()
   await expect(serverChip(page)).toHaveCount(0)
-  expect(await tabKinds(page)).toEqual(['agent'])
+  expect(await tabKinds(page)).toEqual([])
   expect(await commandReason(kea, 'server.toggle'), 'Run is available').toBeNull()
 
   // ⌘R: Starting, then Stop and the chip
@@ -65,9 +66,9 @@ test('E-SRV-1 · a worktree with start.sh: ⌘R shows Starting, then Stop with t
   expect(answer).toMatchObject({ port: at.port, envPort: String(at.port), color: '1' })
   expect(serverLog(log).filter((l) => l.server === 'ready')).toEqual([{ server: 'ready', pid: answer.pid, port: at.port }])
 
-  // Its output is the Server tab, listed after the Agent tab; running it did not take the screen
-  expect(await tabKinds(page)).toEqual(['agent', 'server'])
-  expect(await kea.shown(), 'the Agent terminal is still on screen').toBe(agent)
+  // Its output is the Server tab, in the work pane's strip; running it did not take the agent's place
+  expect(await tabKinds(page)).toEqual(['server'])
+  expect(await kea.shown('agent'), 'the agent is still on screen').toBe(agent)
   const server = await tabOf(kea, 'server')
   await expect(page.locator(`[role=tab][data-pty="${server}"]`)).toHaveText('Server')
   await kea.clickTab(server)
@@ -93,7 +94,7 @@ test('E-SRV-1 · a worktree with start.sh: ⌘R shows Starting, then Stop with t
   expect(await listening(at.port), `port ${at.port} free`).toBe(false)
   expect(serverLog(log).filter((l) => l.server === 'signal'), 'it was asked to stop as ⌃C would').toEqual([{ server: 'signal', signal: 'SIGINT' }])
   // the Server tab stays, with what the run printed
-  expect(await tabKinds(page)).toEqual(['agent', 'server'])
+  expect(await tabKinds(page)).toEqual(['server'])
   expect(await kea.terminalText(server)).toContain(`http://localhost:${at.port}/`)
   await kea.assertUnfocused()
 })
@@ -117,15 +118,15 @@ test('E-SRV-2 · a start.sh that exits 1: the control reads `Exited 1` with Rest
   await expect(exited).toBeVisible()
   await expect(control.getByRole('button', { name: 'Restart' })).toBeVisible()
   await expect(serverChip(page)).toHaveCount(0)
-  // a crashed dev server is not an agent problem: the row is as it was, and the Agent terminal is still on screen
+  // a crashed dev server is not an agent problem: the row is as it was, and the agent is still on screen
   expect(await rowState(page, id)).toEqual(before)
-  expect(await kea.shown()).toBe(agent)
+  expect(await kea.shown('agent')).toBe(agent)
 
-  // One click opens the log
+  // One click opens the log, in the work pane beside the agent
   await exited.click()
   const server = await tabOf(kea, 'server')
-  await until('the Server tab on screen', async () => (await kea.shown()) === server || undefined)
-  await kea.waitScreen('the output that says why', (s) => s.includes('kea-test: cannot find the database'))
+  await until('the Server tab on screen', async () => (await kea.shown('work')) === server || undefined)
+  await until('the output that says why', async () => (await kea.terminalText(server)).includes('kea-test: cannot find the database') || undefined)
   await expect(page.locator(`[role=tab][data-pty="${server}"]`)).toHaveAttribute('aria-selected', 'true')
 
   // Restart runs it again: the Server tab is the new run's, still on screen, and still the only one
@@ -135,9 +136,9 @@ test('E-SRV-2 · a start.sh that exits 1: the control reads `Exited 1` with Rest
     return pty !== server && (await tabKinds(page)).filter((k) => k === 'server').length === 1 ? pty : undefined
   })
   await waitServer(kea, 'crashed')
-  await until('the new run on screen', async () => (await kea.shown()) === again || undefined)
-  await kea.waitScreen('the new run’s output', (s) => s.includes('kea-test: cannot find the database'))
-  expect(await tabKinds(page)).toEqual(['agent', 'server'])
+  await until('the new run on screen', async () => (await kea.shown('work')) === again || undefined)
+  await until('the new run’s output', async () => (await kea.terminalText(again)).includes('kea-test: cannot find the database') || undefined)
+  expect(await tabKinds(page)).toEqual(['server'])
   await kea.assertUnfocused()
 })
 
@@ -172,7 +173,7 @@ test('E-SRV-3 · dev server details: no start.sh hides the control and Run says 
   const dirA = worktree('alpha')
   writeStart(dirA, own)
   await waitServer(kea, 'stopped')
-  expect(await tabKinds(page), 'the ⌘R with nothing to run started nothing').toEqual(['agent'])
+  expect(await tabKinds(page), 'the ⌘R with nothing to run started nothing').toEqual([])
   expect(await commandReason(kea, 'server.toggle')).toBeNull()
 
   // ── PORT is the server's alone; KEA_PORT is everywhere ──
@@ -199,10 +200,10 @@ test('E-SRV-3 · dev server details: no start.sh hides the control and Run says 
     return got && answerParts(got).pid !== first.pid ? answerParts(got) : undefined
   })
   await waitServer(kea, 'running')
-  expect(await tabKinds(page)).toEqual(['agent', 'server', 'shell'])
+  expect(await tabKinds(page)).toEqual(['server', 'shell'])
   const restarted = await tabOf(kea, 'server')
   expect(restarted, 'a new terminal for the new run').not.toBe(serverTab)
-  await until('the new run’s Server tab on screen', async () => (await kea.shown()) === restarted || undefined)
+  await until('the new run’s Server tab on screen', async () => (await kea.shown('work')) === restarted || undefined)
   await kea.waitScreen('the new run’s output', (s) => s.includes(`"pid":${second.pid}`))
   expect(await kea.terminalText(restarted), 'the scrollback is the new run’s alone').not.toContain(`"pid":${first.pid}`)
   expect((await serverAddress(kea)).port).toBe(atA.port)
@@ -211,7 +212,7 @@ test('E-SRV-3 · dev server details: no start.sh hides the control and Run says 
   await page.keyboard.press(sysKey('Meta+r'))
   await waitServer(kea, 'stopped')
   expect(await listening(atA.port)).toBe(false)
-  expect(await tabKinds(page)).toEqual(['agent', 'server', 'shell'])
+  expect(await tabKinds(page)).toEqual(['server', 'shell'])
   expect(await kea.terminalText(restarted)).toContain(`"pid":${second.pid}`)
   expect(await commandReason(kea, 'server.showLog')).toBeNull()
 
@@ -233,7 +234,7 @@ test('E-SRV-3 · dev server details: no start.sh hides the control and Run says 
   expect(atB.port, 'its own block').not.toBe(atA.port)
   const autoStarted = await answerOn(atB.port)
   expect(autoStarted).toMatchObject({ port: atB.port, envPort: String(atB.port) })
-  expect(await tabKinds(page)).toEqual(['agent', 'server'])
+  expect(await tabKinds(page)).toEqual(['server'])
   // a third session, started the same way: it is the one that meets the busy port below
   const c = await startSession(kea, 'charlie server')
   await waitLive(kea, c)

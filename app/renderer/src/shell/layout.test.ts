@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { L } from '@kea/protocol'
 import { SIZE_PX } from '@kea/ui/tokens'
-import { cycleRegion, DEFAULT_LAYOUT, dragTo, drawn, LAYOUT_KEY, loadLayout, parseLayout, RANGE, resetWidth, saveLayout, setTreeHidden, STEP, stepWidth, toggleSidebar, type KeyValue } from './layout.ts'
+import { cycleRegion, DEFAULT_LAYOUT, dragAgent, dragTo, drawn, LAYOUT_KEY, loadLayout, mainWidth, paneCols, paneWidth, parseLayout, RANGE, resetAgentWidth, resetWidth, saveLayout, setAgentBeside, setCellWidth, setTreeHidden, splitMode, splitNeed, splitOn, splitWidths, STEP, stepAgent, stepWidth, toggleSidebar, type KeyValue } from './layout.ts'
 
 const WIDE = SIZE_PX['window-default-width']
 
@@ -65,7 +66,7 @@ describe('three-column layout', () => {
   it('U-LAYOUT-1 · widths, hidden columns and the panel mode persist; a stored value that is missing, wrong or out of range takes its default', () => {
     const kv = memory()
     expect(loadLayout(kv)).toEqual(DEFAULT_LAYOUT)
-    const l = { sidebarWidth: 300, treeWidth: 400, sidebarHidden: true, treeHidden: false, panelMode: 'changes' as const }
+    const l = { ...DEFAULT_LAYOUT, sidebarWidth: 300, treeWidth: 400, sidebarHidden: true, treeHidden: false, panelMode: 'changes' as const }
     saveLayout(kv, l)
     expect(JSON.parse(kv.data.get(LAYOUT_KEY)!)).toEqual(l)
     expect(loadLayout(kv)).toEqual(l)
@@ -88,13 +89,20 @@ describe('three-column layout', () => {
 })
 
 describe('focus regions', () => {
-  it('U-KB-6 · F6 / ⇧F6 cycle sidebar → file panel → header → main and wrap, skipping regions that are hidden or have nothing to focus', () => {
-    const all = () => true
+  it('U-KB-6 · F6 / ⇧F6 cycle sidebar → file panel → header → main (→ the agent pane in the split) and wrap, skipping regions that are hidden or have nothing to focus', () => {
+    // one column: no agent pane
+    const all = (r: string) => r !== 'agent'
     expect(cycleRegion('sidebar', 1, all)).toBe('files')
     expect(cycleRegion('main', 1, all)).toBe('sidebar')
     expect(cycleRegion('sidebar', -1, all)).toBe('main')
     expect(cycleRegion(null, 1, all)).toBe('sidebar')
     expect(cycleRegion(null, -1, all)).toBe('main')
+    // the split: the work pane, then the agent pane, five stops
+    const split = () => true
+    expect(cycleRegion('main', 1, split)).toBe('agent')
+    expect(cycleRegion('agent', 1, split)).toBe('sidebar')
+    expect(cycleRegion('sidebar', -1, split)).toBe('agent')
+    expect(cycleRegion('agent', -1, split)).toBe('main')
     // the file panel hidden (⌘⇧E) and no header (the composer): sidebar ⇄ main
     const noPanel = (r: string) => r === 'sidebar' || r === 'main'
     expect(cycleRegion('sidebar', 1, noPanel)).toBe('main')
@@ -103,5 +111,137 @@ describe('focus regions', () => {
     // nowhere else to go
     expect(cycleRegion('main', 1, (r) => r === 'main')).toBeNull()
     expect(cycleRegion(null, 1, () => false)).toBeNull()
+  })
+})
+
+describe('the split', () => {
+  // the cell widths of the saved 13 px fonts: SF Mono on macOS, JetBrains Mono on Linux at DPR 1 and 2
+  const MAC = 8
+  const LINUX = 7
+  const LINUX_2X = 7.5
+  // sidebar and file panel at their token widths
+  const sides = SIZE_PX.sidebar + SIZE_PX.tree
+  const on = { ...DEFAULT_LAYOUT, agentBeside: true }
+  const at = (window: number, cell: number, l = on) => {
+    const main = mainWidth(l, window)
+    return splitOn(l, main, cell, null, false) ? splitWidths(l, main, cell) : null
+  }
+
+  it('U-LAYOUT-3 · the widths the split draws at each window, from the cell width of the saved font; one column where the main column cannot hold both minimums', () => {
+    expect(splitNeed(MAC)).toEqual({ agent: paneWidth(L.agentMinCols, MAC, SIZE_PX.hairline), work: paneWidth(L.workMinCols, MAC), total: paneWidth(L.agentMinCols, MAC, SIZE_PX.hairline) + paneWidth(L.workMinCols, MAC) })
+    // each pane holds its minimum in columns, and no more than that at the need
+    const need = splitNeed(MAC)
+    expect(paneCols(need.agent, MAC, SIZE_PX.hairline)).toBe(L.agentMinCols)
+    expect(paneCols(need.work, MAC)).toBe(L.workMinCols)
+    expect(paneCols(need.agent - 1, MAC, SIZE_PX.hairline)).toBe(L.agentMinCols - 1)
+    // a wide window: the first share of the main column each
+    const wide = at(1728, MAC)!
+    expect(wide.agent + wide.work).toBe(1728 - sides)
+    expect(wide.agent).toBe(Math.round((1728 - sides) * L.agentFirstShare))
+    // narrower: the agent keeps its minimum and the work pane takes the rest, down to its own
+    for (const [w, cell] of [[1512, MAC], [1440, MAC], [1366, LINUX], [1440, LINUX_2X]] as const) {
+      const s = at(w, cell)
+      const n = splitNeed(cell)
+      expect(s, `split at ${w}`).not.toBeNull()
+      expect(s!.agent + s!.work).toBe(w - sides)
+      expect(s!.agent).toBeGreaterThanOrEqual(n.agent)
+      expect(s!.work).toBeGreaterThanOrEqual(n.work)
+    }
+    // below the need, one column: 1366 on macOS, 1280 on both
+    expect(at(1366, MAC)).toBeNull()
+    expect(at(1280, MAC)).toBeNull()
+    expect(at(1280, LINUX)).toBeNull()
+    // the sidebar hidden at 1280: the main column holds it again
+    expect(at(1280, MAC, { ...on, sidebarHidden: true })).not.toBeNull()
+    // chosen off: never
+    expect(at(1728, MAC, { ...DEFAULT_LAYOUT, agentBeside: false })).toBeNull()
+  })
+
+  it('U-LAYOUT-3 · hysteresis both ways and none on the first frame; no mode change while a divider is dragged', () => {
+    const need = splitNeed(MAC).total
+    const band = SIZE_PX['split-hysteresis']
+    // the first frame: the split wherever it fits
+    expect(splitOn(on, need, MAC, null, false)).toBe(true)
+    expect(splitOn(on, need - 1, MAC, null, false)).toBe(false)
+    // drawn: it stays down to the need
+    expect(splitOn(on, need, MAC, true, false)).toBe(true)
+    expect(splitOn(on, need - 1, MAC, true, false)).toBe(false)
+    // one column: the split only past the band
+    expect(splitOn(on, need, MAC, false, false)).toBe(false)
+    expect(splitOn(on, need + band - 1, MAC, false, false)).toBe(false)
+    expect(splitOn(on, need + band, MAC, false, false)).toBe(true)
+    // mid-drag the mode holds, either way; the release decides
+    expect(splitOn(on, need - 100, MAC, true, true)).toBe(true)
+    expect(splitOn(on, need + band + 100, MAC, false, true)).toBe(false)
+    expect(splitOn(on, need + band + 100, MAC, false, false)).toBe(true)
+  })
+
+  it('U-LAYOUT-5 · the person’s choice shows the split wherever the column holds the need, inside the band too; a column that changes width still has the band', () => {
+    const need = splitNeed(MAC).total
+    const band = SIZE_PX['split-hysteresis']
+    const off = { ...on, agentBeside: false }
+    // chosen off with the column inside the band, then on again: the split at once
+    const wasOff = { drew: splitMode(off, need + 1, MAC, { drew: true, chose: true }, false), chose: false }
+    expect(wasOff.drew).toBe(false)
+    expect(splitMode(on, need + 1, MAC, wasOff, false)).toBe(true)
+    // the same choice below the need: one column, and the band from then on
+    expect(splitMode(on, need - 1, MAC, wasOff, false)).toBe(false)
+    expect(splitMode(on, need + band - 1, MAC, { drew: false, chose: true }, false)).toBe(false)
+    expect(splitMode(on, need + band, MAC, { drew: false, chose: true }, false)).toBe(true)
+    // drawn, it stays down to the need; the window's first frame has no band
+    expect(splitMode(on, need, MAC, { drew: true, chose: true }, false)).toBe(true)
+    expect(splitMode(on, need, MAC, null, false)).toBe(true)
+  })
+
+  it('U-LAYOUT-3 · the agent divider: drag, reset and step, within both minimums; the stored width kept while a side column toggles', () => {
+    const main = 1224
+    const need = splitNeed(MAC)
+    const first = splitWidths(on, main, MAC).agent
+    // dragging left widens the agent; stored in px
+    let l = dragAgent(on, first, -100, main, MAC)
+    expect(l.agentWidth).toBe(first + 100)
+    expect(splitWidths(l, main, MAC)).toEqual({ agent: first + 100, work: main - first - 100 })
+    // clamped: the work pane keeps its minimum, the agent its own
+    expect(dragAgent(on, first, -10_000, main, MAC).agentWidth).toBe(main - need.work)
+    expect(dragAgent(on, first, 10_000, main, MAC).agentWidth).toBe(need.agent)
+    // arrows: one grid step, ← wider
+    expect(stepAgent(l, -1, main, MAC).agentWidth).toBe(first + 100 + STEP)
+    expect(stepAgent(l, 1, main, MAC).agentWidth).toBe(first + 100 - STEP)
+    // a side column shown or hidden changes the work pane only
+    const wider = main + SIZE_PX.sidebar
+    expect(splitWidths(l, wider, MAC).agent).toBe(first + 100)
+    // the agent gives way only once the work pane is at its minimum, and its width is kept for later
+    const tight = need.total + 10
+    expect(splitWidths(l, tight, MAC)).toEqual({ agent: tight - need.work, work: need.work })
+    expect(l.agentWidth).toBe(first + 100)
+    // double-click forgets it: the first share again
+    expect(resetAgentWidth(l).agentWidth).toBeNull()
+    expect(splitWidths(resetAgentWidth(l), main, MAC).agent).toBe(first)
+  })
+
+  it('U-LAYOUT-3 · the side dividers stop at the split’s need while it is drawn; the need follows the saved font, not the zoom', () => {
+    const w = 1440
+    const d = drawn(on, w)
+    const need = splitNeed(MAC).total
+    // widening the file panel as far as it goes leaves the main column at the need
+    const l = dragTo(on, 'tree', d.tree, 10_000, w, need)
+    expect(mainWidth(l, w)).toBe(need)
+    // in one column it stops at main-min, as before
+    const one = dragTo(on, 'tree', d.tree, 10_000, w)
+    expect(mainWidth(one, w)).toBeGreaterThanOrEqual(SIZE_PX['main-min'])
+    expect(mainWidth(one, w)).toBeLessThan(need)
+    // a larger font needs more
+    expect(splitNeed(MAC * 1.25).total).toBeGreaterThan(need)
+  })
+
+  it('U-LAYOUT-3 · a layout stored before the split reads with its defaults; the new fields persist', () => {
+    const old = parseLayout({ sidebarWidth: 300, treeWidth: 250, sidebarHidden: false, treeHidden: true, panelMode: 'changes' })
+    expect(old).toMatchObject({ sidebarWidth: 300, agentBeside: DEFAULT_LAYOUT.agentBeside, agentWidth: null, cellWidth: null })
+    const store = memory()
+    const l = setCellWidth(dragAgent(setAgentBeside(DEFAULT_LAYOUT, true), 600, -40, 1224, MAC), MAC)
+    saveLayout(store, l)
+    expect(loadLayout(store)).toEqual(l)
+    // wrong values take their defaults
+    expect(parseLayout({ agentBeside: 'yes', agentWidth: -5, cellWidth: 'x' })).toMatchObject({ agentBeside: DEFAULT_LAYOUT.agentBeside, agentWidth: null, cellWidth: null })
   })
 })

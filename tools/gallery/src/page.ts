@@ -5,7 +5,7 @@
 import type { SetFile } from './shots.ts'
 
 /** The order of the V sets on the page; every other set comes after them (`orderSets`). */
-export const SET_ORDER = ['V-1', 'V-2', 'V-5', 'V-6', 'V-7', 'V-10', 'V-13', 'V-14', 'V-15'] as const
+export const SET_ORDER = ['V-1', 'V-2', 'V-5', 'V-6', 'V-7', 'V-10', 'V-13', 'V-14', 'V-15', 'V-17'] as const
 
 const esc = (s: string) => s.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;')
 

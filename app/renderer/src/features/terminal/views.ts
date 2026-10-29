@@ -7,9 +7,8 @@ import { agents, installAgents } from '../composer/agents.ts'
 import { sessions, terminalsList } from '../sessions/state.svelte.ts'
 import { call } from '../../lib/rpc.ts'
 import type { AtlasCanvas } from './atlas.ts'
-import { NO_RESULTS } from './find.ts'
 import { prefs } from './prefs.ts'
-import { TerminalRegistry } from './registry.ts'
+import { TerminalRegistry, type Slot } from './registry.ts'
 import { ScreenReaderMode } from './screenReader.ts'
 import { recallScroll, rememberScroll, scrollMarkCount } from './scrollMarks.ts'
 import { streamPorts } from './streams.ts'
@@ -28,7 +27,8 @@ function agentGivesButton(ptyId: string): boolean {
 export const terminals: TerminalRegistry<TerminalView> = new TerminalRegistry<TerminalView>(
   (ptyId) => {
     const v = new TerminalView(ptyId, {
-      isShown: (id: string): boolean => terminals.isShown(id),
+      // a program's clipboard write needs its terminal on screen in the active pane (the `focused` policy)
+      isShown: (id: string): boolean => terminals.shown(activePane)?.ptyId === id,
       isPlainShell: (id: string): boolean => kinds.get(id) === 'shell',
       rememberScroll,
       recallScroll,
@@ -40,9 +40,28 @@ export const terminals: TerminalRegistry<TerminalView> = new TerminalRegistry<Te
     return v
   },
   undefined,
-  // screen-reader mode is on in the terminal on screen only
-  (id) => screenReader.setShown(id),
+  // screen-reader mode is on in the active pane's terminal on screen only
+  (id, slot) => {
+    if (slot === activePane) screenReader.setShown(id)
+  },
 )
+
+/**
+ * The pane of the session on screen that has the keyboard, or last had it (the work pane in one column): what the
+ * terminal commands act on when no terminal has the keyboard, the screen reader's terminal, and the terminal whose
+ * program may write the clipboard.
+ */
+let activePane: Slot = 'work' // bounded: one per window
+
+export function setActivePane(slot: Slot): void {
+  if (activePane === slot) return
+  activePane = slot
+  screenReader.setShown(terminals.shown(slot)?.ptyId ?? null)
+}
+
+export function currentPane(): Slot {
+  return activePane
+}
 
 /** xterm's screen-reader mode while a screen reader runs, and each terminal's accessible name (screenReader.ts). */
 export const screenReader: ScreenReaderMode<TerminalView> = new ScreenReaderMode<TerminalView>(() => terminals.all())
@@ -50,11 +69,10 @@ export const screenReader: ScreenReaderMode<TerminalView> = new ScreenReaderMode
 // Live views that no terminal area hosts (other sessions' warm terminals, every view while the composer shows):
 // mounted here, hidden like a warm host (`display: none`, xterm pauses rendering), WebGL kept.
 let dock: HTMLDivElement | null = null // bounded: one per window
-// the area showing terminals now, and the terminal on screen when the last one went without a successor yet: a session
-// switch replaces the pane, and the area that comes keeps that terminal on screen until its own has painted,
-// whether it is made before the old one goes or after
-let currentArea: object | null = null // bounded: one per window
-let handoff: string | null = null
+// per pane, the area showing terminals now, and the terminal on screen when the last one went without a successor yet:
+// a session switch replaces the pane, and the area that comes keeps that terminal on screen until its own has
+// painted, whether it is made before the old one goes or after
+const areas: Record<Slot, { current: object | null; handoff: string | null }> = { work: { current: null, handoff: null }, agent: { current: null, handoff: null } } // bounded: one per pane
 
 /** A host lets its view go: the view waits in the dock (a disposed one has left the DOM already). */
 export function dockView(v: TerminalView, host: HTMLElement): void {
@@ -68,31 +86,37 @@ export function dockView(v: TerminalView, host: HTMLElement): void {
   dock.appendChild(v.el)
 }
 
-/** A terminal area comes: the terminal on screen that it keeps on screen until its own has painted, if any. */
-export function enterArea(token: object): string | null {
-  const inherited = currentArea !== null ? (terminals.shown()?.ptyId ?? null) : handoff
-  handoff = null
-  currentArea = token
+/** A pane's terminal area comes: the terminal on screen that it keeps on screen until its own has painted, if any. */
+export function enterArea(token: object, slot: Slot): string | null {
+  const a = areas[slot]
+  const inherited = a.current !== null ? (terminals.shown(slot)?.ptyId ?? null) : a.handoff
+  a.handoff = null
+  a.current = token
   return inherited
 }
 
 /**
- * A terminal area goes. An area that came meanwhile owns the screen already; if one comes in the same task, it takes
- * the terminal on screen (`enterArea`); if none does (the composer), nothing is on screen any more.
+ * A pane's terminal area goes. An area that came meanwhile owns the pane already; if one comes in the same task, it
+ * takes the terminal on screen (`enterArea`); if none does (the composer), the pane shows nothing any more.
  */
-export function leaveArea(token: object): void {
-  if (currentArea !== token) return
-  currentArea = null
-  handoff = terminals.shown()?.ptyId ?? null
-  if (handoff === null) return
+export function leaveArea(token: object, slot: Slot): void {
+  const a = areas[slot]
+  if (a.current !== token) return
+  a.current = null
+  a.handoff = terminals.shown(slot)?.ptyId ?? null
+  if (a.handoff === null) return
   queueMicrotask(() => {
-    if (handoff === null || currentArea !== null) return
-    handoff = null
-    // nothing on screen any more (the composer): no view keeps a search, its highlights or its re-search after each
-    // write, and the find bar's state is closed
-    for (const v of terminals.all()) v.closeFind()
-    terminalUi.find({ open: false, results: NO_RESULTS })
-    terminals.setShown(null)
+    const id = a.handoff
+    if (id === null || a.current !== null) return
+    a.handoff = null
+    terminals.setShown(null, slot)
+    // the other pane shows it now: its search and scroll state are that pane's
+    if (terminals.shownElsewhere(id, slot)) return
+    // nothing on screen in the pane any more (the composer): its terminal keeps no search, its highlights or its
+    // re-search after each write, and the find bar closes if it was on it
+    terminals.get(id)?.closeFind()
+    terminalUi.closeFindOn([id])
+    terminalUi.scrolledUp(id, false)
   })
 }
 
@@ -103,7 +127,7 @@ export function leaveArea(token: object): void {
  */
 export function followScroll(id: string): (s: ViewState) => void {
   return (s) => {
-    if (terminals.isShown(id)) terminalUi.scrolledUp(s.scrolledUp)
+    if (terminals.isShown(id)) terminalUi.scrolledUp(id, s.scrolledUp)
   }
 }
 
@@ -124,9 +148,12 @@ export function focusedView(): TerminalView | undefined {
   return undefined
 }
 
-/** The view on screen, else the one being switched to (perf probes, commands). */
+/**
+ * The view the commands act on (perf probes too): the terminal with the keyboard, else the active pane's on screen, else
+ * the one it is switching to.
+ */
 export function activeView(): TerminalView | undefined {
-  return terminals.shown() ?? terminals.visible()
+  return focusedView() ?? terminals.shown(activePane) ?? terminals.visible(activePane)
 }
 
 /** The view a command acts on: the terminal its menu was opened on (`{ ptyId }`), else the one on screen. */

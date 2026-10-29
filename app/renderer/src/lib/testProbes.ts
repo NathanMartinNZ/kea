@@ -9,7 +9,9 @@
 //               that changes when the view is recreated (warm instances are kept, others rebuilt from a snapshot)
 //   glCanvas()  a view's WebGL canvas (E-TERM-4 forces a context loss on it)
 //   terminal()  a view's xterm `Terminal`, to follow its renders (E-TERM-4: which frame each renderer first paints in)
-//   text()      the whole buffer of the view on screen, scrollback included (E-TERM-2 checks its continuity)
+//   text()      the whole buffer of the terminal the commands act on (the one with the keyboard, else the active
+//               pane's on screen), scrollback included, one entry per logical line: a wrapped row is joined to the
+//               one above, so a line reads as the program wrote it at any width (E-TERM-2 checks its continuity)
 //   write()     write into the view on screen as if from its PTY (L-TERM-1 writes 1 MB per cycle)
 //   setTheme()  apply theme colours to every view, as a settings change would (E-PTY-1)
 //   atlas()     a WebGL view's glyph atlas three ways (L-TERM-3, L-TERM-7): the pages its guard counts, the pages its
@@ -17,7 +19,9 @@
 //   pane()      what the main column shows: `{ kind: 'session', id }`, `{ kind: 'composer', projectId }` or
 //               `{ kind: 'shells' }`
 //   layout()    the persisted layout and the widths drawn at the window's width (`sidebar`, `tree`, 0 when hidden;
-//               `treeAuto` when the window is too narrow for the file panel)
+//               `treeAuto` when the window is too narrow for the file panel; `split`, the panes' widths, null in one
+//               column). `setLayout()` changes it as the View menu or a divider would (`agentBeside`, `agentWidth`, a
+//               column hidden), persisted
 //   firstShell() what the `shells` pane last decided about the first shell: `opened`, `none`, `gone` (it had
 //               left first), or null before any decision (E-PTY-3 waits on it instead of on time)
 //   rpcPending() the window's calls still waiting for core's answer: 0 once an overlay that asked core for something
@@ -61,7 +65,8 @@ import { ui } from '../features/sessions/state.svelte.ts'
 import { fileTabsOf, fileTabsState } from '../shell/fileTabs.svelte.ts'
 import { drawn } from '../shell/layout.ts'
 import { firstShell } from '../shell/terminalPane.ts'
-import { layoutState } from '../shell/layoutStore.svelte.ts'
+import { layoutState, setLayout } from '../shell/layoutStore.svelte.ts'
+import type { Layout } from '../shell/layout.ts'
 import { setFocusOverride, viewedSession } from '../features/status/viewing.svelte.ts'
 import { timeRow } from '../features/files/resources.ts'
 import { paletteProbe } from '../features/palette/probes.ts'
@@ -73,6 +78,8 @@ export interface ViewProbe {
   /** On screen (painted), or the one being switched to. */
   shown: boolean
   visible: boolean
+  /** The pane it is on screen in, if any. */
+  slot: 'work' | 'agent' | null
   attached: boolean
   webgl: boolean
   /** Changes whenever the view (and its `Terminal`) is created anew. */
@@ -165,7 +172,8 @@ function probe(v: TerminalView): ViewProbe {
   return {
     ptyId: v.ptyId,
     shown: terminals.isShown(v.ptyId),
-    visible: terminals.visible() === v,
+    visible: terminals.visible('work') === v || terminals.visible('agent') === v,
+    slot: terminals.slotOf(v.ptyId),
     attached: v.isAttached,
     webgl: v.hasWebgl,
     instance: instanceOf(t),
@@ -204,7 +212,13 @@ export function installTestProbes(): void {
       if (!v) throw new Error('no active terminal')
       const b = v.xterm.buffer.active
       const out: string[] = []
-      for (let i = 0; i < b.length; i++) out.push(b.getLine(i)?.translateToString(true) ?? '')
+      for (let i = 0; i < b.length; i++) {
+        const l = b.getLine(i)
+        if (!l) continue
+        const s = l.translateToString(true)
+        if (l.isWrapped && out.length) out[out.length - 1] += s
+        else out.push(s)
+      }
       return out.join('\n')
     },
     write(data: string): Promise<void> {
@@ -225,8 +239,9 @@ export function installTestProbes(): void {
     viewing: () => viewedSession(),
     layout: () => {
       const { layout, width } = layoutState
-      return { ...layout, drawn: drawn(layout, width) }
+      return { ...layout, drawn: drawn(layout, width), split: layoutState.split }
     },
+    setLayout: (patch: Partial<Layout>): void => setLayout((l) => ({ ...l, ...patch })),
     run: (id: string, args?: unknown): boolean => commands.run(id, args),
     reason: (id: string, args?: unknown): string | undefined => commands.reason(id, args),
     menuState: () => commands.menuState(),

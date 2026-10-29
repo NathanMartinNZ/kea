@@ -117,11 +117,11 @@ export function gate(run: KeaRun, name: string): { step: string; open(): Promise
   return { step: `cassette: { file: ${JSON.stringify(file)}, speed: 0 }`, open }
 }
 
-/** Show a session and wait until its Agent tab is on screen with the fake agent drawn; resolves with its ptyId. */
+/** Show a session and wait until its Agent terminal is on screen (tab or agent pane) with the fake agent drawn; resolves with its ptyId. */
 export async function fakeAgentTerminal(kea: Kea, id: string): Promise<string> {
   if ((await paneSession(await kea.page())) !== id) await selectSession(kea, id)
   const pty = await tabOf(kea, 'agent')
-  await until('the Agent terminal on screen', async () => (await kea.shown()) === pty || undefined)
-  await kea.waitScreen('the fake agent', (s) => s.includes(AGENT_MARK))
+  await until('the Agent terminal on screen', async () => (await kea.onScreen()).includes(pty) || undefined)
+  await until('the fake agent', async () => (await kea.terminalText(pty)).includes(AGENT_MARK) || undefined)
   return pty
 }

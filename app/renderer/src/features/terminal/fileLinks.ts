@@ -51,8 +51,8 @@ function provider(term: Terminal, ptyId: string): ILinkProvider {
                 if (!modClick(e)) return
                 void openInEditor({ target: 'session', id: sessionId, path: f.file, ...(f.line !== null ? { line: f.line } : {}), ...(f.line !== null && f.col !== null ? { col: f.col } : {}) })
               },
-              hover: (e) => terminalUi.linkHover({ x: e.clientX, y: e.clientY, text: linkHoverText(text) }),
-              leave: () => terminalUi.linkHover(null),
+              hover: (e) => terminalUi.linkHover({ ptyId, x: e.clientX, y: e.clientY, text: linkHoverText(text) }),
+              leave: () => terminalUi.linkLeave(ptyId),
             })
           }
           callback(links.length > 0 ? links : undefined)

@@ -278,11 +278,11 @@ test('E-FV-2 · in the file view a block folds and unfolds, ⌘F finds with a ma
   await tryToEdit(kea)
   expect(await viewerText(kea)).toBe(source)
 
-  // Lines 40–52, ⌘L → the Agent tab, the reference at its prompt, not submitted
+  // Lines 40–52, ⌘L → the agent, the reference at its prompt, not submitted; the file stays in the work pane beside it
   await selectLines(kea, 40, 52)
   await page.keyboard.press(sysKey('Meta+l'))
-  await until('the Agent terminal on screen', async () => (await kea.shown()) === agent || undefined)
-  expect(await viewerShown(kea)).toBeNull()
+  await until('the Agent terminal with the keyboard', async () => (await kea.keyboard()) === agent || undefined)
+  expect(await viewerShown(kea)).toEqual({ path: 'src/auth/login.ts', mode: 'file', focused: false })
   const screen = await kea.waitScreen('the reference at the prompt', (s) => s.includes(`${LOGIN}:40-52`))
   expect(screen.trimEnd().endsWith(`${LOGIN}:40-52`), `not submitted: nothing follows it\n${screen}`).toBe(true)
   // the Agent terminal has the keyboard: what is typed next goes on at the prompt, after the reference
@@ -917,7 +917,7 @@ test('E-DF-1 · a changed file clicked in Changes is its diff against the branch
   await expect.poll(shownPath).toBe('notes.txt')
 })
 
-test('E-DF-2 · lines selected in a diff and ⌘L: the Agent tab comes on screen with the new side’s line reference at its prompt, not submitted; ⌘⇧C copies the same reference', async ({ run, launch }) => {
+test('E-DF-2 · lines selected in a diff and ⌘L: the agent takes the keyboard with the new side’s line reference at its prompt, not submitted, the diff staying beside it; ⌘⇧C copies the same reference', async ({ run, launch }) => {
   test.setTimeout(120_000)
   const kea = await launch()
   const page = await kea.page()
@@ -936,8 +936,8 @@ test('E-DF-2 · lines selected in a diff and ⌘L: the Agent tab comes on screen
   await page.keyboard.press(sysKey('Meta+Shift+c'))
   await expect.poll(clipboard).toEqual([`${LOGIN}:40-52`])
   await page.keyboard.press(sysKey('Meta+l'))
-  await until('the Agent terminal on screen', async () => (await kea.shown()) === agent || undefined)
-  expect(await viewerShown(kea)).toBeNull()
+  await until('the Agent terminal with the keyboard', async () => (await kea.keyboard()) === agent || undefined)
+  expect(await viewerShown(kea), 'the diff stays in the work pane').toEqual({ path: LOGIN, mode: 'diff', focused: false })
   const screen = await kea.waitScreen('the reference at the prompt', (s) => s.includes(`${LOGIN}:40-52`))
   expect(screen.trimEnd().endsWith(`${LOGIN}:40-52`), `not submitted: nothing follows it\n${screen}`).toBe(true)
   expect((await fileTabs(kea)).map((t) => t.path), 'the diff tab is still there').toEqual([LOGIN])

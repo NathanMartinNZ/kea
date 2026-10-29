@@ -1378,3 +1378,87 @@ code.sheet-row-title,
     animation: none;
   }
 }
+
+/* ── the split: the work pane beside the agent pane, under one header ── */
+
+/* in one column the work pane is laid out as its children: the strip, then the terminal frame */
+.work-pane {
+  display: contents;
+}
+
+.terminal-pane.split {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.terminal-pane.split .work-pane,
+.agent-pane {
+  position: relative;
+  display: grid;
+  grid-template-rows: var(--size-tab-strip) minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+}
+
+/* the divider's line is the agent pane's left border, inside its width */
+.agent-pane {
+  border-left: var(--size-hairline) solid var(--line);
+}
+
+/* the agent pane's status row: as tall as the strip, so both panes' terminals start on the same line */
+.status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: 0 var(--space-3);
+  background: var(--surface-1);
+  border-bottom: var(--size-hairline) solid var(--line);
+}
+
+.status-text {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* the pane with the keyboard, or that last had it: a line under its strip or status row */
+.terminal-pane.split .work-pane.active .tabstrip,
+.agent-pane.active .status-row {
+  box-shadow: inset 0 calc(-1 * var(--size-focus-line)) 0 var(--text-3);
+}
+
+/* the work pane with no tab: the file view's empty state */
+.work-empty {
+  position: absolute;
+  top: var(--space-4);
+  left: var(--space-4);
+  right: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  color: var(--text-2);
+}
+
+.work-empty-title {
+  color: var(--text-1);
+}
+
+.work-empty-hint {
+  color: var(--text-3);
+}
+
+/* New Terminal where no shell can open: drawn, with its reason as its tooltip */
+.tab.add[aria-disabled='true'] {
+  color: var(--line-strong);
+}
+
+/* the open files after the terminals and New Terminal: a line between them */
+.tabs.file-tabs {
+  border-left: var(--size-hairline) solid var(--line);
+}

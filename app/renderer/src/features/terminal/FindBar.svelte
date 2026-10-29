@@ -1,5 +1,6 @@
 <!--
-Find in terminal: a bar of `--size-row` height docked top-right of the terminal, not a floating card.
+Find in terminal: a bar of `--size-row` height docked top-right of the terminal it searches, not a floating card (each
+terminal area draws it over its own terminal on screen).
 Typing searches incrementally; ↵ / ⇧↵ go to the next / previous match; the toggles set case and regex; Esc closes
 (the search addon is disposed with its highlights) and returns focus to the terminal. Reopening shows the
 last query selected and searches it again (`openFindBar`, findBar.ts).
@@ -7,9 +8,10 @@ last query selected and searches it again (`openFindBar`, findBar.ts).
 <script lang="ts">
   import { chordLabel, L } from '@kea/protocol'
   import { resultsText, type FindToggles } from './find.ts'
-  import { closeFind } from './findBar.ts'
+  import { closeFind, findView } from './findBar.ts'
   import { terminalUi, uiState } from './ui.svelte.ts'
-  import { activeView } from './views.ts'
+
+  let { ptyId }: { ptyId: string | null } = $props()
 
   let input: HTMLInputElement | undefined = $state()
   const f = $derived(uiState.find)
@@ -17,7 +19,7 @@ last query selected and searches it again (`openFindBar`, findBar.ts).
 
   // the field takes focus with its text selected when the bar opens, and again on ⌘F while it is open (primitives, so
   // typing, which replaces `find`, does not select again)
-  const open = $derived(f.open)
+  const open = $derived(f.open && ptyId !== null && f.ptyId === ptyId)
   const focusSeq = $derived(f.focusSeq)
   $effect(() => {
     void focusSeq
@@ -25,7 +27,7 @@ last query selected and searches it again (`openFindBar`, findBar.ts).
   })
 
   function run(query: string, t: FindToggles, dir: 'incremental' | 'next' | 'previous'): void {
-    activeView()?.find(query, t, dir)
+    findView()?.find(query, t, dir)
   }
 
   function toggle(patch: Partial<FindToggles>): void {
@@ -48,7 +50,7 @@ last query selected and searches it again (`openFindBar`, findBar.ts).
   const keepFocus = (e: MouseEvent) => e.preventDefault()
 </script>
 
-{#if f.open}
+{#if open}
   <div class="find-bar" role="search" aria-label="Find in terminal">
     <input
       bind:this={input}

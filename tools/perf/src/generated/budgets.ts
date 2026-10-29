@@ -16,6 +16,7 @@ export const BUDGETS = {
   "P-TERM-7": {"metric":"session switch, warm xterm","max":16,"unit":"ms"},
   "P-TERM-8": {"metric":"session switch, cold (snapshot 5 000 × 200)","max":100,"unit":"ms"},
   "P-TERM-9": {"metric":"resize drag","min":50,"unit":"fps","max_resizes_per_s":20},
+  "P-TERM-12": {"metric":"both panes of the split streaming, and a drag of the divider between them meanwhile","min":50,"unit":"fps"},
   "P-TERM-10": {"metric":"checkpoint serialise 5 000 × 200 in ptyhost","max":30,"unit":"ms"},
   "P-TERM-11": {"metric":"mirror rebuild from checkpoint (unpark)","max":50,"unit":"ms"},
   "P-FT-1": {"metric":"tree first paint after session switch (cached)","max":16,"unit":"ms"},

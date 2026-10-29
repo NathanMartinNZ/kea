@@ -11,7 +11,7 @@ import { call } from '../../lib/rpc.ts'
 import { commands } from '../commands/registry.ts'
 import { watch } from '../../lib/reactive.svelte.ts'
 import { prefs } from './prefs.ts'
-import { uiState } from './ui.svelte.ts'
+import { isScrolledUp, uiState } from './ui.svelte.ts'
 import { activeView, clearAllAtlases, viewFor } from './views.ts'
 
 export interface TerminalCommandDeps {
@@ -30,13 +30,40 @@ export interface TerminalCommandDeps {
   whyNoShell?(): string
   /** The Agent tab is not closable (⌘W does nothing, the menu item is disabled). */
   canClose?(tab: string): boolean
+  /** The tab ⌘W acts on (default: `active`): in the split, the Agent's while the agent pane is the active one. */
+  closing?(): string | null
   closeTab(tab: string): void
+  /** Focus Terminal with no terminal to go back to: the agent's, where there is one. */
+  focusAgent?(): void
+  /** There is an agent to go to. */
+  agentThere?(): boolean
   select(tab: string): void
   openFind(): void
 }
 
+export interface PaneCommandDeps {
+  /** The split is drawn: the agent pane is beside the work pane. */
+  split(): boolean
+  /** The session has an Agent terminal. */
+  agentThere(): boolean
+  /** The keyboard to the agent: its pane in the split, its tab in one column. */
+  focusAgent(): void
+  /** The keyboard to the work pane: its terminal, its viewer or its empty state. */
+  focusWork(): void
+}
+
+/** Focus Agent and Focus Work Pane (a session's pane only; the plain shells have no agent). */
+export function registerPaneCommands(d: PaneCommandDeps): Disposable {
+  const ds = [
+    commands.register('view.focusAgent', { run: () => d.focusAgent(), when: () => d.agentThere(), unavailableReason: () => 'The agent is not running' }),
+    commands.register('view.focusWork', { run: () => d.focusWork(), when: () => d.split(), unavailableReason: () => 'The agent is shown as a tab' }),
+  ]
+  return { dispose: () => disposeAll(ds) }
+}
+
 export function registerTerminalCommands(d: TerminalCommandDeps): Disposable {
   const hasActive = () => d.active() !== null
+  const closing = () => (d.closing ? d.closing() : d.active())
   /** A terminal is the active tab (Find, Clear, Focus and Reset Rendering act on the terminal on screen). */
   const hasTerminal = () => (d.terminal ? d.terminal() : d.active()) !== null
   const step = (by: 1 | -1) => {
@@ -49,9 +76,9 @@ export function registerTerminalCommands(d: TerminalCommandDeps): Disposable {
   const ds = [
     commands.register('terminal.newShell', { run: () => d.openShell(), when: () => d.canOpenShell?.() ?? true, unavailableReason: () => d.whyNoShell?.() ?? 'No shell can be opened here' }),
     commands.register('terminal.closeTab', {
-      run: () => d.closeTab(d.active() as string),
-      when: () => hasActive() && (d.canClose?.(d.active() as string) ?? true),
-      unavailableReason: () => (hasActive() ? 'This tab cannot be closed' : noTerminal()),
+      run: () => d.closeTab(closing() as string),
+      when: () => closing() !== null && (d.canClose?.(closing() as string) ?? true),
+      unavailableReason: () => (closing() !== null ? 'This tab cannot be closed' : noTerminal()),
     }),
     commands.register('terminal.nextTab', { run: () => step(1), when: () => d.tabs().length > 1, unavailableReason: () => 'Only one tab' }),
     commands.register('terminal.previousTab', { run: () => step(-1), when: () => d.tabs().length > 1, unavailableReason: () => 'Only one tab' }),
@@ -77,7 +104,7 @@ export function registerTerminalCommands(d: TerminalCommandDeps): Disposable {
         activeView()?.scrollToBottom()
         activeView()?.focus()
       },
-      when: () => uiState.scrolledUp,
+      when: () => isScrolledUp(activeView()?.ptyId),
       unavailableReason: () => 'Already at the bottom',
     }),
     commands.register('terminal.fontBigger', { run: () => prefs.zoomBy(1) }),
@@ -89,11 +116,11 @@ export function registerTerminalCommands(d: TerminalCommandDeps): Disposable {
       run: () => {
         if (hasTerminal()) return void activeView()?.focus()
         const back = d.lastTerminal?.() ?? null
-        if (back === null) return
+        if (back === null) return void d.focusAgent?.()
         d.select(back)
         void tick().then(() => activeView()?.focus())
       },
-      when: () => hasTerminal() || (d.lastTerminal?.() ?? null) !== null,
+      when: () => hasTerminal() || (d.lastTerminal?.() ?? null) !== null || (d.focusAgent !== undefined && d.agentThere?.() === true),
       unavailableReason: noTerminal,
     }),
   ]

@@ -79,6 +79,11 @@ min = 50
 unit = "fps"
 max_resizes_per_s = 20
 
+["P-TERM-12"]
+metric = "both panes of the split streaming, and a drag of the divider between them meanwhile"
+min = 50
+unit = "fps"
+
 ["P-TERM-10"]
 metric = "checkpoint serialise 5 000 × 200 in ptyhost"
 max = 30

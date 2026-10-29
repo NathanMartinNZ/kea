@@ -70,9 +70,12 @@
   --size-divider-hit: 7px;
   --size-window-min-width: 880px;
   --size-window-min-height: 520px;
-  --size-window-default-width: 1280px;
-  --size-window-default-height: 820px;
+  --size-window-default-width: 1440px;
+  --size-window-default-height: 900px;
   --size-tree-autocollapse: 1040px;
+  --size-split-hysteresis: 48px;
+  --size-hairline: 1px;
+  --size-focus-line: 2px;
   --size-traffic-light-x: 16px;
   --size-traffic-light-y: 15px;
   --size-traffic-lights: 80px;

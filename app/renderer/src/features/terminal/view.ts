@@ -142,16 +142,16 @@ export class TerminalView {
       linkHandler: {
         allowNonHttpProtocols: true,
         activate: (e, text) => this.onLink(e, text),
-        hover: (e, text) => terminalUi.linkHover({ x: e.clientX, y: e.clientY, text: linkHoverText(text) }),
-        leave: () => terminalUi.linkHover(null),
+        hover: (e, text) => terminalUi.linkHover({ ptyId: this.ptyId, x: e.clientX, y: e.clientY, text: linkHoverText(text) }),
+        leave: () => terminalUi.linkLeave(this.ptyId),
       },
     })
     this.term.loadAddon(this.fit)
     this.term.loadAddon(this.unicode)
     this.term.unicode.activeVersion = '11'
     this.links = new WebLinksAddon((e, uri) => this.onLink(e, uri), {
-      hover: (e, text) => terminalUi.linkHover({ x: e.clientX, y: e.clientY, text: linkHoverText(text) }),
-      leave: () => terminalUi.linkHover(null),
+      hover: (e, text) => terminalUi.linkHover({ ptyId: this.ptyId, x: e.clientX, y: e.clientY, text: linkHoverText(text) }),
+      leave: () => terminalUi.linkLeave(this.ptyId),
     })
     this.term.loadAddon(this.links)
     // File references printed in a session's terminal are links that open in the editor (fileLinks.ts)
@@ -428,7 +428,7 @@ export class TerminalView {
         marker.dispose()
       },
       cap: L.searchHighlightsMax,
-      onResults: (results) => terminalUi.find({ results }),
+      onResults: (results) => terminalUi.findResults(this.ptyId, results),
     })
     return this.search
   }
@@ -635,7 +635,7 @@ export class TerminalView {
     const d = osc52Decision({ parsed, policy: prefs.get().clipboardWrite, visible: this.host.isShown(this.ptyId), windowFocused: document.hasFocus() })
     if (d.apply) {
       navigator.clipboard.writeText(d.text).then(
-        () => terminalUi.copiedByTerminal(),
+        () => terminalUi.copiedByTerminal(this.ptyId),
         (e: unknown) => console.warn(`terminal ${this.ptyId}: OSC 52 clipboard write failed`, e),
       )
     } else if (d.reason !== 'read') {
@@ -651,7 +651,7 @@ export class TerminalView {
     // A `file:` target opens in the editor when it is a file of this session's worktree (fileLinks.ts)
     const at = { x: e.clientX, y: e.clientY }
     void openFileUrl(this.ptyId, target).then((opened) => {
-      if (!opened) terminalUi.linkMenu({ ...at, target })
+      if (!opened) terminalUi.linkMenu({ ptyId: this.ptyId, ...at, target })
     })
   }
 

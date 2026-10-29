@@ -154,6 +154,7 @@ describe('terminal leaks (app)', () => {
     const run = KeaRun.create()
     runs.push(run)
     const kea = await run.launch()
+    await kea.oneColumn()
     const page = await kea.page()
     await addProject(kea, demoRepo(run).root)
     const ids: string[] = []
@@ -227,6 +228,7 @@ describe('terminal leaks (app)', () => {
     const run = KeaRun.create()
     runs.push(run)
     const kea = await run.launch()
+    await kea.oneColumn()
     const page = await kea.page()
     await addProject(kea, demoRepo(run).root)
     // one more session than the active one plus the warm ones: the session switched to is never warm

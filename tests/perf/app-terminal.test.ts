@@ -335,6 +335,80 @@ describe('terminal throughput and control (app)', () => {
   )
 })
 
+describe('the split (app)', () => {
+  it(
+    'P-TERM-12 · both panes of the split streaming (a flood in the agent’s terminal and in a shell beside it): renderer frame rate within budget, and during a drag of the divider between them, median of the runs after a warm-up',
+    async () => {
+      /** How long each measurement lasts, and the drag's travel (px) back and forth. */
+      const MEASURE_MS = 3000
+      const DRAG_PX = 120
+      const DRAG_STEP_MS = 16
+      const { run, kea } = await startKea()
+      await addProject(kea, demoRepo(run).root)
+      // the harness's window holds the split with both side columns open
+      await kea.setLayout({ agentBeside: true })
+      await until('the split drawn', async () => (await kea.layout()).split ?? undefined)
+      const id = await startSession(kea, 'both panes')
+      await waitLive(kea, id)
+      const agent = await tabOf(kea, 'agent')
+      await until('the agent’s prompt', async () => (await kea.terminalText(agent)).includes(PROMPT) || undefined)
+      const page = await kea.page()
+      const shell = await kea.newTab()
+      const flood = (pty: string, tag: string) => `${zooShellCommand('flood', ['--bytes', '1000G'])} # ${tag} ${pty}`
+      // a flood in each pane, the shell's typed first (it has the keyboard), then the agent's
+      await kea.enter(flood(shell, 'work'))
+      await page.keyboard.press(sysKey('Meta+BracketRight'))
+      await until('the agent with the keyboard', () => page.evaluate(() => document.activeElement?.closest('.agent-pane') !== null || undefined))
+      await kea.enter(flood(agent, 'agent'))
+      const growing = async (pty: string) => {
+        const a = produced(run, pty)
+        await measureFor(500)
+        return produced(run, pty) > a
+      }
+      await until('both panes streaming', async () => ((await growing(shell)) && (await growing(agent)) ? true : undefined))
+      const divider = page.getByRole('separator', { name: 'Resize agent pane' })
+      const box = (await divider.boundingBox())!
+      const streaming: number[] = []
+      const dragging: number[] = []
+      for (let i = 0; i < WARMUPS + RUNS; i++) {
+        const still = await frames(kea, () => measureFor(MEASURE_MS))
+        const drag = await frames(kea, async () => {
+          const y = box.y + box.height / 2
+          await page.mouse.move(box.x + box.width / 2, y)
+          await page.mouse.down()
+          const t0 = Date.now()
+          while (Date.now() - t0 < MEASURE_MS) {
+            const phase = ((Date.now() - t0) % (MEASURE_MS / 2)) / (MEASURE_MS / 2)
+            const d = Math.round(DRAG_PX * (phase < 0.5 ? phase * 2 : 2 - phase * 2))
+            await page.mouse.move(box.x + box.width / 2 - d, y)
+            await measureFor(DRAG_STEP_MS)
+          }
+          await page.mouse.up()
+        })
+        if (i >= WARMUPS) {
+          streaming.push(still.fps)
+          dragging.push(drag.fps)
+        }
+      }
+      for (const pty of [agent, shell]) {
+        await page.locator(`.terminal-host.shown[data-pty="${pty}"]`).click({ position: { x: 20, y: 20 } })
+        await page.keyboard.press('Control+c')
+      }
+      const b = budget('P-TERM-12')
+      const values = { streamingFps: median(streaming), draggingFps: median(dragging) }
+      const e = record({
+        id: 'P-TERM-12',
+        metric: b.metric,
+        method: `the split in the harness's window: tools/process-zoo's flood in the agent's terminal and in a shell in the work pane at once; renderer rAF frames over ${MEASURE_MS} ms still, then over ${MEASURE_MS} ms of the divider dragged ${DRAG_PX} px back and forth every ${DRAG_STEP_MS} ms; median over ${RUNS} runs after ${WARMUPS} warm-up`,
+        values,
+        checks: [check('streamingFps', values.streamingFps, b.min, 'min', b.unit), check('draggingFps', values.draggingFps, b.min, 'min', b.unit)],
+      })
+      expect(e.pass, JSON.stringify(e.values)).toBe(true)
+    },
+    10 * 60_000,
+  )
+})
+
 describe('terminal switching (app)', () => {
   it(
     'P-TERM-7 · switching to a warm terminal (tab form): keydown → its first visible frame within budget, median of 60 switches after 4 unmeasured ones',

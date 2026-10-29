@@ -50,19 +50,22 @@ test('E-WT-1 · a project with .kea/setup.sh: the Setup tab runs first and the a
   await addProject(kea, r.root)
   const strip = (text: string) => page.getByRole('status').filter({ hasText: text })
 
-  // 1. setup runs first, in its tab; the agent waits for its exit 0, then takes the active tab
+  // 1. setup runs first, in its tab in the work pane, the agent pane waiting beside it; the agent starts after its
+  // exit 0 and takes the keyboard
   r.mode('wait')
   const first = await startSession(kea, 'setup first', { open: false })
   const setup = await tabOf(kea, 'script')
   await kea.waitScreen('setup’s first line, with its reason', (s) => /setup of [a-z0-9-]+ \(create\)/.test(s))
   await expect(strip('Setup is running'), 'the running strip, with Skip').toBeVisible()
-  expect(await tabKinds(page), 'no Agent tab while setup runs').toEqual(['script'])
+  expect(await tabKinds(page), 'the Setup tab alone while setup runs').toEqual(['script'])
+  await expect(page.locator('.agent-pane .status-text')).toHaveText('Setting up')
   expect((await rowState(page, first))?.lifecycle).toBe('creating')
   await writeFifo(r.fifo, 'go\n')
   await waitRow(kea, first, 'live after setup’s exit 0', (x) => x.lifecycle === 'live')
   const agent = await tabOf(kea, 'agent')
-  await until('the Agent tab active', async () => (await kea.shown()) === agent || undefined)
-  expect(await tabKinds(page), 'Agent first, Setup after').toEqual(['agent', 'script'])
+  await until('the agent with the keyboard', async () => (await kea.shown()) === agent || undefined)
+  expect(await kea.shown('agent'), 'in the agent pane').toBe(agent)
+  expect(await tabKinds(page), 'the Setup tab stays in the work pane').toEqual(['script'])
   await kea.clickTab(setup)
   await kea.waitScreen('setup’s last line', (s) => s.includes('setup done'))
 
@@ -117,7 +120,7 @@ test('E-WT-1 · a project with .kea/setup.sh: the Setup tab runs first and the a
   await tabOf(kea, 'agent')
   // the person chose to go on: the strip goes; the Setup tab stays, with the failed run's output
   await expect(failedStrip).toHaveCount(0)
-  expect(await tabKinds(page), 'the Setup tab stays beside the agent').toEqual(['agent', 'script'])
+  expect(await tabKinds(page), 'the Setup tab stays beside the agent').toEqual(['script'])
   await kea.clickTab(await tabOf(kea, 'script'))
   await kea.waitScreen('the failed setup’s output', (s) => s.includes('setup failed on purpose'))
   // Start agent anyway did not run setup again (Retry would have): one run in the log, the failed one

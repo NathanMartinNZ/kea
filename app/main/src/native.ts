@@ -50,6 +50,14 @@ export function parseWindowState(raw: unknown, displays: readonly Rect[], min: {
   return { x, y, width, height, maximized: o.maximized === true }
 }
 
+/**
+ * A first launch's size (no bounds remembered): the default, clamped to the work area of the display the window opens on
+ * (a laptop's display may be smaller than the default), never below the minimum.
+ */
+export function firstLaunchSize(def: { width: number; height: number }, area: Rect, min: { width: number; height: number }): { width: number; height: number } {
+  return { width: Math.max(min.width, Math.min(def.width, area.width)), height: Math.max(min.height, Math.min(def.height, area.height)) }
+}
+
 export function readWindowState(dir: string, displays: readonly Rect[], min: { width: number; height: number }): WindowState | null {
   try {
     return parseWindowState(JSON.parse(fs.readFileSync(path.join(dir, WINDOW_STATE_FILE), 'utf8')), displays, min)
