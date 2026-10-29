@@ -18,7 +18,7 @@ export const MENU_LABEL: Record<'session' | 'project' | 'header', string> = { se
  * for the row, plus the ones kept there disabled with their reason (`keepInMenus`), each with its key now.
  */
 export function menuItems(surface: Surface, args: unknown): MenuItem[] {
-  return surfaceItems(surface, args, { inMenus: (id, a) => commands.inMenus(id, a), reason: (id, a) => commands.reason(id, a), title: (c) => systemTitle(c), key: shortcut })
+  return surfaceItems(surface, args, { inMenus: (id, a) => commands.inMenus(id, a), reason: (id, a) => commands.reason(id, a), title: (c, a) => (c.titles ? commands.title(c.id, a) : systemTitle(c)), key: shortcut })
 }
 
 export const closeSheet = (): void => {

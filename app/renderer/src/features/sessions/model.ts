@@ -83,11 +83,25 @@ export function statusWords(s: SessionView): string {
   return { working: 'Working', needsYou: 'Needs you', unread: 'Finished, unread', idle: 'Idle', detached: 'Detached', failed: 'Failed', limited: 'Waiting on an account condition' }[s.glyph]
 }
 
-/** The row's tooltip: a failed creation's error, else a finished turn's background work. */
-export function rowTitle(s: SessionView): string | undefined {
-  if (s.creation?.error) return s.creation.error
-  if (s.lifecycle === 'live' && s.phase === 'ready' && s.background) return 'Background tasks running'
-  return undefined
+/** What a row's trailing meta shows, in words: the label, a failed teardown, a missing worktree, the server, the time. */
+export function rowMeta(s: SessionView, now: number): string {
+  const label = rowLabel(s)
+  if (label) return LABEL_WORDS[label] ?? label
+  if (s.teardownFailed) return 'Teardown failed'
+  if (s.worktreeMissing) return 'Worktree missing'
+  if (s.serverRunning) return 'Dev server running'
+  return relativeTime(s.lastActivityAt, now)
+}
+
+/**
+ * The row's tooltip: a failed creation's error, else a finished turn's background work. In a compact sidebar (`now`
+ * given) it leads with the full title and what the meta slot would show, since the row draws neither whole.
+ */
+export function rowTitle(s: SessionView, now?: number): string | undefined {
+  const note = s.creation?.error ?? (s.lifecycle === 'live' && s.phase === 'ready' && s.background ? 'Background tasks running' : undefined)
+  if (now === undefined) return note
+  const meta = s.lifecycle === 'create_failed' ? 'Creation failed' : rowMeta(s, now)
+  return [s.title, meta, note].filter((x) => x !== undefined).join(' · ')
 }
 
 /** A session matches when its title or branch contains the text, ignoring case. */

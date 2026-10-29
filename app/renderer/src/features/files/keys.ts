@@ -61,7 +61,8 @@ export function treeKey(rows: readonly FlatRow[], index: number, key: string, pa
   const moved = move(rows.length, index, key, page)
   if (moved) return moved
   const row = rows[index]
-  if (!row) return null
+  // the place of a new entry: its name field has the keyboard
+  if (!row || row.kind === 'pending') return null
   switch (key) {
     case 'ArrowRight':
       if (row.kind !== 'dir') return null

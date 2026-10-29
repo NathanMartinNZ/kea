@@ -37,6 +37,37 @@
   min-width: 0;
 }
 
+/* ── the Files bar: the session's folder by name, New File, New Folder, Collapse All (a toolbar above the tree) ── */
+
+.fp-bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-1);
+  box-sizing: border-box;
+  height: var(--size-tree-row);
+  padding: 0 var(--space-1) 0 var(--space-3);
+  outline: none;
+  font-size: var(--type-secondary-size);
+  line-height: var(--type-secondary-line);
+}
+
+.fp-bar-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-3);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* the three buttons stay whole at the panel's narrowest; the name gives way */
+.fp-bar .quiet-button.icon {
+  flex: none;
+  width: var(--size-tree-row);
+  height: var(--size-tree-row);
+}
+
 /* ── the lists: fixed rows, --size-tree-row high, drawn only where they are on screen ── */
 
 .fp-list {
@@ -200,6 +231,83 @@
 /* a folder with changes below it: the strongest child's colour at --opacity-folder-tint */
 .ft-dir[class*='git-'] .ft-name {
   opacity: var(--opacity-folder-tint);
+}
+
+/* ── the tree's file operations ── */
+
+/* the name field (New File…, New Folder…, Rename…) over its row's place; the row under it is not drawn */
+.ft-edit-place {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 1;
+}
+
+.ft-edit {
+  position: relative;
+  background: var(--surface-1);
+}
+
+.ft-edit:hover {
+  background: var(--surface-1);
+}
+
+.fp-row.editing,
+.fp-row.ft-pending {
+  visibility: hidden;
+}
+
+.ft-edit-input {
+  flex: 1;
+  min-width: 0;
+  box-sizing: border-box;
+  height: var(--size-tree-row);
+  padding: 0 var(--space-1);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text-1);
+  font: inherit;
+  user-select: text;
+  outline: none;
+}
+
+.ft-edit-input[aria-invalid='true'] {
+  border-color: var(--danger);
+}
+
+/* why a name was refused, under the field (part of the field: a press on it changes nothing) */
+.ft-edit-msg {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text-1);
+  white-space: normal;
+  box-shadow: var(--shadow-float);
+}
+
+/* a drag's target folder: the folder's row, or the Files bar and the list for the session's folder */
+.fp-row.drop-target,
+.fp-bar.drop-target {
+  background: var(--surface-3);
+  outline: var(--size-focus-ring) solid var(--accent);
+  outline-offset: calc(0px - var(--size-focus-ring));
+}
+
+.fp-list.drop-root {
+  outline: var(--size-focus-ring) solid var(--accent);
+  outline-offset: calc(0px - var(--size-focus-ring));
+}
+
+/* a row cut to the file clipboard, until it is pasted */
+.fp-row.cut .ft-name,
+.fp-row.cut .ft-glyph {
+  opacity: var(--opacity-detached-dim);
 }
 
 /* ── Changes ── */

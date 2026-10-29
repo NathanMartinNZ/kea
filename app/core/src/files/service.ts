@@ -344,7 +344,7 @@ export class FilesService implements GitFacts, Disposable {
       'files.open': ({ sessionId }) => {
         const s = this.shown(sessionId)
         const p = s.persisted()
-        return { ok: true, expanded: p.expanded, scope: p.scope, ui: p.ui }
+        return { ok: true, expanded: p.expanded, scope: p.scope, ui: p.ui, trash: s.trashAvailable, undo: s.undoKind }
       },
       'files.expand': async ({ sessionId, path }) => ({ ok: await this.shown(sessionId).expand(path) }),
       'files.collapse': ({ sessionId, path }) => ({ ok: this.shown(sessionId).collapse(path) }),
@@ -366,6 +366,13 @@ export class FilesService implements GitFacts, Disposable {
         return { ok: true }
       },
       'files.discard': ({ sessionId, path, expect, scope, base }) => this.shown(sessionId).discard(path, expect, { scope, base }),
+      'files.create': ({ sessionId, dir, name, kind }) => this.shown(sessionId).create(dir, name, kind),
+      'files.rename': ({ sessionId, path, name }) => this.shown(sessionId).rename(path, name),
+      'files.move': ({ sessionId, path, toDir, copy }) => this.shown(sessionId).move(path, toDir, copy),
+      'files.undo': ({ sessionId }) => this.shown(sessionId).undo(),
+      'files.trash': ({ sessionId, path, dir }) => this.shown(sessionId).trash(path, dir),
+      'files.measure': ({ sessionId, sources, toDir }) => this.shown(sessionId).measure(sources, toDir),
+      'files.copyIn': ({ sessionId, sources, toDir }) => this.shown(sessionId).copyIn(sources, toDir),
       'files.find': ({ sessionId, query, recent }) => this.shown(sessionId).find(query, recent ?? []),
       'files.fsmonitorOffered': async ({ projectId }) => {
         // not on a network volume. The folder is the repository's: every worktree's git dir, where git's daemon

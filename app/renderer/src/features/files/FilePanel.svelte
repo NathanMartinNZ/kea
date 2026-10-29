@@ -8,19 +8,22 @@ header's (`onmode`), and the file row the keyboard is on (`panelSelection`, for 
 run with no row). What the window tells it: the tab on screen (`activeFile`), whose row is marked.
 
 Notes above the list: "live updates unavailable" (poll mode, or a session on screen beyond the worktrees core follows
-live), a missing folder, and the one-time hint to use git's fsmonitor when a status was slow.
+live), a missing folder, the one-time hint to use git's fsmonitor when a status was slow, and a file operation's result
+that git ignores while ignored files are hidden (with Show). In Files the Files bar stands above the tree.
 -->
 <script lang="ts">
   import { untrack } from 'svelte'
   import { Icon } from '@kea/ui'
   import { call } from '../../lib/rpc.ts'
   import { failed, sessions } from '../sessions/state.svelte.ts'
+  import { commands } from '../commands/registry.ts'
   import Changes from './Changes.svelte'
   import './files.css'
+  import FilesBar from './FilesBar.svelte'
   import { filesModel } from './model.ts'
   import type { FilePanelProps } from './panel.ts'
   import { panelSelection } from './selection.svelte.ts'
-  import { panel, panelIsGit } from './state.svelte.ts'
+  import { endEdit, panel, panelIsGit } from './state.svelte.ts'
   import Tree from './Tree.svelte'
 
   let { sessionId, mode, activeFile, onchanges, onmode }: FilePanelProps = $props()
@@ -45,7 +48,18 @@ live), a missing folder, and the one-time hint to use git's fsmonitor when a sta
 
   $effect(() => {
     panel.mode = shown
+    // the name field is the tree's: it goes when the panel leaves Files
+    if (shown !== 'files') untrack(() => panel.edit && endEdit())
   })
+
+  /** The note for a result git ignores while ignored files are hidden: its name. */
+  const hidden = $derived(panel.hidden?.sessionId === sessionId ? panel.hidden.path : null)
+
+  function showHidden(path: string): void {
+    panel.hidden = null
+    if (!filesModel.ui.showIgnored) commands.run('files.toggleIgnored')
+    filesModel.reveal(path)
+  }
 
   // `Changes n`
   $effect(() => {
@@ -91,7 +105,7 @@ live), a missing folder, and the one-time hint to use git's fsmonitor when a sta
       if (shown === 'files') {
         const sel = filesModel.ui.files.sel
         const row = filesModel.rows[filesModel.rowIndex(sel)]
-        if (row && row.path === sel && row.kind !== 'dir' && row.kind !== 'more') next = { sessionId, path: row.path, mode: 'file' }
+        if (row && row.path === sel && row.kind !== 'dir' && row.kind !== 'more' && row.kind !== 'pending') next = { sessionId, path: row.path, mode: 'file' }
       } else {
         const sel = filesModel.ui.changes.sel
         if (sel !== null && filesModel.changeIndex(sel) >= 0) next = { sessionId, path: sel, mode: 'diff' }
@@ -137,7 +151,15 @@ live), a missing folder, and the one-time hint to use git's fsmonitor when a sta
         <button class="quiet-button icon" aria-label="Dismiss" data-tip="Dismiss" onmousedown={keepFocus} onclick={() => filesModel.closeHint()}><Icon name="close" /></button>
       </div>
     {/if}
+    {#if hidden !== null}
+      <div class="fp-hint" role="status">
+        <span>“{hidden.slice(hidden.lastIndexOf('/') + 1)}” is there; git ignores it, and ignored files are hidden.</span>
+        <button class="quiet-button" onmousedown={keepFocus} onclick={() => showHidden(hidden)}>Show</button>
+        <button class="quiet-button icon" aria-label="Dismiss" data-tip="Dismiss" onmousedown={keepFocus} onclick={() => (panel.hidden = null)}><Icon name="close" /></button>
+      </div>
+    {/if}
     {#if shown === 'files'}
+      <FilesBar {sessionId} />
       <Tree {sessionId} {activePath} />
     {:else}
       <Changes {sessionId} {activePath} />

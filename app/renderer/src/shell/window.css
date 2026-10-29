@@ -46,13 +46,13 @@ input[type='checkbox'] {
 .sidebar-column {
   grid-column: 1;
   background: var(--surface-1);
-  border-right: 1px solid var(--line);
+  border-right: var(--size-hairline) solid var(--line);
 }
 
 .file-panel {
   grid-column: 2;
   background: var(--surface-1);
-  border-right: 1px solid var(--line);
+  border-right: var(--size-hairline) solid var(--line);
 }
 
 .main-column {
@@ -504,6 +504,26 @@ textarea.field {
 .sb-text-button:hover {
   background: var(--surface-3);
   color: var(--text-1);
+}
+
+/* A compact sidebar (`--size-sidebar-compact`) keeps each session row's glyph and title: the meta and the buttons go,
+   and the row's tooltip says what the meta would show. The session pane has the same buttons. Project rows keep their
+   name, count and hover `+`. */
+.sidebar-compact .sb-row.sb-session .sb-meta-slot,
+.sidebar-compact .sb-row.sb-session .sb-actions {
+  display: none;
+}
+
+/* its empty state's sentence and button wrap, and the button drops its key chip */
+.sidebar-compact .sidebar-empty .button {
+  height: auto;
+  min-height: var(--size-row);
+  white-space: normal;
+  text-align: left;
+}
+
+.sidebar-compact .sidebar-empty kbd {
+  display: none;
 }
 
 /* the single uppercase, letter-spaced label in the app: the design allows the style nowhere else */
@@ -1071,7 +1091,7 @@ code.sheet-row-title,
 
 .settings-row {
   display: grid;
-  grid-template-columns: var(--size-sidebar-min) minmax(0, 1fr);
+  grid-template-columns: var(--size-settings-label) minmax(0, 1fr);
   align-items: center;
   column-gap: var(--space-3);
   row-gap: var(--space-1);

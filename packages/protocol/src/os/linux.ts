@@ -111,5 +111,7 @@ export const linux: ProtocolOs = {
     clipboard: 'router',
     terminalSelectAll: null,
     modClick: (e) => e.ctrlKey,
+    listKeys: { 'ctrl+x': 'files.cut', 'ctrl+c': 'files.copy', 'ctrl+v': 'files.paste', 'ctrl+z': 'files.undo' },
+    dragCopy: (e) => e.ctrlKey,
   },
 }

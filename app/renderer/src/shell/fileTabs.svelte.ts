@@ -4,8 +4,9 @@
 // (`TerminalPane.svelte`) is the only writer.
 
 import type { ViewMode } from '@kea/protocol'
+import { movedPath } from '../features/files/edit.ts'
 import { watch } from '../lib/reactive.svelte.ts'
-import { NO_FILE_TABS, type FileTabs } from './tabs.ts'
+import { fileTabId, NO_FILE_TABS, type FileTabs } from './tabs.ts'
 
 class FileTabsState {
   // bounded: one entry per session that has file tabs, each at most 1 preview + L.viewerPinnedTabsMax pinned with their
@@ -47,6 +48,44 @@ export function reportShownFile(sessionId: string, tab: { path: string; mode: Vi
   fileTabsState.shown = { sessionId, path: tab.path, mode: tab.mode }
 }
 
+// bounded: one entry per file tab moved since its pane last looked (at most the session's file tabs: pruned at each move)
+const moved = new Map<string, string>()
+const movedKey = (sessionId: string, id: string): string => `${sessionId}\0${id}`
+
+/**
+ * A file or folder of `sessionId` moved or was renamed in the file tree: its file tabs (a folder's: every one at or
+ * under it) show the entry at its new path, with their place and view state. A diff tab stays on the old path, which
+ * then reads as deleted. The pane that shows a moved tab finds it again with `takeMovedTab`.
+ */
+export function moveFileTabs(sessionId: string, from: string, to: string): void {
+  const cur = fileTabsOf(sessionId)
+  const taken = new Set(cur.tabs.map((t) => t.id))
+  let changed = false
+  const tabs = cur.tabs.map((t) => {
+    if (t.mode !== 'file') return t
+    const path = movedPath(t.path, from, to)
+    const id = fileTabId(path)
+    if (path === t.path || taken.has(id)) return t
+    changed = true
+    moved.set(movedKey(sessionId, t.id), id)
+    return { ...t, id, path }
+  })
+  if (!changed) return
+  setFileTabs(sessionId, { ...cur, tabs })
+  const ids = new Set(tabs.map((t) => t.id))
+  for (const [k, v] of moved) if (k.startsWith(`${sessionId}\0`) && !ids.has(v)) moved.delete(k)
+  const shown = fileTabsState.shown
+  if (shown?.sessionId === sessionId && shown.mode === 'file' && movedPath(shown.path, from, to) !== shown.path) fileTabsState.shown = { ...shown, path: movedPath(shown.path, from, to) }
+}
+
+/** The id a file tab of `sessionId` has after it moved (`moveFileTabs`), taken once; null: it did not move. */
+export function takeMovedTab(sessionId: string, id: string): string | null {
+  const k = movedKey(sessionId, id)
+  const to = moved.get(k) ?? null
+  moved.delete(k)
+  return to
+}
+
 /** File tabs the window holds, over all sessions (the resource report's `renderer.fileTabs`). */
 export function fileTabMemory(): number {
   let n = 0
@@ -55,6 +94,7 @@ export function fileTabMemory(): number {
 }
 
 export function forgetFileTabs(exists: (sessionId: string) => boolean): void {
+  for (const k of [...moved.keys()]) if (!exists(k.slice(0, k.indexOf('\0')))) moved.delete(k)
   const cur = fileTabsState.bySession
   if ([...cur.keys()].every(exists)) return
   fileTabsState.bySession = new Map([...cur].filter(([id]) => exists(id)))

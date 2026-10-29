@@ -8,8 +8,9 @@
 //   git:<sessionId>   the session's status as a store: the head row and one row per changed path, changed together in
 //                     one delta. A subscriber's delta is the change signal.
 //   tree:<sessionId>  the session's file tree as a store: the head row and one row per loaded directory.
-//   filesApi          the file panel's calls: open the tree, expand, collapse, refresh, the scope, discard, the finder,
-//                     and whether a project is offered git's fsmonitor.
+//   filesApi          the file panel's calls: open the tree, expand, collapse, refresh, the scope, discard, the file
+//                     operations (new, rename, move, copy, trash, undo, a drop from another app), the finder, and
+//                     whether a project is offered git's fsmonitor.
 
 import { z } from 'zod'
 import { L } from './generated/limits.ts'
@@ -252,9 +253,10 @@ export type DiscardAction = (typeof DISCARD_ACTIONS)[number]
  *   notGit       the working directory is not a git work tree
  *   noTrash      the system has no tool that moves a file to the Trash (`trash` from macOS 15, GLib's `gio` on Linux):
  *                the file is left alone, never deleted
+ *   busy         another change to the session's files is under way (one at a time: a file operation or a discard)
  *   failed       git or the trash tool failed; `detail` is the last line it wrote
  */
-export const DISCARD_REFUSALS = ['unchanged', 'changed', 'directory', 'submodule', 'conflict', 'outside', 'notGit', 'noTrash', 'failed'] as const
+export const DISCARD_REFUSALS = ['unchanged', 'changed', 'directory', 'submodule', 'conflict', 'outside', 'notGit', 'noTrash', 'busy', 'failed'] as const
 export type DiscardRefusal = (typeof DISCARD_REFUSALS)[number]
 
 /** A commit as git names it in full: 40 hex digits, or 64 in a SHA-256 repository (what `GitHead.base` holds). */
@@ -266,6 +268,65 @@ export const zDiscardResult = z.union([
 ])
 export type DiscardResult = z.infer<typeof zDiscardResult>
 
+// ── file operations ──────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Why a file operation was not done; nothing was changed unless it says `failed` (whose detail says what was left).
+ *   exists       the name is taken in that folder (nothing is ever overwritten)
+ *   name         not a name the tree gives (`checkName`): `detail` says why
+ *   outside      the path does not lead into the working directory (a symlinked folder on the way)
+ *   gitDir       the path is, or is inside, a `.git` folder, or a copy's source holds one
+ *   root         the working directory itself
+ *   intoItself   a folder into itself or a folder below it
+ *   submodule    the path is, or holds, a submodule
+ *   missing      the path, or the folder it goes in, is not there (any more)
+ *   changed      the path is not what was confirmed: a file where a folder was, or the other way round; for Undo,
+ *                the moved entry was replaced or its old place was taken
+ *   busy         another change to the session's files is under way
+ *   noTrash      the system has no tool that moves a file to the Trash: the entry is left alone, never deleted
+ *   crossDevice  the move would leave the volume (Kea moves within one; it never copies and deletes)
+ *   unsupported  a copy's source holds something that is not a file, folder or link (a socket, a device)
+ *   tooLarge     a copy's sources hold more entries or bytes than Kea copies at once: `detail` says how much
+ *   failed       the file system or the trash tool refused; `detail` says how
+ */
+export const FILE_OP_REFUSALS = ['exists', 'name', 'outside', 'gitDir', 'root', 'intoItself', 'submodule', 'missing', 'changed', 'busy', 'noTrash', 'crossDevice', 'unsupported', 'tooLarge', 'failed'] as const
+export type FileOpRefusal = (typeof FILE_OP_REFUSALS)[number]
+
+/** What Undo would take back: the last move or rename in the session's tree (one step), or null: nothing. */
+export const UNDO_KINDS = ['move', 'rename'] as const
+export type UndoKind = (typeof UNDO_KINDS)[number]
+export const zUndoKind = z.enum(UNDO_KINDS).nullable()
+
+const zFileOpRefusal = z.object({ ok: z.literal(false), refused: z.enum(FILE_OP_REFUSALS), detail: z.string().max(L.discardDetailMaxChars).optional() })
+export type FileOpRefused = z.infer<typeof zFileOpRefusal>
+
+/**
+ * A file operation done: the entry's path now, and where it was (a move, a rename, an undo); whether git ignores it
+ * (the panel may hide it); whether it falls past its folder's first page (the panel asks for all of it); after a folder
+ * moved or was renamed, the folders now open, under its new path; and what Undo would take back now. The tree's rows
+ * for it are published before this answer.
+ */
+export const zFileOpResult = z.union([
+  z.object({ ok: z.literal(true), path: zWorktreePath, from: zWorktreePath.optional(), ignored: z.boolean(), paged: z.boolean(), expanded: z.array(zTreeDirPath).optional(), undo: zUndoKind }),
+  zFileOpRefusal,
+])
+export type FileOpResult = z.infer<typeof zFileOpResult>
+
+const utf8 = new TextEncoder()
+
+/** A path dropped from another app: absolute, no NUL, at most L.fileDropPathMaxBytes in UTF-8. */
+export const zDroppedPath = z
+  .string()
+  .min(2)
+  .refine((p) => p.startsWith('/') && !p.includes('\0') && utf8.encode(p).length <= L.fileDropPathMaxBytes, 'not an absolute path Kea copies')
+
+/** The paths of one drop: 1 to L.fileDropMax, each once. */
+export const zDroppedPaths = z
+  .array(zDroppedPath)
+  .min(1)
+  .max(L.fileDropMax)
+  .refine((ps) => new Set(ps).size === ps.length, 'a path is named twice')
+
 export const filesApi = defineApi({
   /**
    * The panel shows this session's tree: core loads the root and the folders that were expanded when the session was
@@ -274,7 +335,16 @@ export const filesApi = defineApi({
    */
   'files.open': {
     args: z.object({ sessionId: zSessionId }),
-    result: z.object({ ok: z.boolean(), expanded: z.array(zTreeDirPath), scope: zDiffScope, ui: zFilesUi }),
+    result: z.object({
+      ok: z.boolean(),
+      expanded: z.array(zTreeDirPath),
+      scope: zDiffScope,
+      ui: zFilesUi,
+      /** The system has a tool that moves a file to the Trash (looked for on disk): Move to Trash is offered. */
+      trash: z.boolean(),
+      /** What Undo would take back in this session's tree. */
+      undo: zUndoKind,
+    }),
   },
   /** Load a folder's entries and keep it expanded. `ok: false`: it is not a directory inside the working directory. */
   'files.expand': { args: z.object({ sessionId: zSessionId, path: zTreeDirPath }), result: ok },
@@ -299,6 +369,41 @@ export const filesApi = defineApi({
    * calls for something else, it refuses `changed` and nothing is touched.
    */
   'files.discard': { args: z.object({ sessionId: zSessionId, path: zWorktreePath, expect: z.enum(DISCARD_ACTIONS), scope: zDiffScope, base: zGitObjectId.nullable() }), result: zDiscardResult },
+  /**
+   * New File… / New Folder…: make `name` in `dir` (`''`: the session's folder). `name` may hold `/`: the folders on
+   * the way are made one at a time. Nothing that exists is written over.
+   */
+  'files.create': { args: z.object({ sessionId: zSessionId, dir: zTreeDirPath, name: z.string(), kind: z.enum(['file', 'dir']) }), result: zFileOpResult },
+  /** Rename…: give the entry at `path` the one-segment `name`, in the same folder. */
+  'files.rename': { args: z.object({ sessionId: zSessionId, path: zWorktreePath, name: z.string() }), result: zFileOpResult },
+  /** A drag in the tree, or Paste: move the entry at `path` into `toDir`, or copy it there (a taken name gets "copy"). */
+  'files.move': { args: z.object({ sessionId: zSessionId, path: zWorktreePath, toDir: zTreeDirPath, copy: z.boolean() }), result: zFileOpResult },
+  /** Undo Move / Undo Rename: the last one, taken back if nothing has changed at either end since. */
+  'files.undo': { args: z.object({ sessionId: zSessionId }), result: zFileOpResult },
+  /**
+   * Move to Trash (the window has asked first): the entry at `path` goes to the Trash with the system's tool, never
+   * deleted. `dir`: the sheet named a folder; a path that is now the other kind is refused `changed`.
+   */
+  'files.trash': {
+    args: z.object({ sessionId: zSessionId, path: zWorktreePath, dir: z.boolean() }),
+    result: z.union([z.object({ ok: z.literal(true), undo: zUndoKind }), zFileOpRefusal]),
+  },
+  /** What a drop from another app would copy into `toDir`, counted before the person is asked (nothing is written). */
+  'files.measure': {
+    args: z.object({ sessionId: zSessionId, sources: zDroppedPaths, toDir: zTreeDirPath }),
+    result: z.union([z.object({ ok: z.literal(true), entries: z.number().int().min(0), bytes: z.number().int().min(0) }), zFileOpRefusal]),
+  },
+  /**
+   * A drop from another app, confirmed: copy the dropped files and folders into `toDir` (never move them). A taken
+   * name gets "copy". A copy that stops partway says what it made (`paths`).
+   */
+  'files.copyIn': {
+    args: z.object({ sessionId: zSessionId, sources: zDroppedPaths, toDir: zTreeDirPath }),
+    result: z.union([
+      z.object({ ok: z.literal(true), paths: z.array(zWorktreePath), undo: zUndoKind }),
+      zFileOpRefusal.extend({ paths: z.array(zWorktreePath).optional() }),
+    ]),
+  },
   /**
    * The finder: the best matches for `query` among the working directory's files, best first. The first call builds the
    * index. A call that a later one of the same window overtook answers `superseded` with no hits. `recent`: the paths

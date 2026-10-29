@@ -14,7 +14,11 @@
 //                                    and Ctrl+C over such a selection is the moment of a one-time hint
 //   a scoped binding               → only while its context has the keyboard (`scope.ts`); a scoped key without
 //                                    primary is the context's own and is passed to it (a viewer's keys; ↵ in the
-//                                    detached overlay), which finds its command with `scopedBinding`
+//                                    detached overlay; F2 and ⌦ in the file tree), which finds its command with
+//                                    `scopedBinding`
+//   a `file panel` primary binding → while the panel has the keyboard, the command (⌘X ⌘C ⌘V ⌘Z: the tree's Cut, Copy,
+//                                    Paste, Undo); prevented also when it cannot run, so neither the page's own editing
+//                                    (undo, copying a stale selection) nor the Edit menu's roles act there
 //   any other primary key in a     → kept from the PTY; the native menu may still act on it (⌘H, ⌘M, ⌘Q). On Linux
 //   terminal                         a Ctrl+Shift arrow, Home, F-key… no command takes reaches the PTY (the OS
 //                                    layer's `keptFromTerminal`)
@@ -106,6 +110,8 @@ export type Route =
   | { do: 'pty'; data: string }
   /** Keep the key from the terminal, but let the native menu act on it. */
   | { do: 'swallow' }
+  /** Keep the key from everything, the page and the menu's roles included (the file list's own keys while they cannot run). */
+  | { do: 'prevent' }
   /** Not Kea's: the focused element gets it unchanged. */
   | { do: 'pass' }
 
@@ -192,6 +198,7 @@ export function routeKey(e: KeyLike, ctx: RouteContext, keys: KeyLabels = protoc
     const rule = keys.intercepts[chord]
     const intercepted = keys.primary(c) || rule === 'always' || (rule === 'outsideTerminal' && !ctx.inTerminal)
     if (intercepted && ctx.has(b.id, b.args)) return { do: 'command', id: b.id, ...(b.args !== undefined ? { args: b.args } : {}) }
+    if (b.scope === 'file panel' && keys.primary(c)) return { do: 'prevent' }
   }
   // The text-editing keys are the only ⌘ combinations that reach the PTY (on Linux: see `keptFromTerminal`)
   return ctx.inTerminal && keys.keptFromTerminal(c, b !== undefined) ? { do: 'swallow' } : { do: 'pass' }

@@ -2,6 +2,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { L } from '@kea/protocol'
 import { describe, expect, it } from 'vitest'
 
 function repoRoot(): string {
@@ -24,6 +25,7 @@ type Leaf = { $value: string }
 type Tokens = {
   color: Record<string, Leaf>
   contrast: { text: string[]; surfaces: string[]; min: number }
+  sessionPalette: { colors: string[]; meanings: string[]; apart: number; clear: number }
   terminalContrast: { text: string[]; dark: string[]; light: string[]; min: number; cursorMin: number }
   terminal: Record<string, Record<string, Leaf> & { $extensions?: { kea?: { label?: string; scheme?: string } } }>
   syntax: Record<string, Leaf & { scopes: string[]; fontStyle?: string }>
@@ -70,6 +72,24 @@ const resolve = (ref: string): string => {
   return resolve((node as Leaf).$value)
 }
 
+/** sRGB → OKLab (Björn Ottosson's matrices); the distance is Euclidean in that space. */
+function oklab(c: string): [number, number, number] {
+  const [r, g, b] = parseColour(c)!.map((v, i) => {
+    if (i === 3) return v
+    const s = v / 255
+    return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4
+  }) as [number, number, number, number]
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b)
+  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b)
+  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b)
+  return [0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s, 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s, 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s]
+}
+
+function distance(a: string, b: string): number {
+  const [x, y] = [oklab(a), oklab(b)]
+  return Math.hypot(x[0] - y[0], x[1] - y[1], x[2] - y[2])
+}
+
 describe('design tokens', () => {
   it('DS-1 · every text and semantic token reaches contrast.min on every listed surface', () => {
     expect(contrast('#000000', '#ffffff')).toBeCloseTo(21, 5)
@@ -88,6 +108,28 @@ describe('design tokens', () => {
     }
     expect(checked).toBeGreaterThan(0)
     expect(failures, `below ${tokens.contrast.min} : 1`).toEqual([])
+  })
+
+  it('DS-11 · one session colour per palette slot, each a text colour DS-1 checks, far enough from each other and from the colours the sidebar gives a meaning', () => {
+    const p = tokens.sessionPalette
+    const count = L.sessionColors
+    const named = Object.keys(tokens.color).filter((k) => k.startsWith('session-'))
+    expect(named).toEqual(Array.from({ length: count }, (_, i) => `session-${i + 1}`))
+    expect(p.colors).toEqual(named)
+    for (const name of named) expect(tokens.contrast.text, `${name} is contrast-checked`).toContain(name)
+    expect(distance('#000000', '#ffffff')).toBeCloseTo(1, 3)
+    const close: string[] = []
+    for (const [i, a] of named.entries())
+      for (const b of named.slice(i + 1)) {
+        const d = distance(tokens.color[a]!.$value, tokens.color[b]!.$value)
+        if (d < p.apart) close.push(`${a} and ${b}: ${d.toFixed(3)} < ${p.apart}`)
+      }
+    for (const a of named)
+      for (const b of p.meanings) {
+        const d = distance(tokens.color[a]!.$value, tokens.color[b]!.$value)
+        if (d < p.clear) close.push(`${a} and ${b}: ${d.toFixed(3)} < ${p.clear}`)
+      }
+    expect(close).toEqual([])
   })
 
   it('DS-7 · every bundled terminal theme: its text colours reach terminalContrast.min on its own background, its cursor cursorMin, and its scheme is the one its colours make', () => {

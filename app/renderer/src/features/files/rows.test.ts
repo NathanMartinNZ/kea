@@ -60,6 +60,29 @@ describe('the tree’s rows', () => {
   })
 })
 
+describe('the row of a new entry', () => {
+  it('U-FT-25 · while a new entry is named, its row stands first in the target folder, one level in; a compact chain ends at that folder; at the root it leads the list', () => {
+    const on = { compact: true, showIgnored: false }
+    const base = { '': [d('packages'), f('README.md')], packages: [d('app')], 'packages/app': [d('src')], 'packages/app/src': [f('main.ts')] }
+    const all = new Set(['packages', 'packages/app', 'packages/app/src'])
+    const shown = (pending: { dir: string; kind: 'file' | 'dir' }) => show(flattenTree(tree(base), all, { ...on, pending }))
+    // inside the deepest folder of a chain: the chain stays whole, the row is the folder's first child
+    expect(shown({ dir: 'packages/app/src', kind: 'file' })).toEqual(['packages/app/src/', '  ', '  main.ts', 'README.md'])
+    const rows = flattenTree(tree(base), all, { ...on, pending: { dir: 'packages/app/src', kind: 'file' } })
+    expect(rows[1]).toMatchObject({ kind: 'pending', path: 'packages/app/src/', depth: 1, label: '' })
+    // in a folder in the middle of a chain: the chain splits there, so the row has a place of its own
+    expect(shown({ dir: 'packages', kind: 'dir' })).toEqual(['packages/', '  ', '  app/src/', '    main.ts', 'README.md'])
+    expect(shown({ dir: 'packages/app', kind: 'file' })).toEqual(['packages/app/', '  ', '  src/', '    main.ts', 'README.md'])
+    // at the root
+    const root = flattenTree(tree(base), all, { ...on, pending: { dir: '', kind: 'file' } })
+    expect(root[0]).toMatchObject({ kind: 'pending', path: '/', depth: 0 })
+    expect(root.slice(1).map((r) => r.path)).toEqual(flattenTree(tree(base), all, on).map((r) => r.path))
+    // a folder that is not loaded has no row for it; without one, the rows are as before
+    expect(show(flattenTree(tree(base), all, { ...on, pending: { dir: 'nowhere', kind: 'file' } }))).toEqual(show(flattenTree(tree(base), all, on)))
+    expect(flattenTree(tree(base), all, { ...on, pending: null })).toEqual(flattenTree(tree(base), all, on))
+  })
+})
+
 describe('folder roll-ups', () => {
   it('U-GS-7 · a status delta updates only the changed paths’ ancestors; a folder takes its strongest descendant’s class; a deleted file counts in its folders; incremental equals a full recompute for random deltas', () => {
     expect(ancestors('a/b/c.ts')).toEqual(['a/b', 'a', ''])

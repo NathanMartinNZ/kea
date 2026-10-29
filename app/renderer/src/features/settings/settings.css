@@ -13,7 +13,7 @@
 
 .settings-panes {
   display: grid;
-  grid-template-columns: var(--size-sidebar-min) minmax(0, 1fr);
+  grid-template-columns: var(--size-settings-nav) minmax(0, 1fr);
   column-gap: var(--space-4);
   flex: 1;
   min-height: 0;

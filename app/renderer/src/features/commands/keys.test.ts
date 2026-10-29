@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { bindings, COMMANDS, MAIN_COMMANDS, NATIVE_ROLES, parseShortcut, type KeyLabels } from '@kea/protocol'
+import { bindings, COMMANDS, MAIN_COMMANDS, NATIVE_ROLES, parseChord, parseShortcut, type KeyLabels } from '@kea/protocol'
 import { darwin } from '@kea/protocol/os/darwin'
 import { linux } from '@kea/protocol/os/linux'
 import { selectorFor } from '../composer/keys.ts'
@@ -24,6 +24,7 @@ function key(spec: string, mac = true): KeyLike {
     up: ['ArrowUp', 'ArrowUp'],
     down: ['ArrowDown', 'ArrowDown'],
     backspace: ['Backspace', 'Backspace'],
+    delete: ['Delete', 'Delete'],
     enter: ['Enter', 'Enter'],
     tab: ['Tab', 'Tab'],
     escape: ['Escape', 'Escape'],
@@ -195,6 +196,64 @@ describe('key routing on macOS', () => {
     expect(chordOf(key('cmd+alt+q'))).toBe('cmd+alt+q')
     expect(chordOf({ key: 'q', code: 'KeyA', metaKey: true, ctrlKey: false, altKey: false, shiftKey: false })).toBe('cmd+q') // AZERTY
     expect(chordOf({ key: 'Meta', code: 'MetaLeft', metaKey: true, ctrlKey: false, altKey: false, shiftKey: false })).toBeNull()
+  })
+})
+
+describe('keys in the file list', () => {
+  const panel = (has: RouteContext['has'] = ALL): RouteContext => ({ inTerminal: false, scopes: ['file panel'], has })
+
+  it('U-FT-28 · macOS: ⌘Z ⌘X ⌘C ⌘V in the file list run its own commands, and are kept from the Edit menu while they cannot run', () => {
+    const route = (e: KeyLike, ctx: RouteContext) => routeKey(e, ctx, darwin.keys)
+    setBindings(bindings(COMMANDS, darwin.keys))
+    try {
+      expect(route(key('cmd+z'), panel())).toEqual({ do: 'command', id: 'files.undo' })
+      expect(route(key('cmd+x'), panel())).toEqual({ do: 'command', id: 'files.cut' })
+      expect(route(key('cmd+c'), panel())).toEqual({ do: 'command', id: 'files.copy' })
+      expect(route(key('cmd+v'), panel())).toEqual({ do: 'command', id: 'files.paste' })
+      // unavailable (nothing to undo, no row, an empty clipboard): prevented, so the Edit menu's role does not act on the page
+      const none = panel((id) => !id.startsWith('files.'))
+      for (const k of ['cmd+z', 'cmd+x', 'cmd+c', 'cmd+v']) expect(route(key(k), none), k).toEqual({ do: 'prevent' })
+      // outside the list: a field's own undo, the terminal's copy and paste, as before
+      expect(route(key('cmd+z'), outside)).toEqual({ do: 'pass' })
+      expect(route(key('cmd+z'), term)).toEqual({ do: 'swallow' })
+      expect(route(key('cmd+c'), term)).toEqual({ do: 'native', id: 'terminal.copy' })
+      expect(route(key('cmd+v'), outside)).toEqual({ do: 'native', id: 'terminal.paste' })
+      // the list's keys without ⌘ are passed to the tree, which runs them through its scope
+      expect(route(key('f2'), panel())).toEqual({ do: 'pass' })
+      expect(route(key('delete'), panel())).toEqual({ do: 'pass' })
+      expect(scopedBinding(key('f2'), ['file panel'])?.id).toBe('files.rename')
+      expect(scopedBinding(key('delete'), ['file panel'])?.id).toBe('files.trash')
+      expect(scopedBinding(key('delete'), ['viewer tab'])).toBeUndefined()
+      // ⌘⌫ is no binding of the table (it is the terminal's ⌃U): the tree takes it from the list keys
+      expect(route(key('cmd+backspace'), panel())).toEqual({ do: 'pass' })
+      expect(darwin.keys.listKeys).toEqual({ 'cmd+backspace': 'files.trash' })
+    } finally {
+      setBindings(bindings())
+    }
+  })
+
+  it('U-FT-28 · Linux: plain Ctrl+X C V Z are the list’s keys, from the system layer, never the router’s; Delete and F2 are scoped bindings', () => {
+    const route = (e: KeyLike, ctx: RouteContext) => routeKey(e, ctx, linux.keys)
+    setBindings(bindings(COMMANDS, linux.keys))
+    try {
+      for (const k of ['ctrl+x', 'ctrl+c', 'ctrl+v', 'ctrl+z']) expect(route(key(k, false), panel()), k).toEqual({ do: 'pass' })
+      expect(linux.keys.listKeys).toEqual({ 'ctrl+x': 'files.cut', 'ctrl+c': 'files.copy', 'ctrl+v': 'files.paste', 'ctrl+z': 'files.undo' })
+      expect(chordOf(key('ctrl+z', false))).toBe('ctrl+z')
+      expect(scopedBinding(key('delete', false), ['file panel'])?.id).toBe('files.trash')
+      expect(scopedBinding(key('f2', false), ['file panel'])?.id).toBe('files.rename')
+    } finally {
+      setBindings(bindings())
+    }
+  })
+
+  it('U-FT-28 · every list key names a file-list command, and the table’s row says so', () => {
+    for (const keys of [darwin.keys, linux.keys]) {
+      for (const [chord, id] of Object.entries(keys.listKeys)) {
+        const c = COMMANDS.find((x) => x.id === id)
+        expect(c?.keyScope, `${chord} → ${id}`).toBe('file panel')
+        expect(c?.other, `${chord} → ${id}`).toContain(`list key ${keys.label(parseChord(chord)!)}`)
+      }
+    }
   })
 })
 

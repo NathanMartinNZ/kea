@@ -47,7 +47,7 @@ describe('files and git in the whole core', () => {
 
     // the panel's calls; another panel's state in the same database row is left alone
     await s.call('sessions.setUi', { id, state: { terminal: { scroll: 12 } } })
-    expect(await s.call('files.open', { sessionId: id })).toEqual({ ok: true, expanded: [], scope: 'branch', ui: {} })
+    expect(await s.call('files.open', { sessionId: id })).toEqual({ ok: true, expanded: [], scope: 'branch', ui: {}, trash: false, undo: null })
     expect(await s.call('files.expand', { sessionId: id, path: 'src' })).toEqual({ ok: true })
     expect((tree?.get('/src') as TreeDir).entries.map((e) => e.name)).toContain('math.js')
     await s.call('files.setScope', { sessionId: id, scope: 'uncommitted' })
@@ -79,7 +79,7 @@ describe('files and git in the whole core', () => {
     // a relaunch: what was expanded, the scope and the panel's state come back from the database
     await s.relaunch()
     core().visible.set(win, id)
-    expect(await s.call('files.open', { sessionId: id })).toEqual({ ok: true, expanded: ['src'], scope: 'uncommitted', ui: { tab: 'changes', scrollTop: 240, selected: 'src/math.js' } })
+    expect(await s.call('files.open', { sessionId: id })).toEqual({ ok: true, expanded: ['src'], scope: 'uncommitted', ui: { tab: 'changes', scrollTop: 240, selected: 'src/math.js' }, trash: false, undo: null })
     const tree2 = core().stores.get(treeStoreName(id))
     await until('the expanded folder to be loaded again', () => tree2?.get('/src') !== undefined)
     await until('the status', () => (core().stores.get(gitStoreName(id))?.get('head') as GitHead | undefined)?.state === 'ok')

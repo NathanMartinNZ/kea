@@ -4,7 +4,9 @@
 // the panel, its key scope applies (`file panel`). A runes store: `layoutState.layout`, `.width` and `.resizing` are
 // each their own state, and `.split` is what a session's main column draws (the panes' widths, or null for one column),
 // decided with hysteresis from the mode it drew last. The terminal cell's width is measured for the saved font
-// settings at start, when they change and when the window moves to a display of another scale.
+// settings at start, when they change and when the window moves to a display of another scale. `.sidebarFloor` is the
+// sidebar's minimum now: the token, or more where the window's own buttons sit on the left of a Linux title bar (read
+// from the Window Controls Overlay, and again whenever the desktop moves them).
 
 import type { Disposable } from '@kea/terminal'
 import { disposeAll } from '@kea/terminal'
@@ -13,7 +15,9 @@ import { provideKeyScope } from '../features/commands/scope.ts'
 import { filesModel } from '../features/files/model.ts'
 import { measureCell, measureCellNow } from '../features/terminal/cell.ts'
 import { prefs } from '../features/terminal/prefs.ts'
-import { AGENT_PANE_TOO_NARROW, agentPaneToggle, drawn, loadLayout, mainWidth, saveLayout, setAgentBeside, setCellWidth, setPanelMode, setTreeHidden, splitMode, splitWidths, toggleSidebar, type KeyValue, type Layout, type PanelMode, type Split, type SplitWas } from './layout.ts'
+import { followOverlay } from './overlay.ts'
+import { protocolOs } from '@kea/protocol'
+import { AGENT_PANE_TOO_NARROW, agentPaneToggle, drawn, loadLayout, mainWidth, RANGE, saveLayout, setAgentBeside, setCellWidth, setPanelMode, setTreeHidden, sidebarCompactAt, splitMode, splitWidths, toggleSidebar, type Drawn, type KeyValue, type Layout, type PanelMode, type Split, type SplitWas } from './layout.ts'
 
 function storage(): KeyValue | null {
   try {
@@ -41,10 +45,12 @@ class LayoutState {
   width = $state(window.innerWidth)
   /** A divider is being dragged: no width transition (only a collapse or an expand animates), and no change of mode. */
   resizing = $state(false)
+  /** The sidebar's minimum now (`sidebarFloor`). */
+  sidebarFloor = $state(RANGE.sidebar.min)
   /** The split as a session's main column draws it, or null: one column. */
   split: Split | null = $derived.by(() => {
     const l = this.layout
-    const main = mainWidth(l, this.width)
+    const main = mainWidth(l, this.width, this.sidebarFloor)
     const cell = cellWidth(l)
     const on = splitMode(l, main, cell, lastSplit, this.resizing)
     lastSplit = { drew: on, chose: l.agentBeside }
@@ -53,6 +59,21 @@ class LayoutState {
 }
 
 export const layoutState = new LayoutState()
+
+/** What the window draws now. */
+export function drawnNow(): Drawn {
+  return drawn(layoutState.layout, layoutState.width, layoutState.sidebarFloor)
+}
+
+/** The sidebar is drawn narrower than `--size-sidebar-compact`: its rows drop their secondary text. */
+export function sidebarCompact(): boolean {
+  return sidebarCompactAt(drawnNow().sidebar)
+}
+
+/** The main column's width now. */
+export function mainNow(): number {
+  return mainWidth(layoutState.layout, layoutState.width, layoutState.sidebarFloor)
+}
 
 /** Change the layout and persist it. */
 export function setLayout(fn: (l: Layout) => Layout): void {
@@ -83,8 +104,8 @@ export function panelFocusTarget(el: HTMLElement | null = panelEl): HTMLElement 
 }
 
 function showPanel(mode: PanelMode): void {
-  const { layout, width } = layoutState
-  const shown = drawn(layout, width).tree > 0
+  const { layout } = layoutState
+  const shown = drawnNow().tree > 0
   if (shown && layout.panelMode === mode && panelHasFocus()) {
     setLayout((l) => setTreeHidden(l, true))
     return
@@ -96,7 +117,7 @@ function showPanel(mode: PanelMode): void {
 /** The main column holds the split's need now (whether or not it is chosen). */
 function toggle(): { title: string; fits: boolean } {
   const l = layoutState.layout
-  return agentPaneToggle(l, layoutState.width, cellWidth(l))
+  return agentPaneToggle(l, layoutState.width, cellWidth(l), layoutState.sidebarFloor)
 }
 
 /** Measure the cell width for the saved font settings and keep it (it changes the split's need, never the zoom). */
@@ -112,6 +133,10 @@ export function registerLayoutCommands(): Disposable {
     layoutState.width = window.innerWidth
   }
   window.addEventListener('resize', onResize)
+  // Linux: the overlay's buttons at the left of the title bar widen the sidebar's minimum (macOS has no overlay)
+  const offOverlay = followOverlay(protocolOs.window.menuButton ? navigator.windowControlsOverlay : undefined, (floor) => {
+    layoutState.sidebarFloor = floor
+  })
   measure()
   let font = `${prefs.get().fontSize} ${prefs.get().fontFamily}`
   const offPrefs = prefs.subscribe(() => {
@@ -130,8 +155,9 @@ export function registerLayoutCommands(): Disposable {
   }
   dpr = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`)
   dpr.addEventListener('change', onDpr)
-  // bindings marked "(file panel)" apply while the keyboard is in the panel
-  const withdraw = provideKeyScope(() => (panelHasFocus() ? 'file panel' : null))
+  // bindings marked "(file panel)" apply while the keyboard is in the panel, but not in a field there (the tree's name
+  // field keeps its keys, copy and paste included)
+  const withdraw = provideKeyScope(() => (panelHasFocus() && !(document.activeElement instanceof HTMLInputElement || document.activeElement instanceof HTMLTextAreaElement) ? 'file panel' : null))
   const ds = [
     commands.register('view.toggleSidebar', { run: () => setLayout(toggleSidebar) }),
     // the agent beside the terminals or as a tab: the person's choice, kept while the window is too narrow for it
@@ -149,6 +175,7 @@ export function registerLayoutCommands(): Disposable {
   return {
     dispose: () => {
       window.removeEventListener('resize', onResize)
+      offOverlay()
       offPrefs()
       dpr?.removeEventListener('change', onDpr)
       withdraw()

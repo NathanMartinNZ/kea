@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { SessionView } from '@kea/protocol'
 import { fakeProject, fakeSession, restatus } from './fakes.ts'
-import { jumpTargets, matchesFilter, moveIndex, MruCycle, neighbour, nextNeedingYou, orderSessions, relativeTime, rowLabel, rowTitle, sessionStructure, sidebarRows, statusWords, type SidebarInput, type SidebarRow } from './model.ts'
+import { jumpTargets, matchesFilter, moveIndex, MruCycle, neighbour, nextNeedingYou, orderSessions, relativeTime, rowLabel, rowMeta, rowTitle, sessionStructure, sidebarRows, statusWords, type SidebarInput, type SidebarRow } from './model.ts'
 
 const A = fakeProject({ name: 'storefront', sortOrder: 2, createdAt: 10 })
 const B = fakeProject({ name: 'docs-site', sortOrder: 1, createdAt: 20 })
@@ -194,5 +194,25 @@ describe('reordering', () => {
     expect(neighbour(shown, 'd', 1)).toBeNull()
     expect(neighbour(shown, 'b', 1)).toBe('c')
     expect(neighbour(shown, 'gone', 1)).toBeNull()
+  })
+})
+
+describe('compact sidebar rows', () => {
+  it('U-LAYOUT-7 · a compact row\'s tooltip leads with the full title, then what its meta would show, then its note; a full-width row keeps its note only', () => {
+    const now = 10 * 60_000
+    const idle = fakeSession({ title: 'Fix the long checkout redirect', lastActivityAt: now - 3 * 60_000 })
+    expect(rowTitle(idle)).toBeUndefined()
+    expect(rowTitle(idle, now)).toBe('Fix the long checkout redirect · 3m')
+    const asking = restatus(idle, { phase: 'blocked', attention: [{ kind: 'permission', key: 'k', summary: 'x', source: 'hook', at: 5 }] })
+    expect(rowTitle(asking, now)).toBe('Fix the long checkout redirect · Needs permission')
+    expect(rowMeta(restatus(idle, { teardownFailed: true }), now)).toBe('Teardown failed')
+    expect(rowMeta(restatus(idle, { worktreeMissing: true }), now)).toBe('Worktree missing')
+    expect(rowMeta(restatus(idle, { serverRunning: true }), now)).toBe('Dev server running')
+    const busy = restatus(idle, { phase: 'ready', background: true })
+    expect(rowTitle(busy)).toBe('Background tasks running')
+    expect(rowTitle(busy, now)).toBe(`Fix the long checkout redirect · ${relativeTime(busy.lastActivityAt, now)} · Background tasks running`)
+    const failed = fakeSession({ title: 'Broken', lifecycle: 'create_failed', creation: { step: 'add', error: 'git worktree add failed', notices: [], logBytes: 0 } })
+    expect(rowTitle(failed)).toBe('git worktree add failed')
+    expect(rowTitle(failed, now)).toBe('Broken · Creation failed · git worktree add failed')
   })
 })

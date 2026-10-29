@@ -10,14 +10,17 @@
 //   fileRowsDrawn    row elements in the document, tree and Changes list together (the rows on screen and the
 //                    overscan, whatever the lists hold)
 //   filePanelTimers  the panel-state save waiting (0 or 1)
-//   fileLayers       the panel's floating layers open: a menu, the Discard sheet (each 0 or 1; the finder is the
-//                    palette's file mode: `paletteOpen`)
+//   fileLayers       the panel's floating layers open: a menu, the Discard, Move to Trash and copy sheets, the name
+//                    field (each 0 or 1; the finder is the palette's file mode: `paletteOpen`)
+//   fileOps          what the file operations hold: the file clipboard's entry, and a drag under way (its row, the
+//                    timer that opens a folder under it, the frame loop that scrolls the list)
 
 import { primaryDown } from '../commands/keys.ts'
+import { dragCounts } from './drag.ts'
 import { filesModel } from './model.ts'
 import { panel } from './state.svelte.ts'
 
-export const FILES_ROWS = ['fileStores', 'fileTreeDirs', 'fileTreeRows', 'fileGitEntries', 'fileExpanded', 'fileRowsDrawn', 'filePanelTimers', 'fileLayers'] as const
+export const FILES_ROWS = ['fileStores', 'fileTreeDirs', 'fileTreeRows', 'fileGitEntries', 'fileExpanded', 'fileRowsDrawn', 'filePanelTimers', 'fileLayers', 'fileOps'] as const
 
 export function filesResources(): Record<(typeof FILES_ROWS)[number], number> {
   const c = filesModel.counts
@@ -29,7 +32,8 @@ export function filesResources(): Record<(typeof FILES_ROWS)[number], number> {
     fileExpanded: c.expanded,
     fileRowsDrawn: document.querySelectorAll('.fp-list .fp-row').length,
     filePanelTimers: c.timers,
-    fileLayers: (panel.menu ? 1 : 0) + (panel.discard ? 1 : 0),
+    fileLayers: (panel.menu ? 1 : 0) + (panel.discard ? 1 : 0) + (panel.trash ? 1 : 0) + (panel.copyIn ? 1 : 0) + (panel.edit ? 1 : 0),
+    fileOps: (panel.clip ? 1 : 0) + dragCounts(),
   }
 }
 

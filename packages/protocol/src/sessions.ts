@@ -357,6 +357,8 @@ export const zSessionView = z.object({
   permissionMode: z.string().nullable(),
   costUsd: z.number().nullable(),
   contextPct: z.number().nullable(),
+  /** The session's colour in the sidebar: an index into the session palette (`% L.sessionColors`), chosen once by core. */
+  color: z.number().int().min(0),
   // derived
   glyph: z.enum(SESSION_GLYPHS),
   /** The row's trailing label: the first attention item's kind (`permission`, `question`), or null. */

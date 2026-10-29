@@ -98,7 +98,7 @@ export function trayTitle(s: MenuBarState | null): string {
  */
 export const MENU_GLYPHS: Readonly<Record<SessionGlyph, string>> = {
   working: '◐',
-  needsYou: '●',
+  needsYou: '◉',
   unread: '●',
   idle: '○',
   detached: '◌',

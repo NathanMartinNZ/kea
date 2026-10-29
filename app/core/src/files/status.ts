@@ -11,6 +11,7 @@ import path from 'node:path'
 import { git, LruCache, type ProcessResult } from '@kea/kit'
 import { L, type DiffScope, type GitEntry, type GitHead, type GitOperation, type GitState } from '@kea/protocol'
 import { BaseCache, type BaseInputs, type BaseResult } from './base.ts'
+import { sessionFs } from './fsImpl.ts'
 import { DiffParser, type DiffEntry } from './rawdiff.ts'
 import { StatusParser, type StatusEntry, type StatusHeader } from './porcelain.ts'
 import { ZRecords } from './records.ts'
@@ -220,7 +221,7 @@ export class GitStatus {
     const abs = path.join(this.target.root, rel)
     let st: fs.Stats
     try {
-      st = await fs.promises.lstat(abs)
+      st = await sessionFs.promises.lstat(abs)
     } catch {
       return null
     }
@@ -231,7 +232,7 @@ export class GitStatus {
     budget.left -= st.size
     let lines: number | null
     try {
-      lines = countLines(await fs.promises.readFile(abs))
+      lines = countLines(await sessionFs.promises.readFile(abs))
     } catch {
       return null
     }

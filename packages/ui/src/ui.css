@@ -17,7 +17,8 @@
   stroke: none;
 }
 
-/* status glyphs: --size-glyph square, shapes drawn with the icon stroke */
+/* status glyphs: --size-glyph square, shapes drawn with the icon stroke. A sidebar session row sets --glyph-tone, its
+   session's colour, which working, unread, idle and detached take; needs-you, failed and limited keep their own. */
 .kea-glyph {
   width: var(--size-glyph);
   height: var(--size-glyph);
@@ -38,7 +39,7 @@
 }
 
 .kea-glyph-working {
-  color: var(--text-2);
+  color: var(--glyph-tone, var(--text-2));
   animation: kea-spin var(--motion-spinner) linear infinite;
 }
 
@@ -47,11 +48,14 @@
 }
 
 .kea-glyph-unread {
-  color: var(--text-1);
+  color: var(--glyph-tone, var(--text-1));
 }
 
 .kea-glyph-idle,
-.kea-glyph-detached,
+.kea-glyph-detached {
+  color: var(--glyph-tone, var(--text-3));
+}
+
 .kea-glyph-limited {
   color: var(--text-3);
 }
@@ -70,7 +74,7 @@
 .kea-menu {
   position: fixed;
   z-index: 10;
-  min-width: var(--size-sidebar-min);
+  min-width: var(--size-menu-min);
   max-width: var(--size-tree-max);
   /* a long list (a base branch among many refs) scrolls inside the window */
   max-height: calc(100vh - var(--space-8));

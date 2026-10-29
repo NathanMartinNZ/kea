@@ -1,7 +1,8 @@
 <!--
 A session row of the sidebar: status glyph, title and one trailing meta, by priority (a label, "teardown failed",
 "missing", the dev server dot, else the time since its last activity); hover shows Archive in the meta's place, or Retry
-teardown and View log after a failed teardown; a failed creation shows Retry and Discard. Drag to reorder within its
+teardown and View log after a failed teardown; a failed creation shows Retry and Discard. A compact sidebar draws the
+glyph and title only, and the tooltip says the rest (the session pane has the same buttons). Drag to reorder within its
 project. It follows its own store row.
 -->
 <script lang="ts">
@@ -12,6 +13,7 @@ project. It follows its own store row.
   import { terminals } from '../terminal/views.ts'
   import { moveSessionPast, sessionCall } from './actions.ts'
   import { clockTime, subscribeClock } from './clock.ts'
+  import { sidebarCompact } from '../../shell/layoutStore.svelte.ts'
   import { relativeTime, rowLabel, rowTitle, type SidebarRow } from './model.ts'
   import { DRAG_SESSION, statusLabel } from './sidebar.ts'
   import { activeSessionId, selectSession, sessions, ui } from './state.svelte.ts'
@@ -73,7 +75,7 @@ project. It follows its own store row.
     data-status={s.glyph}
     data-lifecycle={s.lifecycle}
     tabindex={tabbable ? 0 : -1}
-    data-tip={rowTitle(s)}
+    data-tip={rowTitle(s, sidebarCompact() ? clock.current : undefined)}
     class="sb-row sb-session{selected ? ' selected' : ''}{loud ? ' loud' : ''}{over ? ' drop' : ''}"
     draggable={!row.archived}
     ondragstart={(e) => {
@@ -93,7 +95,8 @@ project. It follows its own store row.
       ui.menu = { kind: 'session', id, at: { x: e.clientX, y: e.clientY } }
     }}
   >
-    <StatusGlyph kind={s.glyph} {label} />
+    <!-- the session's colour, in the main list only: an archived row keeps the glyph's own -->
+    <StatusGlyph kind={s.glyph} {label} tone={row.archived ? undefined : s.color} />
     <span class="sb-title">{s.title}</span>
     {#if s.lifecycle === 'create_failed'}
       <span class="sb-actions always">

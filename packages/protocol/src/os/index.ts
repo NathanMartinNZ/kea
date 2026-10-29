@@ -60,6 +60,14 @@ export interface KeyLabels {
   readonly terminalSelectAll: string | null
   /** A click holds the modifier that asks for its other action (a terminal link, a palette or finder row): `⌘` on macOS, `Ctrl` on Linux, where Super belongs to the desktop. */
   modClick(e: { metaKey: boolean; ctrlKey: boolean }): boolean
+  /**
+   * The file tree's own keys that cannot be bindings of the command table, as chord → command: macOS `⌘⌫` (Move to
+   * Trash, the terminal's key elsewhere); Linux's plain `Ctrl+X`, `Ctrl+C`, `Ctrl+V`, `Ctrl+Z`, which belong to the
+   * terminal and to text fields everywhere else. The tree runs them while it has the keyboard.
+   */
+  readonly listKeys: Readonly<Record<string, string>>
+  /** A drag in the file tree holds the modifier that copies instead of moving: `⌥` on macOS, `Ctrl` on Linux (as their file managers). */
+  dragCopy(e: { altKey: boolean; ctrlKey: boolean }): boolean
 }
 
 /** `words`: the system's names for its own parts, as Kea's titles and messages write them. */

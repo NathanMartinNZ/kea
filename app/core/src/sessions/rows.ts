@@ -1,9 +1,10 @@
 // The `sessions` table as typed rows: the writer every session insert goes through (its runtime and UI rows come with
-// it, by the `sessions_children` trigger, invariant 6) and the few queries projects need. The session lifecycle builds
-// on these.
+// it, by the `sessions_children` trigger, invariant 6, and its sidebar colour is chosen then: colors.ts) and the few
+// queries projects need. The session lifecycle builds on these.
 
 import type { EndReason, Isolation, Lifecycle, TitleSource } from '@kea/protocol'
 import type { KeaDb } from '../platform/db/db.ts'
+import { pickColor, writeColor } from './colors.ts'
 
 /** One `sessions` row, camelCase. */
 export interface SessionRow {
@@ -41,14 +42,16 @@ const INSERT = `INSERT INTO sessions (id, project_id, slug, title, title_source,
   port_base, agent, agent_session_id, transcript_path, launch_config, lifecycle, end_reason, deleted_at, snapshot_ref, creation_step, disk_bytes,
   disk_at, sort_order, pinned_order, created_at, archived_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
-/** Insert a session (and, by trigger, its runtime and UI rows). The caller holds the transaction. */
+/** Insert a session (and, by trigger, its runtime and UI rows) with its colour. The caller holds the transaction. */
 export function insertSession(db: KeaDb, r: SessionRow): void {
+  const color = pickColor(db, r.projectId)
   db.run(
     INSERT,
     r.id, r.projectId, r.slug, r.title, r.titleSource, r.isolation, r.cwd, r.worktreeRoot, r.branch, r.baseBranch, r.baseCommit,
     r.portBase, r.agent, r.agentSessionId, r.transcriptPath, r.launchConfig, r.lifecycle, r.endReason, r.deletedAt, r.snapshotRef,
     r.creationStep, r.diskBytes, r.diskAt, r.sortOrder, r.pinnedOrder, r.createdAt, r.archivedAt,
   )
+  writeColor(db, r.id, color)
 }
 
 /** Sessions that keep their project from being removed: creating or live. */

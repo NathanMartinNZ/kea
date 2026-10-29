@@ -49,7 +49,7 @@ describe('⌘Q and the menu-bar item', () => {
     expect(trayTitle({ ...s, badge: false }), 'notifications.dockBadge off').toBe('')
     const t = trayTemplate(s, act)
     expect(t.map((m) => m.id ?? m.type)).toEqual(['session:s1', 'session:s2', 'session:s3', 'separator', 'app.openKea', 'app.quit'])
-    expect(t.map((m) => m.label)).toEqual(['● Fix auth — permission', '⊘ Docs — lost', '⊘ Claude Code — limited', undefined, 'Open Kea', 'Quit Kea Completely'])
+    expect(t.map((m) => m.label)).toEqual(['◉ Fix auth — permission', '⊘ Docs — lost', '⊘ Claude Code — limited', undefined, 'Open Kea', 'Quit Kea Completely'])
     const click = (m: MenuItemConstructorOptions | undefined) => (m?.click as () => void)()
     click(t[1])
     expect(act.showSession).toHaveBeenCalledWith('s2')

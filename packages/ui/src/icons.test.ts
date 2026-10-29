@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 import type { Component } from 'svelte'
 import { render } from 'svelte/server'
 import { describe, expect, it } from 'vitest'
-import { GLYPH_KINDS, GLYPH_LABELS } from './glyphs.ts'
+import { GLYPH_KINDS, GLYPH_LABELS, glyphTone, TONED_GLYPHS } from './glyphs.ts'
 import Icon from './Icon.svelte'
 import { ICON_NAMES } from './icons.ts'
 import MoreIcon from './MoreIcon.svelte'
@@ -110,14 +110,21 @@ describe('icons and status glyphs', () => {
       const block = css.match(new RegExp(`\\.kea-glyph-${kind}[^{]*\\{([^}]*)\\}`))
       expect(block?.[1], `${kind} colour`).toContain(`var(${colour[kind]})`)
     }
-    // shapes are distinct except where two states share one glyph in different colours
-    const sameShape = [
-      ['needsYou', 'unread'],
-      ['failed', 'limited'],
-    ]
+    // shapes are distinct except where two states share one glyph in different colours; needs-you's dot sits in a ring
+    const sameShape = [['failed', 'limited']]
     const groups = new Map<string, string[]>()
     for (const [k, s] of signature) groups.set(s, [...(groups.get(s) ?? []), k])
     expect([...groups.values()].filter((g) => g.length > 1).map((g) => g.join()).sort()).toEqual(sameShape.map((g) => g.join()).sort())
+    // a session's colour: the glyphs that say working, unread, idle and detached take it, the others keep their own
+    for (const kind of GLYPH_KINDS) {
+      const style = rendered(StatusGlyph, { kind, tone: 6 }).root.attrs.style ?? ''
+      expect(style, kind).toContain('--glyph-tone: var(--session-2)')
+      const block = css.match(new RegExp(`\\.kea-glyph-${kind}[^{]*\\{([^}]*)\\}`))![1]!
+      expect(block.includes('var(--glyph-tone'), `${kind} takes the session colour`).toBe(TONED_GLYPHS.includes(kind))
+    }
+    expect(rendered(StatusGlyph, { kind: 'idle' }).root.attrs.style).toBeUndefined()
+    expect(glyphTone(0)).toBe('var(--session-1)')
+    expect(glyphTone(-1)).toBeUndefined()
     // a row's own label wins (e.g. "permission", "limited")
     expect(rendered(StatusGlyph, { kind: 'needsYou', label: 'permission' }).root.attrs['aria-label']).toBe('permission')
     // the working arc turns once per --motion-spinner, linearly; reduced motion stops it

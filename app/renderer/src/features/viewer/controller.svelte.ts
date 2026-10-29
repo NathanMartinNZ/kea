@@ -48,6 +48,7 @@ import { reloadChanges } from './reload.ts'
 import type { TabPosition, TabViewState, ViewerTab } from './tab.ts'
 import { TokenStore } from './tokens.ts'
 import { captureView, positionOf } from './viewState.ts'
+import { DEFAULT_WRAP, isMarkdown, toggledWrap, wrapFor, type WrapFlags } from './wrap.ts'
 import { L } from '@kea/protocol/limits'
 import { Text } from '@codemirror/state'
 
@@ -102,7 +103,7 @@ export interface ViewerUi {
 }
 
 function blank(path: string, mode: ViewMode): ViewerUi {
-  return { body: { kind: 'loading' }, path, mode, language: null, encoding: null, link: null, notices: [], deleted: false, entry: null, letter: null, counts: null, size: null, wrap: wrapOn, canWrap: false, canPreview: false, preview: false, canSource: false, source: false, layout, changes: 0 }
+  return { body: { kind: 'loading' }, path, mode, language: null, encoding: null, link: null, notices: [], deleted: false, entry: null, letter: null, counts: null, size: null, wrap: false, canWrap: false, canPreview: false, preview: false, canSource: false, source: false, layout, changes: 0 }
 }
 
 /** `12.3 KB`, as Finder writes sizes. */
@@ -164,7 +165,8 @@ const cache = new DocCache<FileDocument>({
 // at most 1 + L.viewerPinnedTabsMax, cleared with the session
 const otherView = new Set<string>()
 let cacheSession: string | null = null
-let wrapOn = false
+/** Word wrap, Markdown's and code's, for the window (wrap.ts). */
+let wrapFlags: WrapFlags = { ...DEFAULT_WRAP }
 let layout: DiffLayout = 'unified'
 let current: ViewerController | null = null
 let visible = 0
@@ -550,7 +552,7 @@ export class ViewerController {
     this.dropText()
     const store = lang ? new TokenStore() : null
     const doc: FileDocument = { state: null, store, policy, lang, eol: t.eol, encoding: t.encoding, invalid: t.invalid, size: r.size, link: r.link, changes: null, longest: stats.longestLine, tokenised: lang ? 0 : -1, stoppedAt: null, bytes: r.size }
-    const state = fileState({ path: this.path, lines, eol: t.eol, policy, store, wrap: wrapOn, changes: null }, kept, this.pendingGoto)
+    const state = fileState({ path: this.path, lines, eol: t.eol, policy, store, wrap: wrapFor(lang?.id, wrapFlags, policy.wrap), changes: null }, kept, this.pendingGoto)
     this.kept = kept
     this.showFileDocument(doc, state, text, false)
   }
@@ -563,7 +565,8 @@ export class ViewerController {
     doc.state = view.state
     const s: Shown = { kind: 'file', view, doc, text, job: null }
     this.shown = s
-    if (wrapOn !== view.lineWrapping) setWrap(view, wrapOn && doc.policy.wrap)
+    const wrapped = wrapFor(doc.lang?.id, wrapFlags, doc.policy.wrap)
+    if (wrapped !== view.lineWrapping) setWrap(view, wrapped)
     doc.state = view.state
     const goto = this.pendingGoto
     if (goto) {
@@ -585,7 +588,7 @@ export class ViewerController {
     if (doc.stoppedAt !== null) notices.push(`Highlighting stopped at line ${doc.stoppedAt}`)
     if (doc.lang && doc.longest > L.viewerTokenLineMax) notices.push(`Lines over ${L.viewerTokenLineMax.toLocaleString('en-US')} characters are not highlighted`)
     if (doc.invalid) notices.push(doc.encoding === 'utf8' ? 'Not valid UTF-8 · some characters are replaced' : 'Not valid UTF-16 · some characters are replaced')
-    const markdown = doc.lang?.id === 'markdown' || doc.lang?.id === 'mdx'
+    const markdown = isMarkdown(doc.lang?.id)
     const svg = imageExtension(this.path) === 'svg'
     const cur = this.ui
     this.ui = {
@@ -598,7 +601,7 @@ export class ViewerController {
       notices,
       deleted: false,
       size: doc.size,
-      wrap: wrapOn && doc.policy.wrap,
+      wrap: wrapFor(doc.lang?.id, wrapFlags, doc.policy.wrap),
       canWrap: doc.policy.wrap,
       canPreview: markdown && doc.policy.preview,
       canSource: svg,
@@ -922,9 +925,11 @@ export class ViewerController {
   toggleWrap(): void {
     const s = this.shown
     if (s.kind !== 'file' || !s.doc.policy.wrap) return
-    wrapOn = !wrapOn
-    setWrap(s.view, wrapOn)
-    this.ui = { ...this.ui, wrap: wrapOn }
+    // the kind on screen flips; a file of the other kind keeps its own
+    wrapFlags = toggledWrap(s.doc.lang?.id, wrapFlags)
+    const on = wrapFor(s.doc.lang?.id, wrapFlags, true)
+    setWrap(s.view, on)
+    this.ui = { ...this.ui, wrap: on }
     commands.changed()
   }
 

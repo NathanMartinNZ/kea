@@ -240,6 +240,7 @@ export const DISCARD_REFUSED: Readonly<Record<string, string>> = {
   outside: 'The file is outside the session’s folder',
   notGit: 'This folder is not a git repository',
   noTrash: 'This Mac has no `trash` tool (macOS 15 or later); the file was left alone',
+  busy: 'Another change to these files is under way; nothing was discarded',
   failed: 'Git could not discard the changes',
 }
 

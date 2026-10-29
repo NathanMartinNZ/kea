@@ -6,7 +6,9 @@ composer, or, with neither, the plain shell tabs of the `shells` pseudo-session.
   import ShortcutsSheet from '../features/commands/ShortcutsSheet.svelte'
   import Composer from '../features/composer/Composer.svelte'
   import RemoveBuildFoldersSheet from '../features/disk/RemoveBuildFoldersSheet.svelte'
+  import CopyInSheet from '../features/files/CopyInSheet.svelte'
   import DiscardSheet from '../features/files/DiscardSheet.svelte'
+  import TrashSheet from '../features/files/TrashSheet.svelte'
   import { panel } from '../features/files/state.svelte.ts'
   import Sheets from '../features/sessions/Sheets.svelte'
   import Settings from '../features/settings/Settings.svelte'
@@ -35,10 +37,20 @@ composer, or, with neither, the plain shell tabs of the `shells` pseudo-session.
   <ShortcutsSheet />
   <!-- Remove Build Folders… from the palette, the menu bar or a key asks first -->
   <RemoveBuildFoldersSheet />
-  <!-- Discard Changes…: the file panel's one confirmation -->
+  <!-- the file panel's confirmations: Discard Changes…, Move to Trash, a copy of what was dropped from another app -->
   {#if panel.discard}
     {#key panel.discard}
       <DiscardSheet ask={panel.discard} />
+    {/key}
+  {/if}
+  {#if panel.trash}
+    {#key panel.trash}
+      <TrashSheet ask={panel.trash} />
+    {/key}
+  {/if}
+  {#if panel.copyIn}
+    {#key panel.copyIn}
+      <CopyInSheet ask={panel.copyIn} />
     {/key}
   {/if}
 </div>

@@ -22,11 +22,12 @@
 // expectation that no longer holds. Whether the scope and its base are still the ones the confirmation named is the
 // caller's check (`SessionFiles.discard`), made before this runs.
 
-import fs from 'node:fs'
+import type { Stats } from 'node:fs'
 import path from 'node:path'
 import { fileName, git, runProcess, type ProcessResult } from '@kea/kit'
 import { isAvailable, L, type DiscardAction, type DiscardResult } from '@kea/protocol'
 import { coreOs } from '../os/index.ts'
+import { sessionFs as fs } from './fsImpl.ts'
 import type { Env } from './status.ts'
 
 export interface DiscardRequest {
@@ -43,14 +44,15 @@ export interface DiscardRequest {
 }
 
 /** The tool's arguments for `file` and what a refusal adds when there is none: the system's (the OS layer's `trash`). */
-function trashUse(): { args: (file: string) => string[]; missing: string | null } {
+export function trashUse(): { args: (file: string) => string[]; missing: string | null } {
   return isAvailable(coreOs.trash) ? coreOs.trash : { args: (file) => [file], missing: null }
 }
 
 /** An ordinary record of `git status --porcelain=v2`: `1 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <path>`, the path last. */
 const STATUS_PATH_FIELD = 8
 
-function executable(file: string): boolean {
+/** `file` is a file this process may run. */
+export function executable(file: string): boolean {
   try {
     if (!fs.statSync(file).isFile()) return false
     fs.accessSync(file, fs.constants.X_OK)
@@ -76,13 +78,13 @@ const refuse = (refused: Exclude<DiscardResult, { ok: true }>['refused'], detail
   detail ? { ok: false, refused, detail: detail.slice(0, L.discardDetailMaxChars) } : { ok: false, refused }
 
 /** The last line a failed run wrote (what the toast shows). */
-function said(r: ProcessResult): string {
+export function said(r: ProcessResult): string {
   if (r.timedOut) return 'timed out'
   const lines = r.stderr.trim().split('\n')
   return (lines[lines.length - 1] ?? '').trim() || `exit ${r.code ?? r.signal ?? '?'}`
 }
 
-function lstat(file: string): fs.Stats | null {
+function lstat(file: string): Stats | null {
   try {
     return fs.lstatSync(file)
   } catch {

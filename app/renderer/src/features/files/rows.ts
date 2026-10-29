@@ -6,6 +6,9 @@
 // yet; when a second entry appears in one of them, the row splits there again by itself.
 //
 // Ignored entries are hidden unless the panel shows them (`files.toggleIgnored`); `.git` never arrives from core.
+//
+// While New File… or New Folder… asks for a name, a `pending` row stands first among the target folder's children,
+// where the name field is drawn; a compact chain through that folder ends there, so the row has a place of its own.
 
 import { treeDir, type TreeEntry, type TreeKind, type TreeRow } from '@kea/protocol'
 
@@ -16,7 +19,8 @@ export interface FlatRow {
   label: string
   /** For a compact row: every directory of the chain, outermost first (each can be collapsed on its own). */
   chain: string[]
-  kind: TreeKind | 'more'
+  /** `more`: "Show all (n)"; `pending`: the place of a new entry whose name is being typed. */
+  kind: TreeKind | 'more' | 'pending'
   depth: number
   ignored: boolean
   /** A directory whose entries are shown below it. */
@@ -32,6 +36,13 @@ export interface FlattenOptions {
   compact: boolean
   /** Show ignored entries (dimmed by the view); false hides them. */
   showIgnored: boolean
+  /** A new entry whose name is being typed, first in the folder `dir` (`''`: the root). */
+  pending?: { dir: string; kind: 'file' | 'dir' } | null
+}
+
+/** The key of the pending row in `dir`: a path no entry has (it ends in `/`). */
+export function pendingPath(dir: string): string {
+  return `${dir}/`
 }
 
 export function childPath(dir: string, name: string): string {
@@ -57,9 +68,11 @@ export function compactChild(data: ReadonlyMap<string, TreeRow>, dir: string, o:
 /** The rows of the tree, in display order (core sorted each directory's entries). */
 export function flattenTree(data: ReadonlyMap<string, TreeRow>, expanded: ReadonlySet<string>, o: FlattenOptions): FlatRow[] {
   const out: FlatRow[] = []
+  const pending = o.pending ?? null
   const walk = (dir: string, depth: number): void => {
     const row = treeDir(data, dir)
     if (!row) return
+    if (pending?.dir === dir) out.push({ path: pendingPath(dir), label: '', chain: [], kind: 'pending', depth, ignored: false, expanded: false, loading: false })
     for (const e of visible(row.entries, o)) {
       let path = childPath(dir, e.name)
       if (e.kind !== 'dir') {
@@ -69,7 +82,9 @@ export function flattenTree(data: ReadonlyMap<string, TreeRow>, expanded: Readon
       let label = e.name
       const chain = [path]
       if (o.compact) {
-        for (let next = expanded.has(path) ? compactChild(data, path, o) : null; next !== null; next = expanded.has(path) ? compactChild(data, path, o) : null) {
+        // the chain ends at the folder a new entry is being named in
+        const onward = (p: string): string | null => (expanded.has(p) && pending?.dir !== p ? compactChild(data, p, o) : null)
+        for (let next = onward(path); next !== null; next = onward(path)) {
           label += `/${next.slice(path.length + 1)}`
           path = next
           chain.push(path)

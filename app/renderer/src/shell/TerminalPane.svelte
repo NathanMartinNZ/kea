@@ -69,7 +69,7 @@ instead of the Agent tab's dot.
   import { activeView, focusedView, setActivePane, setTabKinds, setTerminalNames, terminals } from '../features/terminal/views.ts'
   import type { TabViewState } from '../features/viewer/tab.ts'
   import Viewer from '../features/viewer/Viewer.svelte'
-  import { fileTabsOf, reportShownFile, setFileTabs } from './fileTabs.svelte.ts'
+  import { fileTabsOf, reportShownFile, setFileTabs, takeMovedTab } from './fileTabs.svelte.ts'
   import AgentPane from './AgentPane.svelte'
   import Divider from './Divider.svelte'
   import { layoutState } from './layoutStore.svelte.ts'
@@ -256,11 +256,13 @@ instead of the Agent tab's dot.
     const a = active
     untrack(() => {
       const asked = wanted
-      let next = pickActiveTab(t, f, { active: a, wanted: asked }, home(), start())
+      // a file tab whose file moved in the file tree (renamed, or its folder moved) is the same tab at its new path
+      const cur = a !== null && isFileTabId(a) && !f.includes(a) ? (takeMovedTab(context, a) ?? a) : a
+      let next = pickActiveTab(t, f, { active: cur, wanted: asked }, home(), start())
       // the split's work pane whose shown terminal left shows the tab before it, else the one after (its strip's
       // order: terminals, then files); with none left, its empty state
       const now = [...t, ...f]
-      const gone = split && asked === null && a !== null && !now.includes(a) ? afterGone(stripWas, a, now) : null
+      const gone = split && asked === null && cur !== null && !now.includes(cur) ? afterGone(stripWas, cur, now) : null
       if (gone !== null) next = { ...next, active: gone }
       else if (split && next.active === null && f.length > 0) next = { ...next, active: f.at(-1) ?? null }
       stripWas = now

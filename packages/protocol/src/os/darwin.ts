@@ -73,5 +73,7 @@ export const darwin: ProtocolOs = {
     clipboard: 'menu',
     terminalSelectAll: 'cmd+a',
     modClick: (e) => e.metaKey,
+    listKeys: { 'cmd+backspace': 'files.trash' },
+    dragCopy: (e) => e.altKey,
   },
 }

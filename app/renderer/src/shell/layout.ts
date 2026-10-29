@@ -8,6 +8,10 @@
 // agent pane. It is drawn while the person keeps the agent beside (`agentBeside`) and the main column holds both panes
 // at their minimums, which are columns of the terminal font (`cellWidth`, measured for the saved font settings).
 //
+// The sidebar's minimum holds the header's controls: on macOS the traffic lights and the new-session button. Where the
+// window's own buttons sit on the left of a Linux title bar (the Window Controls Overlay), the minimum grows to hold
+// them and the header's two buttons (`sidebarFloor`); the layout functions take that floor as an argument.
+//
 // Persisted per window as JSON in the window's local storage, so the first frame is laid out before core answers;
 // window bounds are main's (window-state.json). Every size is a token.
 
@@ -45,10 +49,33 @@ export const STEP = SPACE_PX[0]
 
 export const DEFAULT_LAYOUT: Layout = { sidebarWidth: RANGE.sidebar.default, treeWidth: RANGE.tree.default, sidebarHidden: false, treeHidden: false, panelMode: 'files', agentBeside: true, agentWidth: null, cellWidth: null }
 
-export function clampWidth(c: Column, w: number): number {
+/**
+ * The sidebar's minimum where the window controls take `overlayLeft` px at the left of the title bar: the controls,
+ * then the header's two buttons (the menu button and New Session), each in its cluster, with the header's gaps and the
+ * column's border; never below the token. 0 (controls on the right, or none): the token.
+ */
+export function sidebarFloor(overlayLeft: number): number {
+  if (!(overlayLeft > 0)) return RANGE.sidebar.min
+  const cluster = SIZE_PX.row + 2 * SPACE_PX[1]
+  return Math.max(RANGE.sidebar.min, Math.ceil(overlayLeft + 2 * cluster + 2 * SPACE_PX[0] + SIZE_PX.hairline))
+}
+
+/** The sidebar divider's range at a floor (`sidebarFloor`). */
+export function sidebarRange(floor: number): { min: number; max: number } {
+  return { min: Math.max(RANGE.sidebar.min, floor), max: RANGE.sidebar.max }
+}
+
+/** A sidebar drawn this wide is compact: its rows drop their secondary text (`sidebar-compact`). 0: hidden. */
+export function sidebarCompactAt(width: number): boolean {
+  return width > 0 && width < SIZE_PX['sidebar-compact']
+}
+
+/** A column's width within its range; the sidebar's minimum is `floor` (`sidebarFloor`), the token unless given. */
+export function clampWidth(c: Column, w: number, floor: number = RANGE.sidebar.min): number {
   const r = RANGE[c]
-  if (!Number.isFinite(w)) return r.default
-  return Math.round(Math.min(r.max, Math.max(r.min, w)))
+  const min = c === 'sidebar' ? Math.max(r.min, floor) : r.min
+  if (!Number.isFinite(w)) return Math.max(min, r.default)
+  return Math.round(Math.min(Math.max(r.max, min), Math.max(min, w)))
 }
 
 const key = (c: Column): 'sidebarWidth' | 'treeWidth' => (c === 'sidebar' ? 'sidebarWidth' : 'treeWidth')
@@ -79,10 +106,11 @@ export interface Drawn {
   treeAuto: boolean
 }
 
-/** What is drawn in a window `windowWidth` wide. */
-export function drawn(l: Layout, windowWidth: number): Drawn {
+/** What is drawn in a window `windowWidth` wide; `floor` is the sidebar's minimum (`sidebarFloor`). */
+export function drawn(l: Layout, windowWidth: number, floor: number = RANGE.sidebar.min): Drawn {
   const treeAuto = !l.treeHidden && windowWidth < SIZE_PX['tree-autocollapse']
-  let sidebar = l.sidebarHidden ? 0 : l.sidebarWidth
+  const sidebarMin = Math.max(RANGE.sidebar.min, floor)
+  let sidebar = l.sidebarHidden ? 0 : Math.max(sidebarMin, l.sidebarWidth)
   let tree = l.treeHidden || treeAuto ? 0 : l.treeWidth
   // the main column keeps main-min: the file panel gives way first, then the sidebar, down to their minimums
   let over = sidebar + tree + SIZE_PX['main-min'] - windowWidth
@@ -91,13 +119,13 @@ export function drawn(l: Layout, windowWidth: number): Drawn {
     tree -= give
     over -= give
   }
-  if (over > 0 && sidebar > 0) sidebar -= Math.min(over, sidebar - RANGE.sidebar.min)
+  if (over > 0 && sidebar > 0) sidebar -= Math.max(0, Math.min(over, sidebar - sidebarMin))
   return { sidebar, tree, treeAuto }
 }
 
 /** The main column's width as drawn. */
-export function mainWidth(l: Layout, windowWidth: number): number {
-  const d = drawn(l, windowWidth)
+export function mainWidth(l: Layout, windowWidth: number, floor: number = RANGE.sidebar.min): number {
+  const d = drawn(l, windowWidth, floor)
   return windowWidth - d.sidebar - d.tree
 }
 
@@ -105,11 +133,11 @@ export function mainWidth(l: Layout, windowWidth: number): number {
  * A drag on a column's right divider: `from` is its drawn width when the drag began, `dx` the pointer's travel. It never
  * pushes the main column below `mainMin`: `main-min`, or the split's need while the split is drawn.
  */
-export function dragTo(l: Layout, c: Column, from: number, dx: number, windowWidth: number, mainMin: number = SIZE_PX['main-min']): Layout {
-  const d = drawn(l, windowWidth)
+export function dragTo(l: Layout, c: Column, from: number, dx: number, windowWidth: number, mainMin: number = SIZE_PX['main-min'], floor: number = RANGE.sidebar.min): Layout {
+  const d = drawn(l, windowWidth, floor)
   const other = c === 'sidebar' ? d.tree : d.sidebar
   const room = windowWidth - Math.max(mainMin, SIZE_PX['main-min']) - other
-  const w = clampWidth(c, Math.min(from + dx, Math.max(RANGE[c].min, room)))
+  const w = clampWidth(c, Math.min(from + dx, Math.max(RANGE[c].min, room)), floor)
   return w === l[key(c)] ? l : { ...l, [key(c)]: w }
 }
 
@@ -119,8 +147,8 @@ export function resetWidth(l: Layout, c: Column): Layout {
 }
 
 /** Arrow keys on a focused divider: one grid step narrower (-1) or wider (1). */
-export function stepWidth(l: Layout, c: Column, dir: -1 | 1, windowWidth: number, mainMin: number = SIZE_PX['main-min']): Layout {
-  return dragTo(l, c, drawn(l, windowWidth)[c], dir * STEP, windowWidth, mainMin)
+export function stepWidth(l: Layout, c: Column, dir: -1 | 1, windowWidth: number, mainMin: number = SIZE_PX['main-min'], floor: number = RANGE.sidebar.min): Layout {
+  return dragTo(l, c, drawn(l, windowWidth, floor)[c], dir * STEP, windowWidth, mainMin, floor)
 }
 
 export function toggleSidebar(l: Layout): Layout {
@@ -197,8 +225,8 @@ export const AGENT_PANE_TOO_NARROW = 'The window is too narrow to show the agent
  * View ▸ Show Agent Beside Terminals / Show Agent as a Tab: its title for the person's choice, and whether the main
  * column holds the split now (it is unavailable while not; the choice is kept, and the split appears once it does).
  */
-export function agentPaneToggle(l: Layout, windowWidth: number, cell: number): { title: string; fits: boolean } {
-  return { title: l.agentBeside ? 'Show Agent as a Tab' : 'Show Agent Beside Terminals', fits: mainWidth(l, windowWidth) >= splitNeed(cell).total }
+export function agentPaneToggle(l: Layout, windowWidth: number, cell: number, floor: number = RANGE.sidebar.min): { title: string; fits: boolean } {
+  return { title: l.agentBeside ? 'Show Agent as a Tab' : 'Show Agent Beside Terminals', fits: mainWidth(l, windowWidth, floor) >= splitNeed(cell).total }
 }
 
 /**

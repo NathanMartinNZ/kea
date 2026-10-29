@@ -9,6 +9,8 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
+import type { Locator, Page } from '@playwright/test'
+import { protocolOs } from '@kea/protocol'
 import { until, type Kea } from '../support/app.ts'
 import { agentEvents, claudeByDefault, fakeAgentTerminal, startFakeSession } from '../support/app-fake-agent.ts'
 import { changeRow, changeRows, changesList, clickChange, clickFile, diffStatText, finder, finderRows, fsmonitorHint, fsmonitorProblem, fsmonitorRuns, GIT_MS, gitConfig, panelModes, panelRegion, showMode, SlowGit, stopFsmonitorDaemon, TrashWorld, tree, treeRow, treeRows, treeText, waitChanges, waitTree } from '../support/app-files.ts'
@@ -18,7 +20,7 @@ import { fileTabs, pinFileTab, viewerShown } from '../support/app-tabs.ts'
 import { commitAll, gitIn, sessionWorktree, writeFiles } from '../support/app-viewer.ts'
 import { expect, test } from './fixtures.ts'
 import { skipNote } from '../support/skip.ts'
-import { sysKey, sysLabel } from '../support/keys.ts'
+import { listKey, sysKey, sysLabel } from '../support/keys.ts'
 
 /** A demo project with `files` committed, and a session started in it: its id and its worktree. */
 async function sessionWith(kea: Kea, run: Parameters<typeof demoRepo>[0], files: Record<string, string | Uint8Array> = {}, name = 'demo'): Promise<{ id: string; worktree: string; repo: string }> {
@@ -146,17 +148,19 @@ test('E-FT-2 · the file tree with real clicks and keys: folders open and close 
   expect(await runCommand('files.toggleIgnored')).toBe(true)
   await waitTree(kea, 'node_modules is hidden again', (rows) => !rows.some((r) => r.path === 'node_modules'))
 
-  // the row's menu: the `file ⌃` commands, Discard only for a changed file, none that opens a file for a folder
+  // the row's menu: the `file ⌃` commands, Discard only for a changed file, none that opens a file for a folder (Move
+  // to Trash only where a trash tool is: this run has none)
+  const ops = ['files.cut', 'files.copy', 'files.paste']
   await treeRow(page, 'src/index.js').click({ button: 'right' })
-  expect(await menuCommands(page, 'File menu')).toEqual(['files.openInEditor', 'files.reveal', 'files.copyPath', 'files.copyRelativePath', 'files.discard'])
+  expect(await menuCommands(page, 'File menu')).toEqual(['files.newFile', 'files.newFolder', 'files.openInEditor', 'files.reveal', ...ops, 'files.copyPath', 'files.copyRelativePath', 'files.rename', 'files.discard'])
   await page.getByRole('menu', { name: 'File menu' }).locator('[data-command="files.copyRelativePath"]').click()
   await until('the relative path copied', async () => (await clipboard(page)).at(-1) === 'src/index.js' || undefined)
   await treeRow(page, 'package.json').click({ button: 'right' })
-  expect(await menuCommands(page, 'File menu')).toEqual(['files.openInEditor', 'files.reveal', 'files.copyPath', 'files.copyRelativePath'])
+  expect(await menuCommands(page, 'File menu')).toEqual(['files.newFile', 'files.newFolder', 'files.openInEditor', 'files.reveal', ...ops, 'files.copyPath', 'files.copyRelativePath', 'files.rename'])
   await page.getByRole('menu', { name: 'File menu' }).locator('[data-command="files.copyPath"]').click()
   await until('the path copied', async () => (await clipboard(page)).at(-1) === path.join(worktree, 'package.json') || undefined)
   await treeRow(page, 'src').click({ button: 'right' })
-  expect(await menuCommands(page, 'File menu')).toEqual(['files.reveal', 'files.copyPath', 'files.copyRelativePath'])
+  expect(await menuCommands(page, 'File menu')).toEqual(['files.newFile', 'files.newFolder', 'files.reveal', ...ops, 'files.copyPath', 'files.copyRelativePath', 'files.rename'])
   await page.getByRole('menu', { name: 'File menu' }).locator('[data-command="files.reveal"]').click()
   const reveal = await until('the reveal asked of main', () => kea.logLines('main').find((l) => l.msg === 'reveal not opened (perf)'))
   expect(reveal.path, 'Finder is not opened under the harness: main logs the request').toBe(path.join(fs.realpathSync(worktree), 'src'))
@@ -622,4 +626,334 @@ test('E-FT-6 · a git status slower than a second brings up the panel’s hint: 
     // whatever the test got to: no daemon of git's outlives it (the run's cleanup does not know of them)
     for (const wt of sessionWorktrees(repo)) stopFsmonitorDaemon(wt)
   }
+})
+
+// ── the file tree's operations ──────────────────────────────────────────────────────────────────────
+
+const filesBar = (page: Page): Locator => page.getByRole('toolbar', { name: 'Files' })
+const nameField = (page: Page): Locator => panelRegion(page).getByRole('textbox')
+const there = (root: string, rel: string): boolean => fs.existsSync(path.join(root, rel))
+/** The tree's list has the keyboard (a click on a file gives it to the viewer). */
+const keysToTree = (page: Page): Promise<void> => tree(page).focus()
+
+/** A right-click on the space under the tree's rows, which stands for the session's folder. */
+async function rightClickBelowRows(page: Page): Promise<void> {
+  const box = await tree(page).boundingBox()
+  if (!box) throw new Error('the tree is not on screen')
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height - 6, { button: 'right' })
+}
+
+test('E-FT-9 · the Files bar’s New File: the name field in the folder, the file made, selected and shown; Esc cancels; a bad or taken name says why in place; the bar fits the panel at its narrowest; a right-click on the space under the rows opens the folder’s menu and New File there makes it at the top; Tab reaches the bar and ⇧F10 opens its menu', async ({ run, launch }) => {
+  const kea = await launch()
+  const { worktree } = await sessionWith(kea, run)
+  const page = await kea.page()
+  await waitTree(kea, 'the root is listed', (rows) => rows.some((r) => r.path === 'README.md'))
+  const bar = filesBar(page)
+  await expect(bar).toBeVisible()
+
+  // New File from the bar, nothing selected: in the session's folder
+  await bar.locator('[data-command="files.newFile"]').click()
+  await expect(nameField(page)).toBeFocused()
+  await expect(nameField(page)).toHaveAccessibleName(`New file in ${path.basename(worktree)}`)
+  await page.keyboard.type('notes.md')
+  await page.keyboard.press('Enter')
+  await waitTree(kea, 'the new file is listed and selected', (rows) => rows.find((r) => r.path === 'notes.md')?.selected === true)
+  expect(there(worktree, 'notes.md')).toBe(true)
+  await expect(nameField(page)).toHaveCount(0)
+  await until('the new file shown', async () => (await viewerShown(kea))?.path === 'notes.md' || undefined)
+  expect(await focusIn(kea, '.file-panel'), 'the keyboard stays in the panel').toBe(true)
+
+  // Esc: nothing made, the keyboard back in the list
+  await bar.locator('[data-command="files.newFolder"]').click()
+  await expect(nameField(page)).toHaveAccessibleName(`New folder in ${path.basename(worktree)}`)
+  await page.keyboard.type('scratch')
+  await page.keyboard.press('Escape')
+  await expect(nameField(page)).toHaveCount(0)
+  expect(there(worktree, 'scratch')).toBe(false)
+
+  // a bad name, then a taken one: said under the field, which stays for another try
+  await bar.locator('[data-command="files.newFile"]').click()
+  await page.keyboard.type('a//b')
+  await page.keyboard.press('Enter')
+  await expect(panelRegion(page).getByRole('alert')).toHaveText('A name cannot begin or end with “/”, or hold “//”')
+  await expect(nameField(page)).toHaveAttribute('aria-invalid', 'true')
+  await nameField(page).fill('README.md')
+  await page.keyboard.press('Enter')
+  await expect(panelRegion(page).getByRole('alert')).toHaveText('That name is taken in this folder')
+  await expect(nameField(page)).toBeFocused()
+  // nested: the folders on the way are made
+  await nameField(page).fill('docs/guide/start.md')
+  await page.keyboard.press('Enter')
+  await waitTree(kea, 'the nested file is listed', (rows) => rows.some((r) => r.path === 'docs/guide/start.md' || r.path === 'docs/guide'))
+  expect(there(worktree, 'docs/guide/start.md')).toBe(true)
+
+  // the space under the rows: the folder's own menu; New File there makes it at the top, whatever is selected
+  await treeRow(page, 'src').click()
+  await rightClickBelowRows(page)
+  expect(await menuCommands(page, 'Folder menu')).toEqual(['files.newFile', 'files.newFolder', 'files.reveal', 'files.paste', 'files.copyPath', 'files.collapseAll'])
+  await page.getByRole('menu', { name: 'Folder menu' }).locator('[data-command="files.newFile"]').click()
+  await expect(nameField(page)).toHaveAccessibleName(`New file in ${path.basename(worktree)}`)
+  await page.keyboard.type('top.txt')
+  await page.keyboard.press('Enter')
+  await waitTree(kea, 'top.txt at the top level', (rows) => rows.some((r) => r.path === 'top.txt' && r.level === 1))
+  expect(there(worktree, 'top.txt')).toBe(true)
+
+  // the keyboard: Shift+Tab from the list reaches the bar, ⇧F10 there opens the folder's menu
+  await keysToTree(page)
+  await page.keyboard.press('Shift+Tab')
+  expect(await focusIn(kea, '[role=toolbar][aria-label="Files"]')).toBe(true)
+  await page.keyboard.press('Shift+F10')
+  await expect(page.getByRole('menu', { name: 'Folder menu' })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('menu', { name: 'Folder menu' })).toHaveCount(0)
+
+  // at the panel's narrowest the bar's three buttons are whole, inside the panel
+  const min = Number(await page.getByRole('separator', { name: 'Resize file panel' }).getAttribute('aria-valuemin'))
+  await kea.setLayout({ treeWidth: min })
+  await until('the panel at its narrowest', async () => (await page.evaluate(() => document.querySelector('.file-panel')?.getBoundingClientRect().width)) === min || undefined)
+  const panelBox = (await panelRegion(page).boundingBox())!
+  for (const id of ['files.newFile', 'files.newFolder', 'files.collapseAll']) {
+    const b = (await bar.locator(`[data-command="${id}"]`).boundingBox())!
+    expect(b.x >= panelBox.x && b.x + b.width <= panelBox.x + panelBox.width, id).toBe(true)
+  }
+  expect(await bar.evaluate((el) => el.scrollWidth <= el.clientWidth), 'nothing in the bar overflows it').toBe(true)
+})
+
+test('E-FT-10 · Rename by F2 and by the row’s menu, a file tab following its file; Move to Trash by its key and the menu, asked first, with the run’s own trash tool, the next row selected; ⇧F10 on a selected row scrolled out of view; a `.asar` file listed and trashed as a file', async ({ run, launch }) => {
+  const trash = new TrashWorld(run)
+  const kea = await launch()
+  const many = Object.fromEntries(Array.from({ length: 60 }, (_, i) => [`z${String(i).padStart(2, '0')}.txt`, `${i}\n`]))
+  const { worktree } = await sessionWith(kea, run, { 'notes/one.md': 'one\n', 'lib/app.asar': 'not an archive\n', ...many })
+  const page = await kea.page()
+  await waitTree(kea, 'the root is listed', (rows) => rows.some((r) => r.path === 'README.md'))
+
+  // F2 on the row the viewer shows: the name before its extension selected, the tab follows the rename
+  await clickFile(kea, 'README.md')
+  await until('README.md shown', async () => (await viewerShown(kea))?.path === 'README.md' || undefined)
+  await keysToTree(page)
+  await page.keyboard.press('F2')
+  await expect(nameField(page)).toHaveAccessibleName('Rename README.md')
+  await expect(nameField(page)).toBeFocused()
+  expect(await nameField(page).evaluate((el: HTMLInputElement) => [el.selectionStart, el.selectionEnd])).toEqual([0, 'README'.length])
+  await page.keyboard.type('INTRO')
+  await page.keyboard.press('Enter')
+  await waitTree(kea, 'the renamed row, selected', (rows) => rows.find((r) => r.path === 'INTRO.md')?.selected === true && !rows.some((r) => r.path === 'README.md'))
+  expect([there(worktree, 'INTRO.md'), there(worktree, 'README.md')]).toEqual([true, false])
+  await until('the file tab follows', async () => {
+    const tabs = await fileTabs(kea)
+    return (tabs.some((t) => t.path === 'INTRO.md') && !tabs.some((t) => t.path === 'README.md')) || undefined
+  })
+  expect((await viewerShown(kea))?.path).toBe('INTRO.md')
+  expect(await focusIn(kea, '.file-panel [role=tree]'), 'begun in the list: the keyboard is back there').toBe(true)
+
+  // the row's menu: a folder
+  await treeRow(page, 'notes').click({ button: 'right' })
+  await page.getByRole('menu', { name: 'File menu' }).locator('[data-command="files.rename"]').click()
+  await expect(nameField(page)).toHaveAccessibleName('Rename notes')
+  await nameField(page).fill('docs')
+  await page.keyboard.press('Enter')
+  await waitTree(kea, 'the folder renamed', (rows) => rows.some((r) => r.path === 'docs') && !rows.some((r) => r.path === 'notes'))
+  expect(there(worktree, 'docs/one.md')).toBe(true)
+
+  // Move to Trash by its key: asked first, Cancel the default
+  const sheet = page.getByRole('alertdialog', { name: 'Move to Trash' })
+  await treeRow(page, 'package.json').click()
+  const before = await treeRows(kea)
+  const next = before[before.findIndex((r) => r.path === 'package.json') + 1]!.path
+  await keysToTree(page)
+  await page.keyboard.press(listKey('files.trash'))
+  await expect(sheet).toContainText('Move “package.json” to the Trash?')
+  await expect(sheet.getByRole('button', { name: 'Cancel' })).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(sheet).toHaveCount(0)
+  expect(there(worktree, 'package.json')).toBe(true)
+  await keysToTree(page)
+  await page.keyboard.press(listKey('files.trash'))
+  await sheet.getByRole('button', { name: 'Move to Trash' }).click()
+  await waitTree(kea, 'the next row selected', (rows) => !rows.some((r) => r.path === 'package.json') && rows.find((r) => r.path === next)?.selected === true)
+  expect(trash.moved()).toEqual(['package.json'])
+  expect(await focusIn(kea, '.file-panel [role=tree]')).toBe(true)
+  // macOS's other list key, ⌘⌫
+  if (protocolOs.keys.listKeys['cmd+backspace'] === 'files.trash') {
+    await page.keyboard.press('Meta+Backspace')
+    await expect(sheet).toContainText(`Move “${next}” to the Trash?`)
+    await page.keyboard.press('Escape')
+    await expect(sheet).toHaveCount(0)
+  }
+
+  // an `.asar` file is a file: listed, offered and trashed as one
+  await treeRow(page, 'lib').click()
+  await waitTree(kea, 'lib is open', (rows) => rows.find((r) => r.path === 'lib/app.asar')?.kind === 'file')
+  await treeRow(page, 'lib/app.asar').click({ button: 'right' })
+  await page.getByRole('menu', { name: 'File menu' }).locator('[data-command="files.trash"]').click()
+  await expect(sheet).toContainText('Move “app.asar” to the Trash?')
+  await sheet.getByRole('button', { name: 'Move to Trash' }).click()
+  await waitTree(kea, 'the archive gone', (rows) => !rows.some((r) => r.path === 'lib/app.asar'))
+  expect(trash.moved()).toEqual(['app.asar', 'package.json'])
+
+  // ⇧F10 on the selected row while it is scrolled out of view: brought into view, its menu beside it
+  await treeRow(page, 'docs').click()
+  await page.evaluate(() => {
+    const list = document.querySelector('.file-panel [role=tree]') as HTMLElement
+    list.scrollTop = list.scrollHeight
+  })
+  await until('docs out of view', async () => !(await treeRow(page, 'docs').isVisible()) || !(await page.evaluate(() => {
+    const row = document.querySelector('.file-panel [role=treeitem][data-path="docs"]')
+    const list = document.querySelector('.file-panel [role=tree]')
+    if (!row || !list) return false
+    const a = row.getBoundingClientRect()
+    const b = list.getBoundingClientRect()
+    return a.bottom > b.top && a.top < b.bottom
+  })) || undefined)
+  await keysToTree(page)
+  await page.keyboard.press('Shift+F10')
+  await expect(page.getByRole('menu', { name: 'File menu' })).toBeVisible()
+  await expect(treeRow(page, 'docs')).toBeInViewport()
+  await page.keyboard.press('Escape')
+})
+
+test('E-FT-11 · a row dragged onto a folder and onto the Files bar moves there; with the system’s copy modifier it is copied; Undo Move by its key takes the move back', async ({ run, launch }) => {
+  const kea = await launch()
+  const { worktree } = await sessionWith(kea, run, { 'docs/a.md': 'a\n' })
+  const page = await kea.page()
+  await waitTree(kea, 'the root is listed', (rows) => rows.some((r) => r.path === 'README.md'))
+
+  // onto a folder row
+  await treeRow(page, 'README.md').dragTo(treeRow(page, 'docs'))
+  await until('moved into docs', () => (there(worktree, 'docs/README.md') && !there(worktree, 'README.md')) || undefined)
+  await waitTree(kea, 'the moved row selected', (rows) => rows.find((r) => r.path === 'docs/README.md')?.selected === true)
+  // Undo Move, in the list
+  await keysToTree(page)
+  await page.keyboard.press(sysKey('Meta+z'))
+  await until('the move undone', () => (there(worktree, 'README.md') && !there(worktree, 'docs/README.md')) || undefined)
+  await waitTree(kea, 'back at the top', (rows) => rows.some((r) => r.path === 'README.md' && r.level === 1))
+
+  // onto the Files bar: the session's folder
+  await waitTree(kea, 'docs is open', (rows) => rows.some((r) => r.path === 'docs/a.md'))
+  await treeRow(page, 'docs/a.md').dragTo(filesBar(page))
+  await until('moved to the top', () => (there(worktree, 'a.md') && !there(worktree, 'docs/a.md')) || undefined)
+
+  // with the copy modifier (⌥ on macOS, Ctrl on Linux): a copy, the source stays
+  const copyKey = protocolOs.keys.dragCopy({ altKey: true, ctrlKey: false }) ? 'Alt' : 'Control'
+  await page.keyboard.down(copyKey)
+  await treeRow(page, 'package.json').dragTo(treeRow(page, 'docs'))
+  await page.keyboard.up(copyKey)
+  await until('copied into docs', () => (there(worktree, 'docs/package.json') && there(worktree, 'package.json')) || undefined)
+  expect(fs.readFileSync(path.join(worktree, 'docs/package.json'), 'utf8')).toBe(fs.readFileSync(path.join(worktree, 'package.json'), 'utf8'))
+  // a copy into its own folder is named as a copy
+  await page.keyboard.down(copyKey)
+  await treeRow(page, 'a.md').dragTo(filesBar(page))
+  await page.keyboard.up(copyKey)
+  await until('a copy beside it', () => there(worktree, 'a copy.md') || undefined)
+})
+
+/**
+ * Dispatch a drag of one file from another app with no place on disk at the element `selector`, as a drop there would
+ * come: whether a place took the drag (its `dragover` prevented) and whether the window's own handler, which adds a
+ * dropped folder as a project, saw it.
+ */
+async function dropFile(page: Page, selector: string): Promise<{ taken: boolean; window: boolean }> {
+  return page.evaluate((sel) => {
+    const el = document.querySelector(sel)
+    if (!el) throw new Error(`nothing at ${sel}`)
+    const dt = new DataTransfer()
+    dt.items.add(new File(['x'], 'dropped.txt', { type: 'text/plain' }))
+    let window = false
+    const seen = (): void => {
+      window = true
+    }
+    const top = document.body
+    top.addEventListener('dragover', seen)
+    top.addEventListener('drop', seen)
+    const r = el.getBoundingClientRect()
+    const at: DragEventInit = { clientX: r.left + r.width / 2, clientY: r.top + Math.min(r.height / 2, 30), bubbles: true, cancelable: true, dataTransfer: dt }
+    el.dispatchEvent(new DragEvent('dragenter', at))
+    const over = new DragEvent('dragover', at)
+    el.dispatchEvent(over)
+    el.dispatchEvent(new DragEvent('drop', at))
+    top.removeEventListener('dragover', seen)
+    top.removeEventListener('drop', seen)
+    return { taken: over.defaultPrevented, window }
+  }, selector)
+}
+
+test('E-FT-12 · files dragged from another app onto the file panel’s body are the panel’s, never a new project: refused with no session and in Changes, copied in Files, where an item with no place on disk is left out with a toast; onto the panel’s header or beside the panel the window still takes them', async ({ run, launch }) => {
+  const kea = await launch()
+  const page = await kea.page()
+  // no session: the body refuses, the window never sees it
+  expect(await dropFile(page, '.file-panel .panel-body')).toEqual({ taken: true, window: false })
+
+  await sessionWith(kea, run)
+  await waitTree(kea, 'the root is listed', (rows) => rows.some((r) => r.path === 'README.md'))
+  // Files: the tree takes it; what has no path on disk is said in a toast and nothing is copied
+  expect(await dropFile(page, '.file-panel [role=tree]')).toEqual({ taken: true, window: false })
+  await expect(page.locator('.toast').filter({ hasText: 'Only files and folders on disk can be copied in' })).toBeVisible()
+  expect(await dropFile(page, '.file-panel [role=toolbar]')).toEqual({ taken: true, window: false })
+  // Changes: refused, still never the window's
+  await showMode(kea, 'Changes')
+  expect(await dropFile(page, '.file-panel .panel-body')).toEqual({ taken: true, window: false })
+  // the panel's header and the main pane's: the window's (a folder with a path becomes a project there)
+  expect(await dropFile(page, '.file-panel .panel-header')).toEqual({ taken: true, window: true })
+  expect(await dropFile(page, '.main-header')).toEqual({ taken: true, window: true })
+})
+
+test('E-FT-13 · Cut, Copy and Paste in the file tree by their keys and the menus: a cut row dimmed until it is pasted, a copy pasted twice; Paste refused for another session’s entry; never offered on a Changes row', async ({ run, launch }) => {
+  const kea = await launch()
+  const { id, worktree } = await sessionWith(kea, run, { 'docs/a.md': 'a\n' })
+  const page = await kea.page()
+  await waitTree(kea, 'the root is listed', (rows) => rows.some((r) => r.path === 'README.md'))
+  const isCut = (p: string): Promise<boolean> => treeRow(page, p).evaluate((el) => el.classList.contains('cut'))
+
+  // Cut by its key, Paste by its key on a folder: moved, the row no longer dimmed
+  await treeRow(page, 'README.md').click()
+  await keysToTree(page)
+  await page.keyboard.press(listKey('files.cut'))
+  await until('the cut row dimmed', async () => (await isCut('README.md')) || undefined)
+  await treeRow(page, 'docs').click()
+  await keysToTree(page)
+  await page.keyboard.press(listKey('files.paste'))
+  await until('pasted into docs', () => (there(worktree, 'docs/README.md') && !there(worktree, 'README.md')) || undefined)
+  await waitTree(kea, 'the pasted row', (rows) => rows.some((r) => r.path === 'docs/README.md'))
+  expect(await isCut('docs/README.md')).toBe(false)
+
+  // Copy from the row's menu (titled for a file), Paste from a folder's menu and from the folder's own menu
+  await treeRow(page, 'package.json').click({ button: 'right' })
+  await expect(page.getByRole('menu', { name: 'File menu' }).locator('[data-command="files.copy"]')).toHaveText(/Copy File/)
+  await page.getByRole('menu', { name: 'File menu' }).locator('[data-command="files.copy"]').click()
+  await treeRow(page, 'docs').click({ button: 'right' })
+  await expect(page.getByRole('menu', { name: 'File menu' }).locator('[data-command="files.copy"]')).toHaveText(/Copy Folder/)
+  await page.getByRole('menu', { name: 'File menu' }).locator('[data-command="files.paste"]').click()
+  await until('copied into docs', () => (there(worktree, 'docs/package.json') && there(worktree, 'package.json')) || undefined)
+  await rightClickBelowRows(page)
+  await page.getByRole('menu', { name: 'Folder menu' }).locator('[data-command="files.paste"]').click()
+  await until('a copy beside it', () => there(worktree, 'package copy.json') || undefined)
+  // the Copy key copies the row, not text
+  await treeRow(page, 'docs/a.md').click()
+  await keysToTree(page)
+  await page.keyboard.press(listKey('files.copy'))
+  await treeRow(page, 'src').click()
+  await keysToTree(page)
+  await page.keyboard.press(listKey('files.paste'))
+  await until('a.md copied into src', () => there(worktree, 'src/a.md') || undefined)
+
+  // another session: what was copied is the first one's
+  const other = await startSession(kea, 'other')
+  await waitLive(kea, other)
+  await waitTree(kea, 'the other session’s tree', (rows) => rows.some((r) => r.path === 'README.md'))
+  await rightClickBelowRows(page)
+  const paste = page.getByRole('menu', { name: 'Folder menu' }).locator('[data-command="files.paste"]')
+  await expect(paste).toHaveAttribute('aria-disabled', 'true')
+  expect(await page.evaluate(() => (globalThis as unknown as { __keaProbe: { reason(id: string): string | undefined } }).__keaProbe.reason('files.paste'))).toMatch(/another session/)
+  await page.keyboard.press('Escape')
+
+  // a Changes row offers none of the tree's operations
+  await selectSession(kea, id)
+  fs.writeFileSync(path.join(worktree, 'docs/a.md'), 'changed\n')
+  await showMode(kea, 'Changes')
+  await waitChanges(kea, 'the change', (rows) => rows.some((r) => r.path === 'docs/a.md'))
+  await changeRow(page, 'docs/a.md').click({ button: 'right' })
+  const offered = await menuCommands(page, 'File menu')
+  for (const op of ['files.newFile', 'files.newFolder', 'files.cut', 'files.copy', 'files.paste', 'files.rename', 'files.trash']) expect(offered, op).not.toContain(op)
+  expect(offered).toContain('files.discard')
+  await page.keyboard.press('Escape')
 })

@@ -13,8 +13,10 @@
 //   a store delta       marks the rows stale; they are flattened again (rows.ts) when next read, once per frame.
 //   expand              asks core for the folder, and follows a chain of single-child folders so it becomes one
 //                       compact row `a/b/c` (rows.ts `compactChild`).
+//   a file operation    its answer may replace the open folders (a folder moved or was renamed: `replaceExpanded`,
+//                       `rekey`) and says what Undo would take back (`undoKind`).
 
-import { changesOrder, gitEntry, gitHead, L, treeDir, treeHead, type DiffScope, type GitEntry, type GitHead, type GitRow, type TreeHead, type TreeRow } from '@kea/protocol'
+import { changesOrder, gitEntry, gitHead, L, treeDir, treeHead, type DiffScope, type GitEntry, type GitHead, type GitRow, type TreeHead, type TreeRow, type UndoKind } from '@kea/protocol'
 import { nextFrame } from '../../lib/frameStore.ts'
 import { call } from '../../lib/rpc.ts'
 import { followSessionStore } from '../sessions/visible.ts'
@@ -39,8 +41,15 @@ export class FilesModel {
   /** `files.open` has answered for `sessionId`: the expansion and the panel state are the session's. */
   opened = false
   ui: PanelUi = NO_UI
-  /** Bumped by `reveal`: the tree should take the keyboard and bring `ui.files.sel` into view. */
+  /** Bumped by `reveal`: the tree should bring `ui.files.sel` into view, and take the keyboard when `revealFocus`. */
   revealed = 0
+  revealFocus = true
+  /** The system has a tool that moves a file to the Trash (core looked on disk): Move to Trash is offered. */
+  trashTool = false
+  /** What Undo would take back in this session's tree (core's undo entry, as its last answer said). */
+  undoKind: UndoKind | null = null
+  /** A new entry whose name is being typed: its row's place in the tree (rows.ts `pending`). */
+  private pending: { dir: string; kind: 'file' | 'dir' } | null = null
   /** When the last `tree:` or `git:` snapshot or delta arrived (`performance.now()`); the perf probes read it (resources.ts). */
   deltaAt = 0
 
@@ -84,6 +93,9 @@ export class FilesModel {
     this.sessionId = id
     this.opened = false
     this.ui = NO_UI
+    this.trashTool = false
+    this.undoKind = null
+    this.pending = null
     this.tree = EMPTY_TREE
     this.git = EMPTY_GIT
     this.expanded.clear()
@@ -113,6 +125,8 @@ export class FilesModel {
         for (const p of r.expanded) if (p !== '') this.expanded.add(p)
         // the first answer for this session; a later one (core restarted) leaves the panel's state as it is now
         if (!this.opened) this.ui = parsePanelUi(r.ui)
+        this.trashTool = r.trash
+        this.undoKind = r.undo
         this.opened = true
         this.stale()
         this.emit()
@@ -182,7 +196,7 @@ export class FilesModel {
   get rows(): readonly FlatRow[] {
     if (this.rowsCache) return this.rowsCache
     if (!this.opened) return NO_ROWS
-    const rows = flattenTree(this.tree, this.expanded, { compact: true, showIgnored: this.ui.showIgnored })
+    const rows = flattenTree(this.tree, this.expanded, { compact: true, showIgnored: this.ui.showIgnored, pending: this.pending })
     this.rowsCache = rows
     this.indexCache = null
     this.labelsCache = null
@@ -245,6 +259,11 @@ export class FilesModel {
 
   isExpanded(path: string): boolean {
     return this.expanded.has(path)
+  }
+
+  /** The folder's entries are here (`''`: the root). */
+  hasDir(path: string): boolean {
+    return treeDir(this.tree, path) !== null
   }
 
   // ── what the views do ─────────────────────────────────────────────────────────────────────────
@@ -333,8 +352,11 @@ export class FilesModel {
     }
   }
 
-  /** Back from the viewer (`files.revealInTree`): open every folder above `path` and put the keyboard on its row. */
-  reveal(path: string): void {
+  /**
+   * Back from the viewer (`files.revealInTree`), or after a file operation: open every folder above `path` and select
+   * its row once it exists; the keyboard goes to the list unless `focus` is false.
+   */
+  reveal(path: string, o: { focus?: boolean } = {}): void {
     const id = this.sessionId
     if (id === null) return
     for (const dir of ancestors(path).reverse()) {
@@ -343,8 +365,74 @@ export class FilesModel {
       this.ask(id, dir)
     }
     this.wanted = path
+    this.revealFocus = o.focus !== false
     this.stale()
     this.emit()
+  }
+
+  /** A new entry's name is being typed in `dir` (null: no more): its row takes its place first in the folder. */
+  setPending(p: { dir: string; kind: 'file' | 'dir' } | null): void {
+    if (this.pending?.dir === p?.dir && this.pending?.kind === p?.kind) return
+    this.pending = p
+    this.stale()
+    this.emitNow()
+  }
+
+  /** Close every folder; the keyboard's row gives way to the top folder it was in. */
+  collapseAll(): void {
+    const id = this.sessionId
+    if (id === null) return
+    for (const p of [...this.expanded]) {
+      const up = p.lastIndexOf('/')
+      if (up < 0 || !this.expanded.has(p.slice(0, up))) void call('files.collapse', { sessionId: id, path: p }).catch(() => undefined)
+    }
+    this.expanded.clear()
+    this.chase.clear()
+    const sel = this.ui.files.sel
+    const cut = sel?.indexOf('/') ?? -1
+    if (sel !== null && cut > 0) this.ui = { ...this.ui, files: { ...this.ui.files, sel: sel.slice(0, cut) } }
+    this.stale()
+    this.emitNow()
+    this.saveSoon()
+  }
+
+  /** The folders open now, as a file operation's answer gives them (a folder moved or was renamed). */
+  replaceExpanded(paths: readonly string[]): void {
+    this.expanded.clear()
+    for (const p of paths) if (p !== '') this.expanded.add(p)
+    this.stale()
+    this.emitNow()
+  }
+
+  /** A folder moved or was renamed: what the window keeps under its old path follows it to the new one. */
+  rekey(from: string, to: string): void {
+    const move = (p: string): string => (p === from || p.startsWith(`${from}/`) ? to + p.slice(from.length) : p)
+    const moved = (set: Set<string>): void => {
+      for (const p of [...set]) {
+        const q = move(p)
+        if (q === p) continue
+        set.delete(p)
+        set.add(q)
+      }
+    }
+    // (a `files.expand` in flight under the old path ends by itself: its answer names the path it asked for)
+    moved(this.chase)
+    this.recent = this.recent.map(move)
+    if (this.wanted !== null) this.wanted = move(this.wanted)
+    const sel = this.ui.files.sel
+    if (sel !== null && move(sel) !== sel) {
+      this.ui = { ...this.ui, files: { ...this.ui.files, sel: move(sel) } }
+      this.saveSoon()
+    }
+    this.stale()
+    this.emitNow()
+  }
+
+  /** What Undo would take back now, as core's last answer said. */
+  setUndo(kind: UndoKind | null): void {
+    if (this.undoKind === kind) return
+    this.undoKind = kind
+    this.emitNow()
   }
 
   /** The keyboard is on `path` in the tree or the list (null: on no row). */

@@ -52,6 +52,21 @@ export class IgnoreIndex {
     else this.files.add(path)
   }
 
+  /**
+   * A folder moved or was renamed in the tree: what was known of it and below it is known under its new path until
+   * the list is read again (the caller asks for that).
+   */
+  move(from: string, to: string): void {
+    const pre = `${from}/`
+    for (const set of [this.dirs, this.files, this.clear]) {
+      for (const p of [...set]) {
+        if (p !== from && !p.startsWith(pre)) continue
+        set.delete(p)
+        set.add(to + p.slice(from.length))
+      }
+    }
+  }
+
   /** The folder at or above `path` that is ignored as a whole, if any. */
   ignoredAncestor(path: string, self = true): string | null {
     if (this.dirs.size === 0) return null

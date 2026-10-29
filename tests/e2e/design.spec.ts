@@ -147,6 +147,66 @@ test('A-4 · status glyphs expose text: each status a row can show is an image n
   await kea.assertUnfocused()
 })
 
+test('E-SB-2 · session colours: a project’s sessions take the palette in the order they were made and the first sessions of two projects share the first colour; working, unread and detached glyphs are drawn in the session’s colour, needs-you in the accent with its ring, failed in danger; an archived row keeps the glyph’s own colour', async ({ run, launch }) => {
+  claudeByDefault(run)
+  const kea = await launch()
+  const page = await kea.page()
+  await addProject(kea, tinyRepo({ name: 'atlas-web', parent: run.home }).root, 'atlas-web')
+  const names = ['working', 'asking', 'unread', 'failed', 'stopped'] as const
+  const ids = {} as Record<(typeof names)[number], string>
+  for (const n of names) ids[n] = (await startFakeSession(kea, `sb2-${n}`, `session ${n}`, QUIET, { background: true })).id
+  // a second project's first session
+  await addProject(kea, tinyRepo({ name: 'docs-site', parent: run.home }).root, 'docs-site')
+  const other = (await startFakeSession(kea, 'sb2-other', 'session other', QUIET, { background: true, open: false })).id
+
+  const turn: AgentEvent = { t: 'turn.started' }
+  await status(kea, ids.working, 'working', turn)
+  await status(kea, ids.asking, 'needsYou', turn, { t: 'attention.permission', key: 'Bash: pnpm add stripe', tool: 'Bash', summary: 'pnpm add stripe' })
+  await status(kea, ids.unread, 'unread', turn, { t: 'turn.finished', lastMessage: 'Done.', backgroundWork: false })
+  await status(kea, ids.failed, 'failed', turn, { t: 'turn.failed', error: 'the API answered 500', kind: 'other' })
+  expect(await runCommand(kea, 'session.stop', { id: ids.stopped })).toBe(true)
+  await waitRow(kea, ids.stopped, 'detached', (r) => r.lifecycle === 'detached')
+
+  /** A colour as the window computes it: a token, or a session's glyph. */
+  const token = (name: string) => page.evaluate((n) => {
+    const probe = document.createElement('span')
+    probe.style.color = `var(--${n})`
+    document.body.append(probe)
+    const c = getComputedStyle(probe).color
+    probe.remove()
+    return c
+  }, name)
+  const glyph = (id: string) => page.evaluate((sid) => {
+    const g = document.querySelector(`[role=treeitem][data-session-id="${sid}"] .kea-glyph`)
+    return g ? { color: getComputedStyle(g).color, kind: g.getAttribute('data-glyph'), circles: g.querySelectorAll('circle').length, tone: (g as SVGElement).style.getPropertyValue('--glyph-tone') } : null
+  }, id)
+
+  // the order they were made: working first, so the palette's first colour
+  expect((await glyph(ids.working))?.color).toBe(await token('session-1'))
+  expect((await glyph(ids.unread))?.color).toBe(await token('session-3'))
+  expect((await glyph(ids.stopped))).toMatchObject({ kind: 'detached', color: await token('session-5') })
+  // the other project counts apart: its first session has the first colour too
+  expect((await glyph(other))?.color).toBe(await token('session-1'))
+  // needs-you: the accent, a dot inside a ring (unread is the dot alone); failed: danger
+  expect(await glyph(ids.asking)).toMatchObject({ kind: 'needsYou', color: await token('accent'), circles: 2 })
+  expect((await glyph(ids.unread))?.circles).toBe(1)
+  expect((await glyph(ids.failed))?.color).toBe(await token('danger'))
+
+  // archived: the row keeps its glyph's own colour
+  expect(await runCommand(kea, 'session.archive', { id: ids.stopped })).toBe(true)
+  // the Archived group opened, the row is there
+  await page.getByRole('treeitem', { name: 'Archived (1)' }).click({ timeout: STEP_MS })
+  await waitRow(kea, ids.stopped, 'archived', (r) => r.lifecycle === 'archived')
+  const archived = (await glyph(ids.stopped))!
+  expect(archived.tone).toBe('')
+  expect(archived.color).not.toBe(await token('session-5'))
+  // its colour is free again: the next session in the project (the one in context, by a row of it selected) takes it
+  await selectSession(kea, ids.working)
+  const next = (await startFakeSession(kea, 'sb2-next', 'session next', QUIET, { background: true })).id
+  expect((await glyph(next))?.color).toBe(await token('session-5'))
+  await kea.assertUnfocused()
+})
+
 /** Roles a person operates or lands in: each must tell assistive technology what it is. */
 const OPERATED = new Set(['button', 'link', 'textbox', 'searchbox', 'combobox', 'checkbox', 'radio', 'switch', 'slider', 'spinbutton', 'tab', 'menuitem', 'menuitemcheckbox', 'menuitemradio', 'option', 'treeitem'])
 /** Composite widgets and landmarks the keyboard moves between. */

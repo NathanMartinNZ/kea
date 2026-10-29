@@ -7,17 +7,18 @@ it, and say why; no mode changes while any divider is dragged (`layoutState.resi
 -->
 <script lang="ts">
   import { SIZE_PX } from '@kea/ui/tokens'
-  import { dragAgent, dragTo, drawn, mainWidth, RANGE, resetAgentWidth, resetWidth, splitNeed, stepAgent, stepWidth, type Column } from './layout.ts'
-  import { cellWidth, layoutState, setLayout } from './layoutStore.svelte.ts'
+  import { dragAgent, dragTo, RANGE, resetAgentWidth, sidebarRange, resetWidth, splitNeed, stepAgent, stepWidth, type Column } from './layout.ts'
+  import { cellWidth, drawnNow, layoutState, mainNow, setLayout } from './layoutStore.svelte.ts'
 
   let { column, x, label, splitDrawn = false }: { column: Column | 'agent'; x: number; label: string; splitDrawn?: boolean } = $props()
   let drag: { from: number; startX: number } | null = null
   const cell = () => cellWidth(layoutState.layout)
-  const main = () => mainWidth(layoutState.layout, layoutState.width)
-  const width = (c: Column | 'agent') => (c === 'agent' ? (layoutState.split?.agent ?? 0) : drawn(layoutState.layout, layoutState.width)[c])
+  const main = mainNow
+  const width = (c: Column | 'agent') => (c === 'agent' ? (layoutState.split?.agent ?? 0) : drawnNow()[c])
   /** What the main column keeps while a side column is dragged: the split's need while it is drawn. */
   const mainMin = () => (splitDrawn ? splitNeed(cell()).total : SIZE_PX['main-min'])
   const range = $derived.by(() => {
+    if (column === 'sidebar') return sidebarRange(layoutState.sidebarFloor)
     if (column !== 'agent') return RANGE[column]
     const need = splitNeed(cell())
     return { min: need.agent, max: Math.max(need.agent, main() - need.work) }
@@ -39,7 +40,7 @@ it, and say why; no mode changes while any divider is dragged (`layoutState.resi
     if (!g) return
     const { layout, width: w } = layoutState
     const dx = e.clientX - g.startX
-    const next = column === 'agent' ? dragAgent(layout, g.from, dx, main(), cell()) : dragTo(layout, column, g.from, dx, w, mainMin())
+    const next = column === 'agent' ? dragAgent(layout, g.from, dx, main(), cell()) : dragTo(layout, column, g.from, dx, w, mainMin(), layoutState.sidebarFloor)
     if (next !== layout) layoutState.layout = next
   }
 
@@ -56,7 +57,7 @@ it, and say why; no mode changes while any divider is dragged (`layoutState.resi
     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
     e.preventDefault()
     const dir = e.key === 'ArrowLeft' ? -1 : 1
-    setLayout((l) => (column === 'agent' ? stepAgent(l, dir, main(), cell()) : stepWidth(l, column, dir, layoutState.width, mainMin())))
+    setLayout((l) => (column === 'agent' ? stepAgent(l, dir, main(), cell()) : stepWidth(l, column, dir, layoutState.width, mainMin(), layoutState.sidebarFloor)))
   }
 
   function reset(): void {

@@ -23,6 +23,7 @@ is a `separator` "Resize sidebar" / "Resize file panel" with its width as its va
   import { registerDiskCommands } from '../features/disk/commands.ts'
   import { registerEditorCommands } from '../features/editor/commands.ts'
   import { registerFilesCommands } from '../features/files/commands.ts'
+  import { refuseFiles } from '../features/files/drag.ts'
   import FilePanel from '../features/files/FilePanel.svelte'
   import FilesLayers from '../features/files/FilesLayers.svelte'
   import { panelIsGit } from '../features/files/state.svelte.ts'
@@ -46,8 +47,8 @@ is a `separator` "Resize sidebar" / "Resize file panel" with its width as its va
   import Banners from './Banners.svelte'
   import Divider from './Divider.svelte'
   import { fileTabsState, fileTabStrip } from './fileTabs.svelte.ts'
-  import { drawn, setPanelMode, type PanelMode } from './layout.ts'
-  import { layoutState, registerLayoutCommands, setLayout, setPanelElement } from './layoutStore.svelte.ts'
+  import { setPanelMode, type PanelMode } from './layout.ts'
+  import { drawnNow, layoutState, registerLayoutCommands, setLayout, setPanelElement, sidebarCompact } from './layoutStore.svelte.ts'
   import MainHeader from './MainHeader.svelte'
   import TextMenu from './TextMenu.svelte'
   import WindowMenu from './WindowMenu.svelte'
@@ -57,7 +58,9 @@ is a `separator` "Resize sidebar" / "Resize file panel" with its width as its va
   import { askSavedTab } from './savedTab.ts'
   import { escapeToMain, leaveHiddenColumns, registerRegionCommands } from './regions.ts'
 
-  const d = $derived(drawn(layoutState.layout, layoutState.width))
+  const d = $derived(drawnNow())
+  /** A sidebar narrower than `--size-sidebar-compact` drops each row's secondary text and hover buttons. */
+  const compact = $derived(sidebarCompact())
   /** Linux: the window's menu button, in the leftmost visible header, beside the overlay's controls. */
   const menuButton = protocolOs.window.menuButton
   const menuIn = $derived(!menuButton ? null : d.sidebar > 0 ? 'sidebar' : d.tree > 0 ? 'panel' : 'main')
@@ -137,7 +140,7 @@ is a `separator` "Resize sidebar" / "Resize file panel" with its width as its va
 <!-- svelte-ignore a11y_no_static_element_interactions (a folder dropped anywhere in the window adds a project; ⌘O is
   the keyboard path; Esc here only moves focus back to the main pane) -->
 <div class={cls} style:grid-template-columns="{d.sidebar}px {d.tree}px minmax(0, 1fr)" ondragover={onFolderDragOver} ondrop={onFolderDrop} onkeydown={escapeToMain}>
-  <aside class="column sidebar-column" aria-label="Sidebar" hidden={d.sidebar === 0}>
+  <aside class="column sidebar-column" class:sidebar-compact={compact} aria-label="Sidebar" hidden={d.sidebar === 0}>
     <div class="column-header sidebar-header">
       {#if menuIn === 'sidebar'}
         <div class="header-cluster"><WindowMenuButton /></div>
@@ -177,8 +180,10 @@ is a `separator` "Resize sidebar" / "Resize file panel" with its width as its va
         <button class="quiet-button icon" aria-label={named('files.goToFile', 'Go to File')} data-command="files.goToFile" data-tip="Go to File" disabled={panelSession === null} onmousedown={keepFocus} onclick={() => commands.run('files.goToFile')}><Icon name="search" /></button>
       </div>
     </div>
-    <!-- the panel's body is the files feature's: the tree, or the Changes list -->
-    <div class="panel-body">
+    <!-- the panel's body is the files feature's: the tree, or the Changes list. Files dropped from another app go into
+      the tree, never become a project here. -->
+    <!-- svelte-ignore a11y_no_static_element_interactions (only refuses drops; the tree and the Files bar take them) -->
+    <div class="panel-body" ondragover={refuseFiles} ondrop={refuseFiles}>
       <FilePanel sessionId={panelSession} {mode} {activeFile} onchanges={(n) => (changes = n)} onmode={(m) => setLayout((l) => setPanelMode(l, m))} />
     </div>
   </section>

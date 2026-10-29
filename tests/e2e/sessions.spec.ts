@@ -9,7 +9,7 @@ import path from 'node:path'
 import type { Page } from '@playwright/test'
 import { fixtureGitEnv } from '@kea-tools/repo-factory/src/index.ts'
 import { SHELLS_SESSION } from '@kea/core/src/terminal/reconcile.ts'
-import { COMMANDS, CREATION_STEPS, L } from '@kea/protocol'
+import { COMMANDS, CREATION_STEPS, L, protocolOs } from '@kea/protocol'
 import { counterCommand, counterNumbers, PROMPT, ringMax, STEP_MS, until, type Kea } from '../support/app.ts'
 import { holdersUnharmed, lastOnScreen, ringContinuity, seamContinuous } from '../support/app-chaos.ts'
 import { skipNote } from '../support/skip.ts'
@@ -663,6 +663,69 @@ function treeFiles(dir: string): Record<string, string> {
   }
   return out
 }
+
+test('E-LAYOUT-1 · the sidebar dragged to its minimum: the header keeps New Session whole beside the window buttons and it still opens the composer; nothing scrolls sideways; rows draw glyph and title only and their tooltips say the rest; a double-click brings the sidebar back to its width', async ({ run, launch }) => {
+  const kea = await launch()
+  const page = await kea.page()
+  await addProject(kea, demoRepo(run).root)
+  const [id] = await sessionsLive(kea, ['a session whose title is long enough to be cut short in a narrow sidebar'])
+  const aside = page.getByRole('complementary', { name: 'Sidebar' })
+  const divider = page.getByRole('separator', { name: 'Resize sidebar' })
+  const plus = aside.locator('.sidebar-header button[data-command="session.new"]')
+  // the size tokens as the window has them
+  const size = (name: string) => page.evaluate((n) => parseFloat(getComputedStyle(document.documentElement).getPropertyValue(`--size-${n}`)), name)
+  const [min, hairline, lights, wide] = await Promise.all(['sidebar-min', 'hairline', 'traffic-lights', 'sidebar'].map(size))
+
+  // dragged far past the minimum, it stops there
+  const box = (await divider.boundingBox())!
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(box.x - 400, box.y + box.height / 2, { steps: 8 })
+  await page.mouse.up()
+  const { drawn, sidebarFloor, sidebarWidth } = await kea.layout()
+  expect(sidebarFloor).toBeGreaterThanOrEqual(min!)
+  expect(drawn.sidebar).toBe(sidebarFloor)
+  expect(sidebarWidth).toBe(sidebarFloor)
+  expect(Number(await divider.getAttribute('aria-valuemin'))).toBe(sidebarFloor)
+  expect(Number(await divider.getAttribute('aria-valuenow'))).toBe(sidebarFloor)
+
+  // New Session is whole inside the column, right of where the window's buttons are, and still works
+  const side = (await aside.boundingBox())!
+  const button = (await plus.boundingBox())!
+  expect(button.x + button.width).toBeLessThanOrEqual(side.x + side.width - hairline!)
+  const buttonsEnd = protocolOs.window.menuButton ? await page.evaluate(() => navigator.windowControlsOverlay?.getTitlebarAreaRect().x ?? 0) : lights!
+  expect(button.x).toBeGreaterThanOrEqual(buttonsEnd)
+  const columns = await page.evaluate(() =>
+    ['aside.sidebar-column', '.sidebar-header', '.sidebar-body', '.sidebar-footer'].map((sel) => {
+      const el = document.querySelector<HTMLElement>(sel)!
+      return { sel, scroll: el.scrollWidth, client: el.clientWidth }
+    }),
+  )
+  for (const c of columns) expect(c.scroll, `${c.sel} scrolls sideways`).toBeLessThanOrEqual(c.client)
+
+  // compact rows: the session's meta is gone, its tooltip leads with its full title; the project's name is its tooltip
+  await expect(aside).toHaveClass(/sidebar-compact/)
+  const row = sessionRow(page, id!)
+  await expect(row.locator('.sb-meta-slot')).toBeHidden()
+  const title = (await row.getAttribute('aria-label'))!
+  expect(await row.locator('.sb-title').evaluate((t) => t.scrollWidth > t.clientWidth), 'the title is cut short').toBe(true)
+  expect(await row.getAttribute('data-tip')).toContain(`${title} · `)
+  expect((await row.getAttribute('data-tip'))!.startsWith(title)).toBe(true)
+  expect(await projectRow(page, 'demo').getAttribute('data-tip')).toBe('demo')
+  await row.hover()
+  await expect(row.locator('.sb-actions')).toBeHidden()
+
+  await plus.click()
+  await expect(page.getByRole('region', { name: 'New session' })).toBeVisible()
+
+  // a double-click resets the width, and the rows draw their meta again
+  await divider.dblclick()
+  await until('the sidebar at its width', async () => ((await kea.layout()).drawn.sidebar === wide ? true : undefined))
+  await expect(aside).not.toHaveClass(/sidebar-compact/)
+  await expect(row.locator('.sb-meta-slot')).toBeVisible()
+  expect(await row.getAttribute('data-tip')).toBeNull()
+  expect(await projectRow(page, 'demo').getAttribute('data-tip')).toBeNull()
+})
 
 test('E-SES-11 · Restore Deleted Session… from the project menu: disabled with its reason while nothing is restorable; a session with a commit of its own and uncommitted work, deleted with its branch, comes back detached on the same branch at the same commit, its working tree as it was; disabled again once restored', async ({ run, launch }) => {
   const kea = await launch()

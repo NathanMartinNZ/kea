@@ -33,9 +33,10 @@ export interface CommandImpl {
   unavailableReason?(args?: unknown): string | undefined
   /**
    * Unavailable, it stays in its contextual menus, disabled with its reason, instead of being left out (the table rows
-   * whose `surfaceNote` says "disabled with its reason …", such as Restore Deleted Session… in `project ⌃`).
+   * whose `surfaceNote` says "disabled with its reason …", such as Restore Deleted Session… in `project ⌃`). A
+   * function decides by the menu's arguments (Paste stays in a Files row's menu, never in a Changes row's).
    */
-  keepInMenus?: boolean
+  keepInMenus?: boolean | ((args?: unknown) => boolean)
   /** Which of the row's `titles` applies now (`Stop Dev Server` while one runs); anything else is ignored. */
   title?(args?: unknown): string | undefined
   /**
@@ -94,7 +95,13 @@ export class CommandRegistry {
 
   /** Listed in a contextual menu for `args`: available, or kept there disabled (`keepInMenus`). */
   inMenus(id: string, args?: unknown): boolean {
-    return this.available(id, args) || this.impls.get(id)?.keepInMenus === true
+    if (this.available(id, args)) return true
+    const keep = this.impls.get(id)?.keepInMenus
+    try {
+      return typeof keep === 'function' ? keep(args) : keep === true
+    } catch {
+      return false
+    }
   }
 
   /** Why the command cannot run now; undefined when it can. */

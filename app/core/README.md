@@ -29,7 +29,7 @@ is for, and ptyhost carries its bytes.
 | `src/terminal/` | Core's side of terminals: a record of every PTY, the reconciliation with ptyhost's holders each time it connects, the login-shell environment, what each PTY runs, shell tab numbers and the process each shell tab's tooltip names, and the one gate for typing text into a terminal |
 | `src/agents/` | The agent service: detecting each agent CLI, the command a session's agent starts with, the hook socket and the spools behind it, the helper copy that hooks run, and the watches on an agent's status file and transcript. Everything agent-specific comes from `packages/adapters` |
 | `src/status/` | The status engine (each live session's phase and the items that need the user, from hooks, status files, transcripts and terminal activity), the notification policy, account conditions such as a usage limit, "Why this status?" and status reports |
-| `src/files/` | The files panel: the tree, git status and the diff against the session's base, the finder (fuzzy file search on a worker thread) and Discard Changes |
+| `src/files/` | The files panel: the tree and its file operations, git status and the diff against the session's base, the finder (fuzzy file search on a worker thread) and Discard Changes |
 | `src/viewer/` | The file viewer and diffs: reads that stay inside the session's working directory, binary and text detection, a diff's two sides and its gutter |
 | `src/editor/` | Open in Editor, the terminal app, the pull request page, and checking paths printed in a terminal |
 | `src/server/` | Each session's dev server: detecting it, Run, Stop and Restart in a terminal of its own, port blocks, port scans and the URL it prints |

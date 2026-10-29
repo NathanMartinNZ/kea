@@ -71,6 +71,7 @@ export function fakeSession(over: Partial<SessionView> = {}): SessionView {
     teardownFailed: false,
     worktreeMissing: false,
     serverRunning: false,
+    color: 0,
   }
   const s = { ...base, ...over }
   // the glyph is core's derivation unless a test sets it

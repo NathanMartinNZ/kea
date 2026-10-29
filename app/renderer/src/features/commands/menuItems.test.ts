@@ -81,4 +81,19 @@ describe('contextual menu items', () => {
     const some = surfaceItems('session ⌃', { id: 's1' }, { ...source(darwin), inMenus: (id) => id === 'session.rename' })
     expect(some.map((i) => i.id)).toEqual(['session.rename'])
   })
+
+  it('U-KB-17 · the file tree’s row menu: a separator between neighbours of different groups, none at either end or twice; each title for its target; no key shown for the list’s keys', () => {
+    const titled: MenuSource = { ...source(darwin), title: (c, a) => (c.titles && (a as { dir?: boolean }).dir ? (c.titles[1] as string) : (c.titles?.[0] ?? systemTitle(c, darwin))) }
+    const shown = (items: ReturnType<typeof surfaceItems>) => items.map((i) => (i.separator ? '—' : i.label))
+    expect(shown(surfaceItems('file ⌃', { path: 'a.ts', dir: false }, titled))).toEqual([
+      'New File…', 'New Folder…', '—', 'Open in Editor', 'Reveal in Finder', '—', 'Cut File', 'Copy File', 'Paste', '—', 'Copy Path', 'Copy Relative Path', '—', 'Rename…', 'Move to Trash', '—', 'Discard Changes…',
+    ])
+    expect(shown(surfaceItems('file ⌃', { path: 'src', dir: true }, titled)).slice(6, 9)).toEqual(['Cut Folder', 'Copy Folder', 'Paste'])
+    // only some listed: groups with nothing in them leave no separator behind
+    const some = surfaceItems('file ⌃', {}, { ...titled, inMenus: (id) => id === 'files.reveal' || id === 'files.copyPath' })
+    expect(shown(some)).toEqual(['Reveal in Finder', '—', 'Copy Path'])
+    // ⌘X and F2 work only in the list: not shown in the menu
+    const items = surfaceItems('file ⌃', { path: 'a.ts' }, titled)
+    expect([item(items, 'files.cut')?.shortcut, item(items, 'files.rename')?.shortcut]).toEqual([undefined, undefined])
+  })
 })

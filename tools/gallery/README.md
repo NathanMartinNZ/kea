@@ -7,7 +7,7 @@ system when a component changes. Nothing compares pixels, and it is never part o
 ## Running
 
 ```sh
-pnpm gallery                      # the V sets: V-1, 2, 5, 6, 7, 10, 13, 14, 15, 16, 17
+pnpm gallery                      # the V sets: V-1, 2, 5, 6, 7, 10, 13, 14, 15, 16, 17, 18
 pnpm gallery --only V-5,V-10      # some sets; the others' screens from an earlier run stay on the page
 pnpm gallery --review             # also the review sets R-1 … R-7
 ```
@@ -45,6 +45,7 @@ it is held against. A set that failed to run is named at the top of the page.
 | V-15 | `v15-conditions.gallery.ts` | Account condition, report wrong status, teardown failed, "Copied by terminal"; Settings › Disk and the Remove Build Folders confirmation |
 | V-16 | `v16-icons.gallery.ts` | The icon files of `assets/icon/` as committed: the app icon's PNGs at their real size and enlarged, at 16–128 pt as a Retina screen shows them, the 1024 px PNG beside the SVG, on light and dark grounds; the menu-bar template tinted as on a light and a dark menu bar; the Linux tray icon on a light and a dark panel. Drawn on a page of its own in Playwright's Chromium, with no Kea launched |
 | V-17 | `v17-split.gallery.ts` | The agent beside the work pane at 1440: the empty work pane and its strip of `+` alone, the strip with terminals left of the files, the focus line on each pane, the agent pane's status row needing the person, the strip at its narrowest, the detached overlay in the agent pane, and one column at 1280 |
+| V-18 | `v18-sidebar.gallery.ts` | Session colours: seven sessions of one project in every status in their colours, a second project's first session sharing the first colour, the glyphs enlarged; the sidebar at its minimum (compact rows, a hovered row and project) and at its default |
 | R-1 | `r1-first-run.gallery.ts` | Review: the first run and the empty states |
 | R-2 … R-6 | `r2-review.gallery.ts` | Review: header and dev server, file panel, tooltips; palette, finder, shortcuts; every Settings page; the light theme; setup strips, the banner strip, the reconnecting bar |
 | R-7 | `r7-fault-states.gallery.ts` | Review: states made with a fault — the dev server stopping, the creation view and its row, a worktree that is gone, a project whose folder is gone, a creation cut short, an archived session, the first-quit sheet over an open composer |

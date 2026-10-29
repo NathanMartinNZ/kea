@@ -1,13 +1,17 @@
 // The file panel's commands (the Files category): Go to File…, Open in Editor, Reveal (in the file manager), the copy
-// commands, Discard Changes…, the Changes header's menu, Refresh, Toggle Ignored Files, and Reveal in File Tree (run by
-// the viewer's breadcrumb with `{ sessionId, path }`). The layout's three — Toggle File Panel, Show Files, Show Changes
-// — are the window's (`shell/layoutStore.svelte.ts`). `App.svelte` calls this once for the window; it also starts the
-// panel's data following the session on screen (state.svelte.ts).
+// commands, Discard Changes…, the Changes header's menu, Refresh, Toggle Ignored Files, Reveal in File Tree (run by
+// the viewer's breadcrumb with `{ sessionId, path }`), and the tree's file operations: New File…, New Folder…,
+// Rename…, Move to Trash, Collapse All, Undo, Cut, Copy and Paste. The layout's three — Toggle File Panel, Show Files,
+// Show Changes — are the window's (`shell/layoutStore.svelte.ts`). `App.svelte` calls this once for the window; it also
+// starts the panel's data following the session on screen (state.svelte.ts).
 //
-// What a command acts on: run from a row's menu it gets that row (`FileTarget`); from the menu bar, a shortcut or the
-// palette it acts on the row the keyboard is on in the list the panel shows.
+// What a command acts on: run from a row's menu it gets that row (`FileTarget`; `''` is the session's folder, from the
+// `files ⌃` menu); from the menu bar, a shortcut or the palette it acts on the row the keyboard is on in the list the
+// panel shows. The file operations act on the tree's rows only: New File…, New Folder… and Paste act in a folder
+// (`edit.ts` `folderOf`: a folder row, the folder a file is in, the session's folder with no row), and show Files
+// first; Rename…, Move to Trash, Cut and Copy need a row of Files.
 
-import { L } from '@kea/protocol'
+import { L, protocolOs } from '@kea/protocol'
 import type { Disposable } from '@kea/terminal'
 import { disposeAll } from '@kea/terminal'
 import { commands } from '../commands/registry.ts'
@@ -16,7 +20,9 @@ import { copyText, revealPath } from '../sessions/actions.ts'
 import { activeSessionId, sessions, showToast, ui } from '../sessions/state.svelte.ts'
 import { call } from '../../lib/rpc.ts'
 import { changedList, discardBlocked, discardPlan, firstChangedLine } from './changes.ts'
+import { folderOf, parentOf } from './edit.ts'
 import { filesModel } from './model.ts'
+import { keyboardInPanel, move, undo } from './operations.ts'
 import { installFilesState, panel, type FileTarget } from './state.svelte.ts'
 
 function isTarget(a: unknown): a is FileTarget {
@@ -26,7 +32,7 @@ function isTarget(a: unknown): a is FileTarget {
 
 /** The row a command acts on: the one given, else the one the keyboard is on. Null: none. */
 function target(a: unknown): FileTarget | null {
-  if (isTarget(a)) return a.path === '' ? null : { sessionId: a.sessionId, path: a.path, dir: a.dir === true }
+  if (isTarget(a)) return a.path === '' ? null : { sessionId: a.sessionId, path: a.path, dir: a.dir === true, ...(a.from ? { from: a.from } : {}) }
   const id = filesModel.sessionId
   if (id === null) return null
   if (panel.mode === 'changes') {
@@ -35,7 +41,88 @@ function target(a: unknown): FileTarget | null {
   }
   const sel = filesModel.ui.files.sel
   const row = filesModel.rows[filesModel.rowIndex(sel)]
-  return row && row.kind !== 'more' ? { sessionId: id, path: sel ?? row.path, dir: row.kind === 'dir' } : null
+  return row && row.kind !== 'more' && row.kind !== 'pending' ? { sessionId: id, path: sel ?? row.path, dir: row.kind === 'dir' } : null
+}
+
+/** As `target`, and the session's folder itself from the `files ⌃` menu (Reveal in Finder, Copy Path). */
+function targetOrRoot(a: unknown): FileTarget | null {
+  return isTarget(a) && a.path === '' ? { sessionId: a.sessionId, path: '', dir: true } : target(a)
+}
+
+/**
+ * The tree's row a file operation acts on (Rename…, Move to Trash, Cut, Copy): the menu's, else the one selected in
+ * Files (a compact row: its deepest folder). Null: none, a Changes row, the session's folder itself, another session's.
+ */
+function treeTarget(a: unknown): FileTarget | null {
+  const id = filesModel.sessionId
+  if (isTarget(a)) return a.from === 'changes' || a.path === '' || a.sessionId !== id ? null : { sessionId: a.sessionId, path: a.path, dir: a.dir === true, from: 'tree' }
+  if (id === null || panel.mode !== 'files') return null
+  const row = filesModel.rows[filesModel.rowIndex(filesModel.ui.files.sel)]
+  return row && row.kind !== 'more' && row.kind !== 'pending' ? { sessionId: id, path: row.path, dir: row.kind === 'dir', from: 'tree' } : null
+}
+
+/** The folder New File…, New Folder… and Paste act in (`''`: the session's folder). Null: no session, a Changes row. */
+function folderTarget(a: unknown): { sessionId: string; dir: string } | null {
+  const id = filesModel.sessionId
+  if (isTarget(a)) return a.from === 'changes' || a.sessionId !== id ? null : { sessionId: a.sessionId, dir: a.path === '' ? '' : a.dir ? a.path : parentOf(a.path) }
+  if (id === null || !filesModel.opened) return null
+  return { sessionId: id, dir: folderOf(filesModel.rows[filesModel.rowIndex(filesModel.ui.files.sel)]) }
+}
+
+/** An operation run from a list key or the tree's menus (the keyboard then goes back to the list). */
+const beganInList = (a: unknown): boolean => (isTarget(a) ? a.from === 'tree' : keyboardInPanel())
+
+const NO_TREE_ROW = 'Select a file or folder in Files first'
+const BUSY = 'Another file operation is under way'
+const NO_TRASH = `No tool on ${protocolOs.words.machine} moves files to the Trash`
+
+/** Why a file operation cannot run now; undefined: it can. */
+function opBlocked(t: unknown | null): string | undefined {
+  if (filesModel.sessionId === null) return NO_SESSION
+  if (t === null) return NO_TREE_ROW
+  if (panel.busy) return BUSY
+  return undefined
+}
+
+/** The file panel shows Files (shown first by an operation run from elsewhere). */
+function showFilesFirst(): void {
+  const hidden = document.querySelector<HTMLElement>('.file-panel')?.hidden !== false
+  if (panel.mode !== 'files' || hidden) commands.run('files.showFiles')
+}
+
+function startNew(a: unknown, entry: 'file' | 'dir'): void {
+  const t = folderTarget(a)
+  if (!t) return
+  const fromList = beganInList(a)
+  showFilesFirst()
+  if (t.dir !== '' && !filesModel.isExpanded(t.dir)) filesModel.expand(t.dir)
+  panel.menu = null
+  panel.hidden = null
+  filesModel.setPending({ dir: t.dir, kind: entry })
+  panel.edit = { kind: 'new', sessionId: t.sessionId, dir: t.dir, entry, fromList }
+}
+
+function startRename(a: unknown): void {
+  const t = treeTarget(a)
+  if (!t) return
+  panel.menu = null
+  filesModel.setPending(null)
+  filesModel.select('files', t.path)
+  panel.edit = { kind: 'rename', sessionId: t.sessionId, path: t.path, dir: t.dir, fromList: beganInList(a) }
+}
+
+function clip(a: unknown, cut: boolean): void {
+  const t = treeTarget(a)
+  if (t) panel.clip = { sessionId: t.sessionId, path: t.path, dir: t.dir, cut }
+}
+
+function askTrash(a: unknown): void {
+  const t = treeTarget(a)
+  if (!t) return
+  // one sheet at a time at the top of the main pane
+  ui.sheet = null
+  panel.discard = null
+  panel.trash = { sessionId: t.sessionId, path: t.path, dir: t.dir, fromList: beganInList(a) }
 }
 
 /** The row, when it is a file. */
@@ -44,10 +131,12 @@ const fileTarget = (a: unknown): FileTarget | null => {
   return t && !t.dir ? t : null
 }
 
-/** The row's path on disk; null when the session's folder is not known. */
+/** The row's path on disk (`''`: the session's folder); null when the session's folder is not known. */
 function absolute(t: FileTarget): string | null {
   const cwd = sessions.get(t.sessionId)?.cwd
-  return cwd ? `${cwd.replace(/\/+$/, '')}/${t.path}` : null
+  if (!cwd) return null
+  const top = cwd.replace(/\/+$/, '')
+  return t.path === '' ? top : `${top}/${t.path}`
 }
 
 /** The session a panel-wide command (the Changes header's, Refresh, Toggle Ignored) is for: the one on screen. */
@@ -129,27 +218,103 @@ export function registerFilesCommands(): Disposable {
     }),
     commands.register('files.reveal', {
       run: (a) => {
-        const t = target(a)
+        const t = targetOrRoot(a)
         const abs = t ? absolute(t) : null
         if (abs) revealPath(abs)
       },
       when: (a) => {
-        const t = target(a)
+        const t = targetOrRoot(a)
         return t !== null && absolute(t) !== null && filesModel.entry(t.path)?.code !== 'D'
       },
       unavailableReason: () => NO_ROW,
     }),
     commands.register('files.copyPath', {
       run: (a) => {
-        const t = target(a)
+        const t = targetOrRoot(a)
         const abs = t ? absolute(t) : null
         if (abs) void copyText(abs)
       },
       when: (a) => {
-        const t = target(a)
+        const t = targetOrRoot(a)
         return t !== null && absolute(t) !== null
       },
       unavailableReason: () => NO_ROW,
+    }),
+    // ── the tree's file operations ──
+    commands.register('files.newFile', {
+      run: (a) => startNew(a, 'file'),
+      when: (a) => folderTarget(a) !== null && !panel.busy,
+      unavailableReason: (a) => opBlocked(folderTarget(a)),
+    }),
+    commands.register('files.newFolder', {
+      run: (a) => startNew(a, 'dir'),
+      when: (a) => folderTarget(a) !== null && !panel.busy,
+      unavailableReason: (a) => opBlocked(folderTarget(a)),
+    }),
+    commands.register('files.collapseAll', {
+      run: () => {
+        showFilesFirst()
+        filesModel.collapseAll()
+      },
+      when: () => filesModel.sessionId !== null,
+      unavailableReason: () => NO_SESSION,
+    }),
+    commands.register('files.rename', {
+      run: startRename,
+      when: (a) => treeTarget(a) !== null && !panel.busy,
+      unavailableReason: (a) => opBlocked(treeTarget(a)),
+    }),
+    commands.register('files.trash', {
+      run: askTrash,
+      when: (a) => treeTarget(a) !== null && !panel.busy && filesModel.trashTool,
+      unavailableReason: (a) => opBlocked(treeTarget(a)) ?? NO_TRASH,
+    }),
+    commands.register('files.undo', {
+      run: (a) => {
+        const id = filesModel.sessionId
+        if (id !== null) void undo(id, beganInList(a))
+      },
+      when: () => filesModel.sessionId !== null && filesModel.undoKind !== null && !panel.busy,
+      unavailableReason: () => (filesModel.sessionId === null ? NO_SESSION : panel.busy ? BUSY : 'Nothing to undo in the file tree'),
+      title: () => (filesModel.undoKind === 'rename' ? 'Undo Rename' : 'Undo Move'),
+    }),
+    // Kea's own file clipboard: one entry, the system's clipboard untouched
+    commands.register('files.cut', {
+      run: (a) => clip(a, true),
+      when: (a) => treeTarget(a) !== null,
+      unavailableReason: (a) => opBlocked(treeTarget(a)),
+      title: (a) => (treeTarget(a)?.dir ? 'Cut Folder' : 'Cut File'),
+    }),
+    commands.register('files.copy', {
+      run: (a) => clip(a, false),
+      when: (a) => treeTarget(a) !== null,
+      unavailableReason: (a) => opBlocked(treeTarget(a)),
+      title: (a) => (treeTarget(a)?.dir ? 'Copy Folder' : 'Copy File'),
+    }),
+    commands.register('files.paste', {
+      run: (a) => {
+        const t = folderTarget(a)
+        const c = panel.clip
+        if (!t || !c || c.sessionId !== t.sessionId) return
+        showFilesFirst()
+        void move(t.sessionId, c.path, t.dir, !c.cut, beganInList(a)).then((r) => {
+          // a cut is pasted once; a copy as often as asked
+          if (r?.ok && c.cut && panel.clip === c) panel.clip = null
+        })
+      },
+      when: (a) => {
+        const t = folderTarget(a)
+        return t !== null && !panel.busy && panel.clip?.sessionId === t.sessionId
+      },
+      unavailableReason: (a) => {
+        const t = folderTarget(a)
+        if (t === null) return opBlocked(null)
+        if (!panel.clip) return 'Cut or copy a file or folder in Files first'
+        if (panel.clip.sessionId !== t.sessionId) return 'What was cut or copied is another session’s; Kea pastes within one session'
+        return panel.busy ? BUSY : undefined
+      },
+      // in a Files row's menu while it cannot run, never in a Changes row's
+      keepInMenus: (a) => !isTarget(a) || a.from !== 'changes',
     }),
     commands.register('files.copyRelativePath', {
       run: (a) => {

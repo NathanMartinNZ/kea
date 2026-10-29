@@ -18,7 +18,7 @@ export const CATEGORIES = ['Session', 'Project', 'Terminal', 'Files', 'Viewer', 
 export type Category = (typeof CATEGORIES)[number]
 
 /** The contextual menus generated from the table: the surfaces a command is also listed in. */
-export const SURFACES = ['session ⌃', 'project ⌃', 'file ⌃', 'changes ⋯', 'header ⋯', 'editor ▾', 'terminal ⌃', 'menu-bar item'] as const
+export const SURFACES = ['session ⌃', 'project ⌃', 'file ⌃', 'files ⌃', 'changes ⋯', 'header ⋯', 'editor ▾', 'terminal ⌃', 'menu-bar item'] as const
 export type Surface = (typeof SURFACES)[number]
 
 /** Where a scoped binding applies. Unscoped bindings apply everywhere. */
@@ -42,6 +42,11 @@ export interface CommandDef {
   readonly gesture?: string
   /** Contextual menus that list the command, in table order. */
   readonly surfaces?: readonly Surface[]
+  /**
+   * The command's group in its contextual menus: a menu puts a separator between two neighbours of different groups
+   * (`new`, `open`, … in the Files rows). None: the menu has no separators around it.
+   */
+  readonly menuGroup?: string
   /** A qualifier on the command's surfaces (`in that project`): the command's `when` decides it there. */
   readonly surfaceNote?: string
   /** Other controls that run it (row hover button, detached overlay, Settings › Disk, …). */
@@ -109,15 +114,24 @@ export const COMMANDS: readonly CommandDef[] = [
   { id: 'files.togglePanel', title: 'Toggle File Panel', category: 'Files' },
   { id: 'files.showFiles', title: 'Show Files', category: 'Files', keys: ['⌘⇧E'], linuxKeys: ['Ctrl+Shift+E'] },
   { id: 'files.showChanges', title: 'Show Changes', category: 'Files', keys: ['⌘⇧G'], linuxKeys: ['Ctrl+Shift+G'] },
-  { id: 'files.openInEditor', title: 'Open in Editor', category: 'Files', keys: ['⌘↵'], linuxKeys: ['Ctrl+Shift+Enter'], keyScope: 'file panel', surfaces: ['file ⌃'] },
-  { id: 'files.reveal', title: 'Reveal in Finder', category: 'Files', surfaces: ['file ⌃'] },
-  { id: 'files.copyPath', title: 'Copy Path', category: 'Files', surfaces: ['file ⌃'] },
-  { id: 'files.copyRelativePath', title: 'Copy Relative Path', category: 'Files', surfaces: ['file ⌃'] },
-  { id: 'files.discard', title: 'Discard Changes…', category: 'Files', surfaces: ['file ⌃'], surfaceNote: 'changed files' },
+  { id: 'files.newFile', title: 'New File…', category: 'Files', surfaces: ['file ⌃', 'files ⌃'], menuGroup: 'new', other: 'Files bar' },
+  { id: 'files.newFolder', title: 'New Folder…', category: 'Files', surfaces: ['file ⌃', 'files ⌃'], menuGroup: 'new', other: 'Files bar' },
+  { id: 'files.openInEditor', title: 'Open in Editor', category: 'Files', keys: ['⌘↵'], linuxKeys: ['Ctrl+Shift+Enter'], keyScope: 'file panel', surfaces: ['file ⌃'], menuGroup: 'open' },
+  { id: 'files.reveal', title: 'Reveal in Finder', category: 'Files', surfaces: ['file ⌃', 'files ⌃'], menuGroup: 'open' },
+  { id: 'files.cut', title: 'Cut File / Cut Folder', category: 'Files', keys: ['⌘X'], keyScope: 'file panel', surfaces: ['file ⌃'], menuGroup: 'clipboard', other: 'list key Ctrl+X on Linux', titles: ['Cut File', 'Cut Folder'] },
+  { id: 'files.copy', title: 'Copy File / Copy Folder', category: 'Files', keys: ['⌘C'], keyScope: 'file panel', surfaces: ['file ⌃'], menuGroup: 'clipboard', other: 'list key Ctrl+C on Linux', titles: ['Copy File', 'Copy Folder'] },
+  { id: 'files.paste', title: 'Paste', category: 'Files', keys: ['⌘V'], keyScope: 'file panel', surfaces: ['file ⌃', 'files ⌃'], menuGroup: 'clipboard', other: 'list key Ctrl+V on Linux' },
+  { id: 'files.copyPath', title: 'Copy Path', category: 'Files', surfaces: ['file ⌃', 'files ⌃'], menuGroup: 'path' },
+  { id: 'files.copyRelativePath', title: 'Copy Relative Path', category: 'Files', surfaces: ['file ⌃'], menuGroup: 'path' },
+  { id: 'files.rename', title: 'Rename…', category: 'Files', keys: ['F2'], linuxKeys: ['F2'], keyScope: 'file panel', surfaces: ['file ⌃'], menuGroup: 'edit' },
+  { id: 'files.trash', title: 'Move to Trash', category: 'Files', keys: ['⌦'], linuxKeys: ['Delete'], keyScope: 'file panel', surfaces: ['file ⌃'], menuGroup: 'edit', other: 'list key ⌘⌫ on macOS' },
+  { id: 'files.undo', title: 'Undo Move / Undo Rename', category: 'Files', keys: ['⌘Z'], keyScope: 'file panel', other: 'list key Ctrl+Z on Linux', titles: ['Undo Move', 'Undo Rename'] },
+  { id: 'files.discard', title: 'Discard Changes…', category: 'Files', surfaces: ['file ⌃'], surfaceNote: 'changed files', menuGroup: 'discard' },
   { id: 'files.toggleScope', title: 'Toggle Scope (Branch / Uncommitted)', category: 'Files', surfaces: ['changes ⋯'] },
   { id: 'files.copyChangedList', title: 'Copy Changed-File List', category: 'Files', surfaces: ['changes ⋯'] },
   { id: 'files.openAllChanged', title: 'Open All in Editor', category: 'Files', surfaces: ['changes ⋯'] },
   { id: 'files.refresh', title: 'Refresh', category: 'Files', surfaces: ['changes ⋯'] },
+  { id: 'files.collapseAll', title: 'Collapse All', category: 'Files', surfaces: ['files ⌃'], menuGroup: 'view', other: 'Files bar' },
   { id: 'files.toggleIgnored', title: 'Toggle Ignored Files', category: 'Files' },
   { id: 'files.revealInTree', title: 'Reveal in File Tree', category: 'Files', gesture: 'click a breadcrumb segment in the viewer header' },
   { id: 'viewer.open', title: 'Open in Viewer', category: 'Viewer', gesture: 'click a file in the file panel' },
@@ -212,6 +226,7 @@ export interface Chord {
 const GLYPH_KEYS: Readonly<Record<string, string>> = {
   '↵': 'enter',
   '⌫': 'backspace',
+  '⌦': 'delete',
   '←': 'left',
   '→': 'right',
   '↑': 'up',

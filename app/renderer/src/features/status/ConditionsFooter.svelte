@@ -4,11 +4,12 @@ The sidebar footer's account-condition lines: one line per condition while it la
 (`limited since 14:02` without a reset time, `signed out — run claude auth login` with the agent's login command,
 `billing problem`) — and, once a usage limit has reset, a quiet **Continue all**, which types `continue` into each
 session it held: only on that click. Nothing else. Each line is a `status` named by its text; the button is
-"Continue all".
+"Continue all". In a compact sidebar the text, cut short, has its full wording as a tooltip.
 -->
 <script lang="ts">
   import { conditionText } from '@kea/protocol'
   import { External } from '../../lib/reactive.svelte.ts'
+  import { sidebarCompact } from '../../shell/layoutStore.svelte.ts'
   import { commands } from '../commands/registry.ts'
   import { agentName, agents, conditions } from './state.ts'
 
@@ -24,7 +25,7 @@ session it held: only on that click. Nothing else. Each line is a `status` named
 {#each lines as l (l.agent)}
   <div class="condition-line" role="status" aria-label={l.text}>
     <span class="condition-dot" aria-hidden="true"></span>
-    <span class="condition-text">{l.text}</span>
+    <span class="condition-text" data-tip={sidebarCompact() ? l.text : undefined}>{l.text}</span>
     {#if l.reset}
       <button class="quiet-button condition-action" onmousedown={keepFocus} onclick={() => commands.run('session.continueAll', { agent: l.agent })}>Continue all</button>
     {/if}

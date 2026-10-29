@@ -122,7 +122,7 @@ answer → the last status that worked, said so.
 
   function menuFor(entry: GitEntry, at: { x: number; y: number }): void {
     filesModel.select('changes', entry.path)
-    panel.menu = { kind: 'file', target: { sessionId, path: entry.path, dir: false }, at }
+    panel.menu = { kind: 'file', target: { sessionId, path: entry.path, dir: false, from: 'changes' }, at }
   }
 
   function onContextMenu(e: MouseEvent): void {

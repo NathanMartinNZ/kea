@@ -18,6 +18,11 @@
   --warn: #D9B45B;
   --danger: #EC6A57;
   --info: #7AA2D6;
+  --session-1: #E6DC6A;
+  --session-2: #5FCEDC;
+  --session-3: #5E9CF2;
+  --session-4: #E58AC0;
+  --session-5: #2E9E96;
   --font-ui: -apple-system, "SF Pro Text", system-ui, sans-serif;
   --font-mono: "SF Mono", ui-monospace, Menlo, monospace;
   --type-base-size: 13px;
@@ -58,7 +63,8 @@
   --size-dot: 5px;
   --size-glyph-small: 8px;
   --size-sidebar: 240px;
-  --size-sidebar-min: 200px;
+  --size-sidebar-min: 121px;
+  --size-sidebar-compact: 168px;
   --size-sidebar-max: 360px;
   --size-tree: 264px;
   --size-tree-min: 200px;
@@ -67,6 +73,9 @@
   --size-palette: 560px;
   --size-composer: 640px;
   --size-composer-prompt-max: 240px;
+  --size-settings-label: 200px;
+  --size-settings-nav: 200px;
+  --size-menu-min: 200px;
   --size-divider-hit: 7px;
   --size-window-min-width: 880px;
   --size-window-min-height: 520px;

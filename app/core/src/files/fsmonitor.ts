@@ -25,6 +25,7 @@ import path from 'node:path'
 import { git, type Logger, type ProcessResult } from '@kea/kit'
 import { L } from '@kea/protocol'
 import { canonical } from '../worktrees/git.ts'
+import { sessionFs } from './fsImpl.ts'
 import type { Env } from './status.ts'
 
 export const FSMONITOR_KEYS = ['core.fsmonitor', 'core.untrackedCache'] as const
@@ -238,7 +239,7 @@ export class Fsmonitor {
 }
 
 async function exists(file: string): Promise<boolean> {
-  return fs.promises.stat(file).then(
+  return sessionFs.promises.stat(file).then(
     (st) => st.isFile(),
     () => false,
   )

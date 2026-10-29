@@ -778,6 +778,55 @@ test('E-FV-11 · the cursor over a file’s code is the I-beam, as over text tha
   expect(['auto', 'default']).toContain(await cursorOf('.viewer .cm-editor .cm-gutters'))
 })
 
+test('E-FV-12 · a Markdown file’s long lines wrap when it opens and ⌥Z turns that off; a code file opens unwrapped and keeps its own ⌥Z choice; back on the Markdown file it is as it was left', async ({ run, launch }) => {
+  test.setTimeout(90_000)
+  const kea = await launch()
+  const page = await kea.page()
+  const words = (n: number) => Array.from({ length: n }, (_, i) => `word${i}`).join(' ')
+  const NOTES = 'notes.md'
+  const CODE = 'src/long.ts'
+  // the long line is far wider than the view and far shorter than the length that rules wrap out
+  const long = words(160)
+  expect(long.length).toBeLessThan(L.viewerWrapLineMax)
+  await sessionWith(kea, run, {
+    [NOTES]: ['# Notes', '', long, '', 'A short line.', ''].join('\n'),
+    [CODE]: [`export const words = '${long}'`, '', 'export const short = 1', ''].join('\n'),
+  })
+  // the height of a line on screen, by its index among the document's lines
+  const lineHeight = (i: number) => page.locator('.viewer .cm-content .cm-line').nth(i).evaluate((e) => e.getBoundingClientRect().height)
+  // ⌥Z goes to the file tab that has the keyboard
+  const toggle = async () => {
+    await page.locator('.viewer .cm-content').click()
+    await page.keyboard.press('Alt+z')
+  }
+
+  await clickFile(kea, NOTES)
+  const opened = await waitBody(kea, NOTES, 'text')
+  expect([opened.ui.canWrap, opened.ui.preview]).toEqual([true, false])
+  await waitViewer(kea, 'Markdown wraps on open', (v) => v.text?.wrap === true && v.ui.wrap)
+  await expect.poll(async () => (await lineHeight(2)) / (await lineHeight(4)), { message: 'the long line takes several rows' }).toBeGreaterThan(2)
+
+  await toggle()
+  await waitViewer(kea, 'Markdown wrap off', (v) => v.ui.path === NOTES && v.text?.wrap === false && !v.ui.wrap)
+  await expect.poll(async () => (await lineHeight(2)) / (await lineHeight(4)), { message: 'the long line is one row' }).toBe(1)
+
+  // a code file: unwrapped, and its ⌥Z is its own
+  await clickFile(kea, CODE)
+  const code = await waitBody(kea, CODE, 'text')
+  expect([code.ui.canWrap, code.ui.wrap, code.text?.wrap]).toEqual([true, false, false])
+  await toggle()
+  await waitViewer(kea, 'code wrap on', (v) => v.ui.path === CODE && v.text?.wrap === true && v.ui.wrap)
+
+  // back on the Markdown file: still off
+  await clickFile(kea, NOTES)
+  const back = await waitBody(kea, NOTES, 'text')
+  expect([back.ui.wrap, back.text?.wrap]).toEqual([false, false])
+  // and the code file still wraps
+  await clickFile(kea, CODE)
+  await waitBody(kea, CODE, 'text')
+  await waitViewer(kea, 'code wrap still on', (v) => v.ui.path === CODE && v.text?.wrap === true && v.ui.wrap)
+})
+
 test('E-KB-7 · the text menu: a right-click on a field offers Cut, Copy, Paste and Select All with their keys, and its picks act on that field; on the viewer’s code it offers Copy, disabled while nothing is selected, and Select All, which selects the whole file; one menu at a time', async ({ run, launch }) => {
   const kea = await launch()
   const page = await kea.page()

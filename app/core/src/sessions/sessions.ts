@@ -118,6 +118,7 @@ import { nextLifecycle, type LifecycleEvent } from './lifecycle.ts'
 import type { Projects } from './projects.ts'
 import { SHELL_AGENT } from './rebuild.ts'
 import { insertSession, titleFromSlug } from './rows.ts'
+import { backfillColors, COLOR_UI_KEY, keepOrRepick } from './colors.ts'
 import { hasScript, scriptCommand, type ScriptKind } from './scripts.ts'
 
 /** The composer's choices a creation is planned from (sessions.validate, sessions.create). */
@@ -162,12 +163,16 @@ type Row = {
   permissionMode: string | null
   cost_usd: number | null
   context_pct: number | null
+  /** `session_ui.state`'s `color` as stored (colors.ts `COLOR_SQL`); anything but a whole number ≥ 0 reads as 0. */
+  color: unknown
 }
 
 const SELECT = `SELECT s.id, s.project_id, s.slug, s.title, s.title_source, s.isolation, s.cwd, s.worktree_root, s.branch, s.base_branch, s.base_commit,
   s.port_base, s.agent, s.agent_session_id, s.launch_config, s.lifecycle, s.end_reason, s.deleted_at, s.snapshot_ref, s.creation_step, s.disk_bytes,
   s.disk_at, s.sort_order, s.pinned_order, s.created_at, s.archived_at, r.phase, r.attention, r.background, r.failure_kind, r.unread,
-  r.last_activity_at, r.model, r.effort, r.permission_mode AS permissionMode, r.cost_usd, r.context_pct FROM sessions s JOIN session_runtime r ON r.session_id = s.id`
+  r.last_activity_at, r.model, r.effort, r.permission_mode AS permissionMode, r.cost_usd, r.context_pct,
+  CASE WHEN json_valid(u.state) THEN json_extract(u.state, '$.color') END AS color
+  FROM sessions s JOIN session_runtime r ON r.session_id = s.id LEFT JOIN session_ui u ON u.session_id = s.id`
 const GET = `${SELECT} WHERE s.id = ?`
 const LIST = `${SELECT} ORDER BY s.project_id, s.sort_order, s.created_at`
 /**
@@ -333,6 +338,8 @@ export class Sessions {
     void o.git.then((g) => (this.gitKnown = g))
     // core says ready before start() runs: a creation or delete asked in between is in flight, not left behind
     this.interrupted = new Set(this.db.all<{ id: string }>(`SELECT id FROM sessions WHERE lifecycle = 'creating' OR creation_step IS NOT NULL`).map((r) => r.id))
+    // sessions made before colours existed get theirs before the store is first read, so none is sent without one
+    backfillColors(this.db)
     this.reload()
   }
 
@@ -402,6 +409,7 @@ export class Sessions {
       permissionMode: r.permissionMode,
       costUsd: r.cost_usd,
       contextPct: r.context_pct,
+      color: typeof r.color === 'number' && Number.isInteger(r.color) && r.color >= 0 ? r.color % L.sessionColors : 0,
       creation: r.lifecycle === 'creating' || r.lifecycle === 'create_failed' ? (this.creation.get(r.id) ?? this.creationFromJournal(r)) : null,
       setup: this.setup.get(r.id) ?? null,
       teardownFailed: this.teardownFailed.has(r.id),
@@ -1134,7 +1142,10 @@ export class Sessions {
       if (r.lifecycle !== 'archived') throw new RpcError('wrong_state', `the session is ${r.lifecycle}`)
       if (r.isolation === 'worktree' && !fs.existsSync(r.cwd)) await this.addBack(r)
       await this.o.ports.allocate(id)
-      this.transition(id, 'unarchive', () => this.db.run(`UPDATE sessions SET archived_at = NULL, creation_step = NULL WHERE id = ?`, id))
+      this.transition(id, 'unarchive', () => {
+        this.db.run(`UPDATE sessions SET archived_at = NULL, creation_step = NULL WHERE id = ?`, id)
+        keepOrRepick(this.db, id, r.project_id)
+      })
       this.missing.delete(id)
       const p = this.project(r.project_id)
       // setup runs again when the project has a teardown command (it undid what setup made), the worktree came back, or
@@ -1354,12 +1365,16 @@ export class Sessions {
         }
         branch = res.branch
         const ref = r.snapshot_ref
-        this.transition(id, 'restore', () =>
-          this.db.run(`UPDATE sessions SET deleted_at = NULL, snapshot_ref = NULL, creation_step = NULL, branch = ? WHERE id = ?`, res.branch, id),
-        )
+        this.transition(id, 'restore', () => {
+          this.db.run(`UPDATE sessions SET deleted_at = NULL, snapshot_ref = NULL, creation_step = NULL, branch = ? WHERE id = ?`, res.branch, id)
+          keepOrRepick(this.db, id, r.project_id)
+        })
         await deleteRef({ env: repo.env, root: p.rootPath }, ref)
       } else {
-        this.transition(id, 'restore', () => this.db.run(`UPDATE sessions SET deleted_at = NULL, creation_step = NULL WHERE id = ?`, id))
+        this.transition(id, 'restore', () => {
+          this.db.run(`UPDATE sessions SET deleted_at = NULL, creation_step = NULL WHERE id = ?`, id)
+          keepOrRepick(this.db, id, r.project_id)
+        })
       }
       await this.o.ports.allocate(id)
       if (r.isolation === 'worktree') await this.startScript(id, 'setup', 'restore')
@@ -1527,8 +1542,8 @@ export class Sessions {
   /**
    * Save panel state, key by key. Each key given replaces that key's value (null removes it); the keys not given stay,
    * so a caller that writes back an older copy of the row cannot drop what another panel saved since. The `files` key
-   * is the file panel's, written by `files.saveUi` alone (files/service.ts): given here, it is left out. The cap is on
-   * what the row would hold of these keys afterwards.
+   * is the file panel's, written by `files.saveUi` alone (files/service.ts), and `color` is core's (colors.ts): given
+   * here, they are left out. The cap is on what the row would hold of the other keys afterwards.
    */
   setUi(id: string, state: Record<string, unknown>): { ok: boolean } {
     this.row(id)
@@ -1536,11 +1551,11 @@ export class Sessions {
       const cur = this.uiState(id)
       const next: Record<string, unknown> = { ...cur }
       for (const [k, v] of Object.entries(state)) {
-        if (k === FILES_UI_KEY) continue
+        if (k === FILES_UI_KEY || k === COLOR_UI_KEY) continue
         if (v === null) delete next[k]
         else next[k] = v
       }
-      const { [FILES_UI_KEY]: _files, ...own } = next
+      const { [FILES_UI_KEY]: _files, [COLOR_UI_KEY]: _color, ...own } = next
       if (Buffer.byteLength(JSON.stringify(own)) > L.sessionUiMaxBytes) throw new RpcError('invalid_args', `panel state over ${L.sessionUiMaxBytes} bytes`)
       this.db.run('UPDATE session_ui SET state = ? WHERE session_id = ?', JSON.stringify(next), id)
     })

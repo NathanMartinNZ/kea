@@ -344,6 +344,26 @@ export const L = {
   treeTypeaheadMs: 800,
   /** the file panel's scroll position and selection are saved this long after they last changed (ms) */
   panelSaveMs: 400,
+  /** a name made or renamed in the file tree: one path segment at most this long in UTF-8, as the file systems allow (bytes) */
+  fileNameMaxBytes: 255,
+  /** a new file's or folder's path typed in the file tree, relative to the session's folder, at most this long in UTF-8 (bytes) */
+  filePathMaxBytes: 1024,
+  /** an absolute path dropped on the file panel from another app is at most this long, the longest path Linux allows (bytes) */
+  fileDropPathMaxBytes: 4096,
+  /** items dropped on the file panel from another app in one drop (count) */
+  fileDropMax: 1000,
+  /** a copy in the file tree (paste, a copy drag, a drop from another app) is refused before anything is written when its sources hold more entries than this (entries) */
+  fileCopyEntriesMax: 10000,
+  /** a copy in the file tree is refused before anything is written when its sources hold more bytes than this (bytes) */
+  fileCopyBytesMax: 1073741824,
+  /** names tried for a copy whose name is taken (name copy, name copy 2, …) before the copy is refused (count) */
+  fileCopyNameTries: 100,
+  /** the `trash` run of Move to Trash is killed after this long; a folder takes longer to move than one file (ms) */
+  fileTrashTimeoutMs: 30000,
+  /** a collapsed folder held under a drag in the file tree opens after this long (ms) */
+  treeDragOpenMs: 600,
+  /** the file tree stops scrolling by itself at its edge when no drag movement has come for this long (ms) */
+  treeDragIdleMs: 200,
   /** Open All in Editor opens at most this many changed files, one editor call each (files) */
   openAllChangedMax: 20,
   /** finder index dropped this long after its last query (ms) */
@@ -472,6 +492,8 @@ export const L = {
   notifyBodyMaxChars: 120,
   /** three background sessions started in a row with ⌥⌘↵ take less than this of the person's time (ms) */
   backgroundStartsUserTimeMs: 10000,
+  /** colours a project's sessions take in the sidebar, in order, the least used first; the design tokens hold one colour each (count) */
+  sessionColors: 5,
   /** first port of the allocation range (below the macOS ephemeral range) (port) */
   portRangeStart: 20000,
   /** last port of the allocation range (port) */
@@ -867,6 +889,16 @@ export const LIMIT_META: Record<LimitName, { unit: string; why: string; whyLinux
   treeOverscanRows: { unit: "rows", why: "rows drawn above and below the visible part of the tree and the Changes list, so a scroll step shows no gap" },
   treeTypeaheadMs: { unit: "ms", why: "type-ahead in the file tree: keys typed within this long of each other extend one prefix" },
   panelSaveMs: { unit: "ms", why: "the file panel's scroll position and selection are saved this long after they last changed" },
+  fileNameMaxBytes: { unit: "bytes", why: "a name made or renamed in the file tree: one path segment at most this long in UTF-8, as the file systems allow" },
+  filePathMaxBytes: { unit: "bytes", why: "a new file's or folder's path typed in the file tree, relative to the session's folder, at most this long in UTF-8" },
+  fileDropPathMaxBytes: { unit: "bytes", why: "an absolute path dropped on the file panel from another app is at most this long, the longest path Linux allows" },
+  fileDropMax: { unit: "count", why: "items dropped on the file panel from another app in one drop" },
+  fileCopyEntriesMax: { unit: "entries", why: "a copy in the file tree (paste, a copy drag, a drop from another app) is refused before anything is written when its sources hold more entries than this" },
+  fileCopyBytesMax: { unit: "bytes", why: "a copy in the file tree is refused before anything is written when its sources hold more bytes than this" },
+  fileCopyNameTries: { unit: "count", why: "names tried for a copy whose name is taken (name copy, name copy 2, …) before the copy is refused" },
+  fileTrashTimeoutMs: { unit: "ms", why: "the `trash` run of Move to Trash is killed after this long; a folder takes longer to move than one file" },
+  treeDragOpenMs: { unit: "ms", why: "a collapsed folder held under a drag in the file tree opens after this long" },
+  treeDragIdleMs: { unit: "ms", why: "the file tree stops scrolling by itself at its edge when no drag movement has come for this long" },
   openAllChangedMax: { unit: "files", why: "Open All in Editor opens at most this many changed files, one editor call each" },
   finderDropMs: { unit: "ms", why: "finder index dropped this long after its last query" },
   finderPathsMax: { unit: "paths", why: "finder index cap" },
@@ -931,6 +963,7 @@ export const LIMIT_META: Record<LimitName, { unit: string; why: string; whyLinux
   notifyBurstMs: { unit: "ms", why: "burst window" },
   notifyBodyMaxChars: { unit: "chars", why: "notification body truncation" },
   backgroundStartsUserTimeMs: { unit: "ms", why: "three background sessions started in a row with ⌥⌘↵ take less than this of the person's time" },
+  sessionColors: { unit: "count", why: "colours a project's sessions take in the sidebar, in order, the least used first; the design tokens hold one colour each" },
   portRangeStart: { unit: "port", why: "first port of the allocation range (below the macOS ephemeral range)" },
   portRangeEnd: { unit: "port", why: "last port of the allocation range" },
   portBlockSize: { unit: "ports", why: "ports per session block" },

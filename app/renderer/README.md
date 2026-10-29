@@ -15,7 +15,7 @@ attached terminal; the preload (`app/preload`) hands both over. It imports `pack
 | `src/features/sessions/` | The sidebar, the window's copies of core's `projects`, `sessions` and `terminals` stores, the session and project commands, context menus, confirmation sheets, the toast and project settings |
 | `src/features/composer/` | The new-session composer: prompt, project, agent and its options, base branch, worktree and branch name, with a draft per project |
 | `src/features/terminal/` | Terminal views (WebGL, with the DOM renderer after a lost context), the registry that decides which views stay alive, find, links, paste and drop, clipboard writes (OSC 52), the screen-reader mode and font zoom |
-| `src/features/files/` | The file panel: the file tree, the Changes list, Go to File and Discard |
+| `src/features/files/` | The file panel: the file tree and its file operations, the Changes list, Go to File and Discard |
 | `src/features/viewer/` | Read-only file and diff tabs on CodeMirror, syntax highlighting with Shiki in a worker, the Markdown preview and images |
 | `src/features/server/` | The dev-server control in the header: Run, Stop and the port chip |
 | `src/features/editor/` | Open in editor: the header's split button and its commands |

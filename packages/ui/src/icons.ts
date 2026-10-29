@@ -27,6 +27,12 @@ export const ICON_PATHS = {
   folder: 'M2 4.5v8h12v-6.5h-6.5l-1.5-1.5z',
   /** A file (the tree's one file glyph): a page with its corner turned down. */
   file: 'M4 2.5v11h8.5v-7.5l-3.5-3.5zM9 2.5v3.5h3.5',
+  /** New File: the page, a plus at its foot. */
+  filePlus: 'M8.5 13.5h-4.5v-11h5l3.5 3.5v2.5M9 2.5v3.5h3.5M12 10v5M9.5 12.5h5',
+  /** New Folder: the folder, a plus at its foot. */
+  folderPlus: 'M8.5 12.5h-6.5v-8h4l1.5 1.5h6.5v2.5M12 9.5v5M9.5 12h5',
+  /** Collapse All: a box with a minus in front of another. */
+  collapseAll: 'M5 2.5h8.5v8.5M2.5 5h8.5v8.5h-8.5zM4.75 9.25h4',
   /** VS Code's mark in this family's stroke (the header's `Code` button): two bands crossing into a bar. */
   vscode: 'M11.5 2.5v11L3 6.25M11.5 2.5L3 9.75',
   /** A symbolic link: an arrow out of its place. */

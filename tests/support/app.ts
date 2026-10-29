@@ -161,9 +161,9 @@ export type KeaProbe = {
   /** Run a command by id with an argument (tests/support/app-tabs.ts `openFile`); false when it is not available. */
   run(id: string, args?: unknown): boolean
   /** The persisted layout with what is drawn: `split` is the panes' widths in the split, null in one column. */
-  layout(): { agentBeside: boolean; agentWidth: number | null; cellWidth: number | null; drawn: { sidebar: number; tree: number }; split: { agent: number; work: number } | null }
+  layout(): { agentBeside: boolean; agentWidth: number | null; cellWidth: number | null; sidebarWidth: number; drawn: { sidebar: number; tree: number }; sidebarFloor: number; split: { agent: number; work: number } | null }
   /** Change the layout as the View menu or a divider would, persisted. */
-  setLayout(patch: { agentBeside?: boolean; agentWidth?: number | null; sidebarHidden?: boolean; treeHidden?: boolean }): void
+  setLayout(patch: { agentBeside?: boolean; agentWidth?: number | null; sidebarWidth?: number; treeWidth?: number; sidebarHidden?: boolean; treeHidden?: boolean }): void
 }
 declare const __keaProbe: KeaProbe
 type TestApi = {
@@ -1030,9 +1030,12 @@ export class Kea {
   /** Click the tab of `ptyId` (the way a person switches with the mouse); resolves once its terminal is on screen. */
   async clickTab(ptyId: string): Promise<void> {
     const page = await this.page()
-    // in the split the agent has a pane of its own, not a tab: a click in it gives it the keyboard
-    if ((await this.shown('agent')) === ptyId) await page.locator('.agent-pane .terminal-host.shown').click({ position: { x: 20, y: 20 }, timeout: STEP_MS })
-    else await page.locator(`[role=tab][data-pty="${ptyId}"]`).click({ timeout: STEP_MS })
+    const tab = page.locator(`[role=tab][data-pty="${ptyId}"]`)
+    // in the split the agent has a pane of its own, not a tab: a click in it gives it the keyboard. A session just
+    // selected draws its pane or its tab a frame or more later, so the helper waits for one of them before it chooses.
+    const where = await until(`${ptyId} in the agent pane or a tab`, async () => ((await this.shown('agent')) === ptyId ? 'agent' : (await tab.count()) > 0 ? 'tab' : undefined))
+    if (where === 'agent') await page.locator('.agent-pane .terminal-host.shown').click({ position: { x: 20, y: 20 }, timeout: STEP_MS })
+    else await tab.click({ timeout: STEP_MS })
     await until(`${ptyId} on screen`, async () => (await this.shown()) === ptyId || undefined)
   }
 

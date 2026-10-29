@@ -27,7 +27,8 @@
 //   renderer.serverStores        `server:<sessionId>` stores followed: the session on screen's, at most one
 //   renderer.linkChecks          checked file references of terminal lines the window remembers
 //   renderer.fileStores, .fileTreeDirs, .fileTreeRows, .fileGitEntries, .fileExpanded, .fileRowsDrawn,
-//   .filePanelTimers, .fileLayers   the file panel: what it holds of the session on screen (features/files/resources.ts)
+//   .filePanelTimers, .fileLayers, .fileOps   the file panel: what it holds of the session on screen, and the file
+//                                clipboard and a drag under way (features/files/resources.ts)
 //   renderer.viewerEditors, .viewerMerges, .viewerDocBytes, .viewerCachedDocs, .viewerCachedBytes, .highlightWorkers,
 //   .highlightPending, .highlightGrammars, .viewerFollows, .viewerReads   the file viewer (features/viewer/resources.ts)
 //   renderer.diskRows, .diskBranches, .diskDeleted, .diskSelected, .diskObservers   Settings › Disk while it is open: rows

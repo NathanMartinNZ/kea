@@ -1,12 +1,13 @@
 <!--
 A project row of the sidebar: a click folds it, `+` on hover or focus starts a session in it, drag to reorder; a missing
 project is dimmed with Locate… and Remove. A collapsed project shows how many of its sessions need you. It follows its
-own store row and its sessions' group.
+own store row and its sessions' group. In a compact sidebar its name is also its tooltip.
 -->
 <script lang="ts">
   import { untrack } from 'svelte'
   import { Icon } from '@kea/ui'
   import { External } from '../../lib/reactive.svelte.ts'
+  import { sidebarCompact } from '../../shell/layoutStore.svelte.ts'
   import { askRemoveProject, locateProject, moveProjectPast, toggleProject } from './actions.ts'
   import type { SidebarRow } from './model.ts'
   import { DRAG_PROJECT } from './sidebar.ts'
@@ -52,6 +53,7 @@ own store row and its sessions' group.
     data-key={row.key}
     data-project-id={p.id}
     tabindex={tabbable ? 0 : -1}
+    data-tip={sidebarCompact() ? p.name : undefined}
     class="sb-row sb-project{p.missing ? ' missing' : ''}{over ? ' drop' : ''}"
     draggable="true"
     ondragstart={(e) => {

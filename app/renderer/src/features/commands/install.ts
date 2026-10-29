@@ -71,6 +71,10 @@ export function installCommands(): void {
           if (r.plain && r.role === 'copy') view?.clearSelectionAfterCopy()
           editRole(r.role)
           return
+        case 'prevent':
+          e.preventDefault()
+          e.stopPropagation()
+          return
         case 'native':
         case 'swallow':
           // kept from the terminal; not prevented, so the native menu (copy, paste, hide, quit…) still acts

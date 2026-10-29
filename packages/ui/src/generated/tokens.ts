@@ -20,6 +20,11 @@ export const COLOR = {
   "warn": "#D9B45B",
   "danger": "#EC6A57",
   "info": "#7AA2D6",
+  "session-1": "#E6DC6A",
+  "session-2": "#5FCEDC",
+  "session-3": "#5E9CF2",
+  "session-4": "#E58AC0",
+  "session-5": "#2E9E96",
 } as const
 
 /** Size tokens in px. */
@@ -35,7 +40,8 @@ export const SIZE_PX = {
   "dot": 5,
   "glyph-small": 8,
   "sidebar": 240,
-  "sidebar-min": 200,
+  "sidebar-min": 121,
+  "sidebar-compact": 168,
   "sidebar-max": 360,
   "tree": 264,
   "tree-min": 200,
@@ -44,6 +50,9 @@ export const SIZE_PX = {
   "palette": 560,
   "composer": 640,
   "composer-prompt-max": 240,
+  "settings-label": 200,
+  "settings-nav": 200,
+  "menu-min": 200,
   "divider-hit": 7,
   "window-min-width": 880,
   "window-min-height": 520,

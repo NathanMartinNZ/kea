@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { L } from '@kea/protocol'
 import { SIZE_PX } from '@kea/ui/tokens'
-import { cycleRegion, DEFAULT_LAYOUT, dragAgent, dragTo, drawn, LAYOUT_KEY, loadLayout, mainWidth, paneCols, paneWidth, parseLayout, RANGE, resetAgentWidth, resetWidth, saveLayout, setAgentBeside, setCellWidth, setTreeHidden, splitMode, splitNeed, splitOn, splitWidths, STEP, stepAgent, stepWidth, toggleSidebar, type KeyValue } from './layout.ts'
+import { SPACE_PX } from '@kea/ui/tokens'
+import { cycleRegion, DEFAULT_LAYOUT, dragAgent, dragTo, drawn, LAYOUT_KEY, loadLayout, mainWidth, paneCols, paneWidth, parseLayout, RANGE, resetAgentWidth, resetWidth, saveLayout, setAgentBeside, setCellWidth, setTreeHidden, sidebarCompactAt, splitMode, splitNeed, splitOn, splitWidths, STEP, stepAgent, stepWidth, toggleSidebar, type KeyValue } from './layout.ts'
 
 const WIDE = SIZE_PX['window-default-width']
 
@@ -243,5 +244,38 @@ describe('the split', () => {
     expect(loadLayout(store)).toEqual(l)
     // wrong values take their defaults
     expect(parseLayout({ agentBeside: 'yes', agentWidth: -5, cellWidth: 'x' })).toMatchObject({ agentBeside: DEFAULT_LAYOUT.agentBeside, agentWidth: null, cellWidth: null })
+  })
+
+  it('U-LAYOUT-6 · the sidebar\'s minimum is the header\'s parts; a drag, a step and a stored width reach it and no lower; wider stored widths stay', () => {
+    // the traffic lights less the cluster's own inset, the header's gap, the New Session button with its insets, the border
+    const lights = SIZE_PX['traffic-lights'] - SPACE_PX[1]
+    const plus = SPACE_PX[1] + SIZE_PX.row + SPACE_PX[1]
+    expect(SIZE_PX['sidebar-min']).toBe(lights + SPACE_PX[0] + plus + SIZE_PX.hairline)
+    expect(RANGE.sidebar.min).toBe(SIZE_PX['sidebar-min'])
+    // the other rules that used the sidebar's minimum keep their own tokens
+    expect(SIZE_PX['menu-min']).toBeGreaterThan(SIZE_PX['sidebar-min'])
+    expect(SIZE_PX['settings-label']).toBeGreaterThan(SIZE_PX['sidebar-min'])
+    const min = RANGE.sidebar.min
+    expect(dragTo(DEFAULT_LAYOUT, 'sidebar', SIZE_PX.sidebar, -1000, WIDE).sidebarWidth).toBe(min)
+    expect(dragTo(DEFAULT_LAYOUT, 'sidebar', SIZE_PX.sidebar, min - SIZE_PX.sidebar + 3, WIDE).sidebarWidth).toBe(min + 3)
+    expect(stepWidth({ ...DEFAULT_LAYOUT, sidebarWidth: min + 1 }, 'sidebar', -1, WIDE).sidebarWidth).toBe(min)
+    expect(stepWidth({ ...DEFAULT_LAYOUT, sidebarWidth: min }, 'sidebar', -1, WIDE).sidebarWidth).toBe(min)
+    expect(drawn({ ...DEFAULT_LAYOUT, sidebarWidth: min }, WIDE).sidebar).toBe(min)
+    // stored widths: below the minimum clamps to it; anything in the range stays as it is
+    expect(parseLayout({ sidebarWidth: min - 40 }).sidebarWidth).toBe(min)
+    for (const w of [min, 160, 200, SIZE_PX.sidebar, SIZE_PX['sidebar-max']]) expect(parseLayout({ sidebarWidth: w }).sidebarWidth).toBe(w)
+    // at the window's minimum width the sidebar still gives way to the main column, down to its own minimum
+    const dm = drawn({ ...DEFAULT_LAYOUT, sidebarWidth: SIZE_PX['sidebar-max'] }, SIZE_PX['window-min-width'])
+    expect(SIZE_PX['window-min-width'] - dm.sidebar - dm.tree).toBeGreaterThanOrEqual(SIZE_PX['main-min'])
+  })
+
+  it('U-LAYOUT-7 · a sidebar drawn narrower than sidebar-compact is compact; at the token and wider, or hidden, it is not', () => {
+    expect(sidebarCompactAt(RANGE.sidebar.min)).toBe(true)
+    expect(sidebarCompactAt(SIZE_PX['sidebar-compact'] - 1)).toBe(true)
+    expect(sidebarCompactAt(SIZE_PX['sidebar-compact'])).toBe(false)
+    expect(sidebarCompactAt(SIZE_PX.sidebar)).toBe(false)
+    expect(sidebarCompactAt(0)).toBe(false)
+    expect(SIZE_PX['sidebar-compact']).toBeGreaterThan(RANGE.sidebar.min)
+    expect(SIZE_PX['sidebar-compact']).toBeLessThan(SIZE_PX.sidebar)
   })
 })

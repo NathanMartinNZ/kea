@@ -20,8 +20,8 @@
 //               `{ kind: 'shells' }`
 //   layout()    the persisted layout and the widths drawn at the window's width (`sidebar`, `tree`, 0 when hidden;
 //               `treeAuto` when the window is too narrow for the file panel; `split`, the panes' widths, null in one
-//               column). `setLayout()` changes it as the View menu or a divider would (`agentBeside`, `agentWidth`, a
-//               column hidden), persisted
+//               column; `sidebarFloor`, the sidebar's minimum now). `setLayout()` changes it as the View menu or a
+//               divider would (`agentBeside`, `agentWidth`, a column hidden), persisted
 //   firstShell() what the `shells` pane last decided about the first shell: `opened`, `none`, `gone` (it had
 //               left first), or null before any decision (E-PTY-3 waits on it instead of on time)
 //   rpcPending() the window's calls still waiting for core's answer: 0 once an overlay that asked core for something
@@ -239,7 +239,7 @@ export function installTestProbes(): void {
     viewing: () => viewedSession(),
     layout: () => {
       const { layout, width } = layoutState
-      return { ...layout, drawn: drawn(layout, width), split: layoutState.split }
+      return { ...layout, drawn: drawn(layout, width, layoutState.sidebarFloor), sidebarFloor: layoutState.sidebarFloor, split: layoutState.split }
     },
     setLayout: (patch: Partial<Layout>): void => setLayout((l) => ({ ...l, ...patch })),
     run: (id: string, args?: unknown): boolean => commands.run(id, args),

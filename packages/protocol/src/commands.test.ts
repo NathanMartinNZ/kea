@@ -65,11 +65,17 @@ function specCommands(): Row[] {
     const linuxTitle = /titled "([^"]+)"/.exec(linuxCell)?.[1]
     const linuxCellKeys = linuxCell.replace(/;\s*titled "[^"]+"/, '')
     const linuxKeys = ids.length > 1 && linuxCellKeys ? linuxCellKeys.split(' / ').map(spanKeys) : ids.map(() => spanKeys(linuxCellKeys))
-    // also in: surfaces (with a qualifier) and other controls
+    // also in: surfaces (with a qualifier), the menu group (`group new`) and other controls
     const surfaces: Surface[] = []
     let surfaceNote: string | undefined
+    let menuGroup: string | undefined
     const other: string[] = []
     for (const part of alsoCell ? alsoCell.split(/[,;]\s*/) : []) {
+      const group = /^group ([a-z]+)$/.exec(part.trim())
+      if (group) {
+        menuGroup = group[1]
+        continue
+      }
       const m = /^`([^`]+)`(?:\s*\(([^)]*)\))?$/.exec(part.trim())
       if (m && (SURFACES as readonly string[]).includes(m[1] as string)) {
         surfaces.push(m[1] as Surface)
@@ -90,6 +96,7 @@ function specCommands(): Row[] {
         ...(gesture ? { gesture } : {}),
         ...(surfaces.length ? { surfaces } : {}),
         ...(surfaceNote ? { surfaceNote } : {}),
+        ...(menuGroup ? { menuGroup } : {}),
         ...(other.length ? { other: other.join(', ') } : {}),
       })
     })
@@ -115,7 +122,7 @@ describe('command table', () => {
       const whole = parts.every((p) => p.includes(' '))
       expect([JSON.stringify(shared), ...(whole ? [JSON.stringify(parts)] : [])], c.id).toContain(JSON.stringify(c.titles))
     }
-    expect(COMMANDS.filter((c) => c.titles).map((c) => c.id)).toEqual(['server.toggle', 'view.toggleAgentPane', 'view.openIn'])
+    expect(COMMANDS.filter((c) => c.titles).map((c) => c.id)).toEqual(['files.cut', 'files.copy', 'files.undo', 'server.toggle', 'view.toggleAgentPane', 'view.openIn'])
   })
 
   it('U-KB-2 · unique ids, a category for every command, every default binding unique in its scope', () => {
@@ -166,6 +173,9 @@ describe('command table', () => {
     expect(surfaceMenu('menu-bar item')).toEqual(['app.openKea', 'app.quit'])
     // a terminal's menu reads as a terminal app's: the clipboard first, then Find and Clear
     expect(surfaceMenu('terminal ⌃')).toEqual(['terminal.copy', 'terminal.paste', 'terminal.selectAll', 'terminal.find', 'terminal.clear'])
+    // the file tree's menus: a row's, and the folder's own (the Files bar, the space under the rows)
+    expect(surfaceMenu('file ⌃')).toEqual(['files.newFile', 'files.newFolder', 'files.openInEditor', 'files.reveal', 'files.cut', 'files.copy', 'files.paste', 'files.copyPath', 'files.copyRelativePath', 'files.rename', 'files.trash', 'files.discard'])
+    expect(surfaceMenu('files ⌃')).toEqual(['files.newFile', 'files.newFolder', 'files.reveal', 'files.paste', 'files.copyPath', 'files.collapseAll'])
     expect(surfaceMenu('header ⋯', (id) => id !== 'session.rename')[0]).toBe('session.resume')
   })
 
@@ -190,8 +200,14 @@ describe('the Linux column', () => {
 
   it('U-PLT-6 · the Linux key column: no two commands on one key in one context, no plain Ctrl+<letter>, none on the reserved list, every app-wide key a Ctrl+Shift chord; labels read Ctrl+Shift+…', () => {
     for (const c of COMMANDS) {
-      // a Linux key exactly where there is a macOS one, as many where they run with arguments
-      expect(c.linuxKeys !== undefined, c.id).toBe(c.keys !== undefined)
+      // a Linux key exactly where there is a macOS one, as many where they run with arguments; but a file list key
+      // whose Linux key is plain Ctrl (the list's own, `listKeys`), which the column cannot hold
+      const listKey = c.keyScope === 'file panel' && /\blist key Ctrl\+[A-Z] on Linux\b/.test(c.other ?? '')
+      if (listKey) {
+        const chord = parseChord(`ctrl+${/Ctrl\+([A-Z])/.exec(c.other as string)![1]!.toLowerCase()}`)!
+        expect(keys.listKeys[chordText(chord)], c.id).toBe(c.id)
+      }
+      expect(c.linuxKeys !== undefined || listKey, c.id).toBe(c.keys !== undefined)
       if (c.keyArgs) expect(c.linuxKeys, c.id).toHaveLength(c.keyArgs.length)
       expect(systemKeys(c, keys)).toEqual(c.linuxKeys ?? [])
       expect(systemKeys(c, darwin.keys)).toEqual(c.keys ?? [])

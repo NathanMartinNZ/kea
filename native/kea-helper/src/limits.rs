@@ -343,6 +343,26 @@ pub const TREE_OVERSCAN_ROWS: u64 = 8;
 pub const TREE_TYPEAHEAD_MS: u64 = 800;
 /// the file panel's scroll position and selection are saved this long after they last changed (ms)
 pub const PANEL_SAVE_MS: u64 = 400;
+/// a name made or renamed in the file tree: one path segment at most this long in UTF-8, as the file systems allow (bytes)
+pub const FILE_NAME_MAX_BYTES: u64 = 255;
+/// a new file's or folder's path typed in the file tree, relative to the session's folder, at most this long in UTF-8 (bytes)
+pub const FILE_PATH_MAX_BYTES: u64 = 1024;
+/// an absolute path dropped on the file panel from another app is at most this long, the longest path Linux allows (bytes)
+pub const FILE_DROP_PATH_MAX_BYTES: u64 = 4096;
+/// items dropped on the file panel from another app in one drop (count)
+pub const FILE_DROP_MAX: u64 = 1000;
+/// a copy in the file tree (paste, a copy drag, a drop from another app) is refused before anything is written when its sources hold more entries than this (entries)
+pub const FILE_COPY_ENTRIES_MAX: u64 = 10000;
+/// a copy in the file tree is refused before anything is written when its sources hold more bytes than this (bytes)
+pub const FILE_COPY_BYTES_MAX: u64 = 1073741824;
+/// names tried for a copy whose name is taken (name copy, name copy 2, …) before the copy is refused (count)
+pub const FILE_COPY_NAME_TRIES: u64 = 100;
+/// the `trash` run of Move to Trash is killed after this long; a folder takes longer to move than one file (ms)
+pub const FILE_TRASH_TIMEOUT_MS: u64 = 30000;
+/// a collapsed folder held under a drag in the file tree opens after this long (ms)
+pub const TREE_DRAG_OPEN_MS: u64 = 600;
+/// the file tree stops scrolling by itself at its edge when no drag movement has come for this long (ms)
+pub const TREE_DRAG_IDLE_MS: u64 = 200;
 /// Open All in Editor opens at most this many changed files, one editor call each (files)
 pub const OPEN_ALL_CHANGED_MAX: u64 = 20;
 /// finder index dropped this long after its last query (ms)
@@ -471,6 +491,8 @@ pub const NOTIFY_BURST_MS: u64 = 2000;
 pub const NOTIFY_BODY_MAX_CHARS: u64 = 120;
 /// three background sessions started in a row with ⌥⌘↵ take less than this of the person's time (ms)
 pub const BACKGROUND_STARTS_USER_TIME_MS: u64 = 10000;
+/// colours a project's sessions take in the sidebar, in order, the least used first; the design tokens hold one colour each (count)
+pub const SESSION_COLORS: u64 = 5;
 /// first port of the allocation range (below the macOS ephemeral range) (port)
 pub const PORT_RANGE_START: u64 = 20000;
 /// last port of the allocation range (port)

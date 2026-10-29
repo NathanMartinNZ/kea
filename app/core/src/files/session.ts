@@ -11,16 +11,18 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileName, git, type Disposable, type Logger, type Scope } from '@kea/kit'
-import { GIT_HEAD_KEY, gitKey, KeyedStore, L, TREE_HEAD_KEY, treeKey, type DiffScope, type DiscardAction, type DiscardResult, type FilesUi, type GitEntry, type GitHead, type GitRow, type GitState, type TreeDir, type TreeHead, type TreeRow } from '@kea/protocol'
+import { GIT_HEAD_KEY, gitKey, KeyedStore, L, TREE_HEAD_KEY, treeKey, type DiffScope, type DiscardAction, type DiscardResult, type FileOpRefused, type FileOpResult, type FilesUi, type GitEntry, type GitHead, type GitRow, type GitState, type TreeDir, type TreeHead, type TreeRow, type UndoKind } from '@kea/protocol'
 import type { Changes } from '../platform/watch/batcher.ts'
 import { askedOfGit, GIT_DIR_NAME, WORKTREE_EXCLUSIONS } from '../platform/watch/exclusions.ts'
 import type { GitChange, RescanReason, Watcher, WatchMode, WorktreeWatch } from '../platform/watch/watcher.ts'
 import { canonical, gitStamp, type RepoFacts } from '../worktrees/git.ts'
-import { discardFile } from './discard.ts'
+import { discardFile, executable } from './discard.ts'
 import { FinderIndex, type FinderAnswer } from './finder.ts'
+import { sessionFs } from './fsImpl.ts'
 import { IgnoreIndex } from './ignore.ts'
 import { listDirectory } from './listing.ts'
 import { networkMount } from './mounts.ts'
+import { copyIn, createEntry, errnoRefusal, ignoredOf, measureDrop, moveEntry, refuse, renameEntry, trashEntry, undoMove, type Done, type UndoEntry } from './ops.ts'
 import { ZRecords } from './records.ts'
 import type { Fsmonitor, PriorValues } from './fsmonitor.ts'
 import { StatusScheduler } from './scheduler.ts'
@@ -109,7 +111,7 @@ const sameEntries = (a: TreeDir, b: TreeDir): boolean => {
 const sameRow = (a: GitRow, b: GitRow): boolean => JSON.stringify(a) === JSON.stringify(b)
 
 const exists = (p: string): Promise<boolean> =>
-  fs.promises.stat(p).then(
+  sessionFs.promises.stat(p).then(
     () => true,
     () => false,
   )
@@ -185,6 +187,10 @@ export class SessionFiles {
 
   finder: FinderIndex | null = null
   private finderDrop: Disposable | null = null
+  /** A file operation or a discard is under way: the next is refused `busy` (one at a time). */
+  private busy = false
+  /** The last move or rename in the tree, which Undo takes back; any other file operation clears it. */
+  private undoEntry: UndoEntry | null = null
   disposed = false
   readonly stats: SessionStats = { listings: 0, treeUpdates: 0, refreshes: 0, fullRefreshes: 0, ignoreLoads: 0, ignoreChecks: 0, rescans: 0, ignoredEvents: 0, statusMs: 0 }
 
@@ -230,6 +236,7 @@ export class SessionFiles {
     this.target = target
     if (was.cwd !== target.cwd) {
       // another directory: nothing known holds
+      this.undoEntry = null
       this.inited = null
       this.known = false
       this.dropWatch()
@@ -607,11 +614,11 @@ export class SessionFiles {
     if (rel === '') return true
     const abs = path.join(this.root, rel)
     try {
-      const st = await fs.promises.lstat(abs)
+      const st = await sessionFs.promises.lstat(abs)
       if (!st.isDirectory()) return false
       // compared as file operations take names: NFC on macOS, byte for byte on Linux, where two spellings of a name
       // are two files
-      return fileName(await fs.promises.realpath(abs)) === fileName(abs)
+      return fileName(await sessionFs.promises.realpath(abs)) === fileName(abs)
     } catch {
       return false
     }
@@ -842,7 +849,7 @@ export class SessionFiles {
         if (ignored) {
           gone.push(p)
           try {
-            dir = (await fs.promises.lstat(path.join(root, p))).isDirectory()
+            dir = (await sessionFs.promises.lstat(path.join(root, p))).isDirectory()
           } catch {
             dir = false
           }
@@ -913,7 +920,7 @@ export class SessionFiles {
     const files: string[] = []
     for (const p of add) {
       try {
-        const st = await fs.promises.lstat(path.join(root, p))
+        const st = await sessionFs.promises.lstat(path.join(root, p))
         if (st.isFile() || st.isSymbolicLink()) files.push(p)
       } catch {
         // gone again
@@ -1109,6 +1116,9 @@ export class SessionFiles {
     if (this.root === null || !this.visible) return { ok: false, refused: 'failed', detail: 'the session is not shown' }
     const status = this.status
     if (!this.repo || !status) return { ok: false, refused: 'notGit' }
+    // one change to the session's files at a time, file operations included
+    if (this.busy) return { ok: false, refused: 'busy' }
+    this.busy = true
     let res: DiscardResult
     try {
       let base: string | null | undefined
@@ -1119,10 +1129,196 @@ export class SessionFiles {
       res = base === undefined || base !== said.base ? { ok: false, refused: 'changed' } : await discardFile({ root: this.root, rel, base, expect, env: await this.d.env(), trashTool: this.d.trashTool })
     } catch (e) {
       res = { ok: false, refused: 'failed', detail: String(e).slice(0, L.discardDetailMaxChars) }
+    } finally {
+      this.busy = false
     }
     this.d.log?.info('discard', { session: this.id, expect, scope: said.scope, ...(res.ok ? { did: res.did } : { refused: res.refused }) })
     if (res.ok || res.refused === 'failed' || res.refused === 'changed') this.refreshSoon(true)
     return res
+  }
+
+  // ── file operations ───────────────────────────────────────────────────────────────────────────
+
+  /** The system has a tool that moves a file to the Trash (looked for on disk): Move to Trash is offered. */
+  get trashAvailable(): boolean {
+    const tool = this.d.trashTool
+    return tool !== null && executable(tool)
+  }
+
+  /** What Undo would take back now. */
+  get undoKind(): UndoKind | null {
+    return this.undoEntry?.kind ?? null
+  }
+
+  /**
+   * Run one file operation: the session shown and its folder there, one at a time (a discard included). Logged by
+   * what it was and how it ended, never by path.
+   */
+  private async op<R extends { ok: boolean }>(what: string, fn: (root: string) => Promise<R | FileOpRefused>): Promise<R | FileOpRefused> {
+    await this.init()
+    if (this.root === null) return refuse('missing', 'the session’s folder is missing')
+    if (!this.visible) return refuse('failed', 'the session is not shown')
+    if (this.busy) return refuse('busy')
+    this.busy = true
+    let res: R | FileOpRefused
+    try {
+      res = await fn(this.root)
+    } catch (e) {
+      res = errnoRefusal(e)
+    } finally {
+      this.busy = false
+    }
+    this.d.log?.info('file operation', { session: this.id, op: what, ...(res.ok ? {} : { refused: (res as FileOpRefused).refused }) })
+    return res
+  }
+
+  /** git's environment in a repository; null in a folder that is not one (no submodule or ignore check there). */
+  private async repoEnv(): Promise<Record<string, string | undefined> | null> {
+    return this.repo ? { ...(await this.d.env()) } : null
+  }
+
+  /**
+   * After an operation, before its answer: git is asked whether it ignores the new rows and the answer kept, so an
+   * ignored entry never shows for a moment; a folder that moved takes its open folders with it (saved); the folders
+   * whose listing changed are read once and published, with the result's own folder, read whether held or not (its
+   * page and the reveal need it), and the moved folder's open ones; the status is asked for. Not the shared flush, which
+   * keeps running while an agent writes elsewhere.
+   */
+  private async settleOp(done: Done): Promise<{ ignored: boolean; paged: boolean; expanded?: string[] }> {
+    const root = this.root
+    if (root === null || this.disposed) return { ignored: false, paged: false }
+    const ignore = this.ignore
+    if (this.repo && ignore && done.made.length > 0) {
+      const hit = await ignoredOf(root, done.made, await this.d.env())
+      if (hit && ignore === this.ignore) {
+        for (const p of done.made) {
+          // an ignored folder is ignored with everything in it
+          const dir = hit.has(p) && (await sessionFs.promises.lstat(path.join(root, p)).then((st) => st.isDirectory(), () => false))
+          ignore.addChecked(p, hit.has(p), dir)
+        }
+      }
+    }
+    let expanded: string[] | undefined
+    if (done.from !== undefined && done.dir) {
+      // a folder moved or renamed: its open folders are open under the new path, its rows are read there
+      const { from, rel: to } = done
+      const pre = `${from}/`
+      for (const p of [...this.expanded]) {
+        if (p !== from && !p.startsWith(pre)) continue
+        this.expanded.delete(p)
+        this.expanded.add(to + p.slice(from.length))
+      }
+      this.forget(this.tree.remove(from))
+      this.ignore?.move(from, to)
+      this.ignoreSoon() // what git ignores below it may follow other rules at its new place
+      this.persist()
+      expanded = [...this.expanded]
+    }
+    const want = new Set(done.touched.filter((d) => this.tree.has(d)))
+    const parent = parentPath(done.rel)
+    if (!done.same) want.add(parent)
+    if (expanded) for (const p of this.expanded) if (p === done.rel || p.startsWith(`${done.rel}/`)) want.add(p)
+    const read: string[] = []
+    for (const d of [...want].sort((a, b) => a.length - b.length)) if (await this.load(d, { touch: false })) read.push(d)
+    // a check already running names files these rows may hold: its answer first (as the flush waits for it)
+    if (this.checking) await this.checking
+    this.publishDirs(read)
+    if (!this.manual && this.visible) this.scheduler.trigger()
+    const names = this.tree.names(parent)
+    const name = done.rel.slice(parent === '' ? 0 : parent.length + 1)
+    const at = names ? names.findIndex((e) => e.name === name) : -1
+    const paged = names !== null && !this.tree.showsAll(parent) && names.length > L.dirBigThreshold && at >= L.dirFirstPage
+    const ignored = this.repo !== null && this.ignore !== null && this.ignore.query(done.rel) === 'ignored'
+    return { ignored, paged, ...(expanded ? { expanded } : {}) }
+  }
+
+  private async answer(done: Done): Promise<FileOpResult> {
+    const s = await this.settleOp(done)
+    return { ok: true, path: done.rel, ...(done.from !== undefined && done.from !== done.rel ? { from: done.from } : {}), ...s, undo: this.undoKind }
+  }
+
+  /** New File… / New Folder…: `name` (it may hold `/`) in the folder `dir`. */
+  create(dir: string, name: string, kind: 'file' | 'dir'): Promise<FileOpResult> {
+    return this.op('create', async (root) => {
+      const done = await createEntry(root, dir, name, kind)
+      if (!('rel' in done)) return done
+      this.undoEntry = null
+      return this.answer(done)
+    })
+  }
+
+  /** Rename…: the entry at `rel` gets the one-segment `name`. */
+  rename(rel: string, name: string): Promise<FileOpResult> {
+    return this.op('rename', async (root) => {
+      const done = await renameEntry(root, rel, name, await this.repoEnv())
+      if (!('rel' in done)) return done
+      if (!done.same) this.undoEntry = { kind: 'rename', from: done.from as string, to: done.rel, dev: done.dev as number, ino: done.ino as number }
+      return this.answer(done)
+    })
+  }
+
+  /** A drag in the tree, or Paste: the entry at `rel` moved into `toDir`, or copied there. */
+  move(rel: string, toDir: string, copy: boolean): Promise<FileOpResult> {
+    return this.op(copy ? 'copy' : 'move', async (root) => {
+      const done = await moveEntry(root, rel, toDir, copy, await this.repoEnv())
+      if (!('rel' in done)) return done
+      if (!done.same) this.undoEntry = copy ? null : { kind: 'move', from: done.from as string, to: done.rel, dev: done.dev as number, ino: done.ino as number }
+      return this.answer(done)
+    })
+  }
+
+  /** Undo Move / Undo Rename. A refusal that cannot change (the entry replaced, its place taken) forgets the entry. */
+  undo(): Promise<FileOpResult> {
+    return this.op('undo', async (root) => {
+      const u = this.undoEntry
+      if (!u) return refuse('changed', 'there is nothing to undo')
+      const done = await undoMove(root, u)
+      if (!('rel' in done)) {
+        if (done.refused === 'changed' || done.refused === 'missing') this.undoEntry = null
+        return done
+      }
+      this.undoEntry = null
+      return this.answer(done)
+    })
+  }
+
+  /** Move to Trash: the entry at `rel`, which the sheet named a folder (`dir`) or not. */
+  trash(rel: string, dir: boolean): Promise<{ ok: true; undo: UndoKind | null } | FileOpRefused> {
+    return this.op('trash', async (root) => {
+      const done = await trashEntry(root, rel, dir, await this.d.env(), this.repo !== null, this.d.trashTool)
+      if (!('rel' in done)) return done
+      this.undoEntry = null
+      if (dir) {
+        const pre = `${done.rel}/`
+        for (const p of [...this.expanded]) if (p === done.rel || p.startsWith(pre)) this.expanded.delete(p)
+        this.forget(this.tree.remove(done.rel))
+        this.persist()
+      }
+      await this.settleOp({ ...done, same: true })
+      return { ok: true as const, undo: this.undoKind }
+    })
+  }
+
+  /** What a drop from another app would copy into `toDir` (nothing is written, nothing waits for the lock). */
+  async measure(sources: readonly string[], toDir: string): Promise<{ ok: true; entries: number; bytes: number } | FileOpRefused> {
+    await this.init()
+    if (this.root === null) return refuse('missing', 'the session’s folder is missing')
+    if (!this.visible) return refuse('failed', 'the session is not shown')
+    const m = await measureDrop(this.root, sources, toDir)
+    return 'sources' in m ? { ok: true, entries: m.entries, bytes: m.bytes } : m
+  }
+
+  /** A drop from another app, confirmed: the sources copied into `toDir`. */
+  copyIn(sources: readonly string[], toDir: string): Promise<{ ok: true; paths: string[]; undo: UndoKind | null } | (FileOpRefused & { paths?: string[] })> {
+    return this.op('copyIn', async (root) => {
+      const r = await copyIn(root, sources, toDir)
+      const paths = r.paths ?? []
+      if (paths.length > 0) {
+        this.undoEntry = null
+        await this.settleOp({ rel: paths[0] as string, dir: false, touched: [toDir], made: paths })
+      }
+      return r.ok ? { ok: true as const, paths, undo: this.undoKind } : r
+    })
   }
 
   // ── fsmonitor ─────────────────────────────────────────────────────────────────────────────────

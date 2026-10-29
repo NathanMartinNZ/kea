@@ -88,8 +88,10 @@ export function sysKey(press: string, os: Pick<ProtocolOs, 'keys'> = protocolOs)
     })
     if (i < 0) continue
     const k = systemKeys(def, os.keys)[i]
-    if (k === undefined) throw new Error(`keys: ${def.id} has ${mac[i]} on macOS and no key at its place here`)
-    here.add(chordText(parseShortcut(k) as Chord))
+    // a file-list key with none in the table here is the system's list key (Linux's plain Ctrl+Z)
+    const list = Object.entries(os.keys.listKeys).find(([, id]) => id === def.id)?.[0]
+    if (k === undefined && list === undefined) throw new Error(`keys: ${def.id} has ${mac[i]} on macOS and no key at its place here`)
+    here.add(k !== undefined ? chordText(parseShortcut(k) as Chord) : chordText(parseChord(list as string) as Chord))
   }
   if (here.size > 1) throw new Error(`keys: ${press} is several commands' with different keys here (${[...here].join(', ')}): press the one meant`)
   // the same chord here (every key on macOS): as the test wrote it
@@ -100,6 +102,19 @@ export function sysKey(press: string, os: Pick<ProtocolOs, 'keys'> = protocolOs)
   const primary = os.keys.primaryMods
   if (chord.shift && primary.shift && !primary.cmd) throw new Error(`keys: ${press} is no command's, and ⌘⇧ keys have no Linux rule: press this system's key`)
   return same({ ...chord, cmd: primary.cmd, ctrl: primary.ctrl || chord.ctrl, shift: primary.shift || chord.shift })
+}
+
+/**
+ * The key that runs the file-list command `id` on this system, as Playwright presses it: its key in the table, else
+ * the system's list key (macOS `⌘⌫` for Move to Trash; Linux's plain Ctrl+X, C, V, Z, which no table key has).
+ */
+export function listKey(id: string, os: Pick<ProtocolOs, 'keys'> = protocolOs): string {
+  const def = COMMANDS.find((c) => c.id === id)
+  const k = def ? systemKeys(def, os.keys)[0] : undefined
+  if (k !== undefined) return pressOf(parseShortcut(k) as Chord)
+  const list = Object.entries(os.keys.listKeys).find(([, c]) => c === id)?.[0]
+  if (list === undefined) throw new Error(`keys: ${id} has no key in the file list here`)
+  return pressOf(parseChord(list) as Chord)
 }
 
 /**
