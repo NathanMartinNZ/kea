@@ -2,7 +2,9 @@
 // L.supervisorBackoffMinMs doubling to L.supervisorBackoffMaxMs, reset to the minimum once a child has stayed up
 // L.supervisorHealthyResetMs; a heartbeat ping goes every L.supervisorHeartbeatMs, and after
 // L.supervisorMissedHeartbeats missed pongs the child is killed and restarted. Never two instances: a new child is
-// spawned only after the previous one has exited.
+// spawned only after the previous one has exited. Before any respawn (never the first start) it asks
+// `beforeRespawn`; a refusal leaves it without a child and without a retry until stopped (`onRespawnRefused`), so
+// main can restart the whole of Kea instead of starting a child from files another build replaced.
 //
 // The child is injected (`spawn: () => SupervisedChild`) so the policy is testable with fake
 // children and fake timers; the Electron `utilityProcess` adapter lives in app/main.
@@ -26,7 +28,7 @@ export interface SupervisedChild {
   onExit(cb: (code: number | null) => void): Disposable
 }
 
-export type SupervisorState = 'idle' | 'running' | 'killing' | 'backoff' | 'stopping' | 'stopped'
+export type SupervisorState = 'idle' | 'running' | 'killing' | 'backoff' | 'refused' | 'stopping' | 'stopped'
 
 /** Why a child went away: it exited on its own, missed heartbeats, was restarted or stopped on request, or failed to spawn. */
 export type ExitReason = 'exited' | 'heartbeat' | 'restart' | 'stopped' | 'spawn-failed'
@@ -50,9 +52,19 @@ export interface SupervisorRestartEvent {
   reason: ExitReason
 }
 
+/** A respawn `beforeRespawn` refused: the generation that would have started. */
+export interface SupervisorRefusedEvent {
+  generation: number
+}
+
 export interface SupervisorOptions {
   name: string
   spawn: () => SupervisedChild
+  /**
+   * Asked before every respawn (a child after the first, by backoff or `restart()`); false refuses it. The answer is
+   * the caller's: main refuses once the app's files changed under it.
+   */
+  beforeRespawn?: () => boolean
   clock?: Pick<Clock, 'setTimeout' | 'clearTimeout' | 'now'>
   /** Heartbeat pings (default true). */
   heartbeat?: boolean
@@ -76,10 +88,13 @@ export class Supervisor implements Disposable {
   private readonly startEmitter = new Emitter<SupervisorStartEvent>({ name: 'Supervisor.onStart' })
   private readonly exitEmitter = new Emitter<SupervisorExitEvent>({ name: 'Supervisor.onExit' })
   private readonly restartEmitter = new Emitter<SupervisorRestartEvent>({ name: 'Supervisor.onRestart' })
+  private readonly refusedEmitter = new Emitter<SupervisorRefusedEvent>({ name: 'Supervisor.onRespawnRefused' })
 
   readonly onStart: Event<SupervisorStartEvent> = this.startEmitter.event
   readonly onExit: Event<SupervisorExitEvent> = this.exitEmitter.event
   readonly onRestart: Event<SupervisorRestartEvent> = this.restartEmitter.event
+  /** A respawn was refused (`beforeRespawn`): no child runs and none will until the Supervisor is stopped. */
+  readonly onRespawnRefused: Event<SupervisorRefusedEvent> = this.refusedEmitter.event
 
   private current: Running | undefined
   private generation = 0
@@ -166,6 +181,7 @@ export class Supervisor implements Disposable {
       this.startEmitter.dispose()
       this.exitEmitter.dispose()
       this.restartEmitter.dispose()
+      this.refusedEmitter.dispose()
     })
   }
 
@@ -173,6 +189,12 @@ export class Supervisor implements Disposable {
 
   private launch(): void {
     if (this.current) throw new Error(`Supervisor ${this.name}: refusing to spawn a second instance`)
+    if (this.generation > 0 && this.supervising && this.opts.beforeRespawn && !this.opts.beforeRespawn()) {
+      this.phase = 'refused'
+      this.opts.logger?.warn('supervisor: respawn refused', { name: this.name, generation: this.generation + 1 })
+      this.refusedEmitter.fire({ generation: this.generation + 1 })
+      return
+    }
     const generation = ++this.generation
     if (generation > 1) this.restartCount++
     let child: SupervisedChild

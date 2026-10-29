@@ -6,7 +6,7 @@
 #
 # Options: --version <v> (that release, not the newest), --dry-run (say everything, change nothing), --no-repo (Linux:
 # the package without Kea's repository, so it is not updated), --user (Linux: into your home, without root),
-# --uninstall (remove what it installed; ~/.kea stays), --help.
+# --uninstall (remove what it installed, and on macOS the updater's caches; ~/.kea stays), --help.
 #
 # How it keeps you safe: the script is one function, called on its last line inside braces, so a download cut short
 # anywhere runs nothing. It downloads over HTTPS only; checks Kea's key against the fingerprint written in below, and
@@ -29,6 +29,7 @@ kea_install() {
   macos_min='@@MACOS_MIN_MAJOR@@'         # the oldest macOS Kea supports
   glibc_min_major='@@GLIBC_MIN_MAJOR@@'   # the oldest glibc Kea supports on Linux
   glibc_min_minor='@@GLIBC_MIN_MINOR@@'
+  updater_cache='@@UPDATER_CACHE@@'       # the macOS updater's download cache, in ~/Library/Caches
 
   # Names the packages use too
   name=kea-app
@@ -355,7 +356,7 @@ kea_install() {
         return 0
       fi
       if mac_running; then
-        die "Kea ${im_old:-(an older version)} is running from $mac_app, so nothing was replaced: quit it completely (Quit Kea Completely, ⌥⌘Q; its sessions keep running) and run this again"
+        die "Kea ${im_old:-(an older version)} is running from $mac_app, so nothing was replaced: use Restart to Update if Kea offers it, or quit it completely (Quit Kea Completely, ⌥⌘Q; its sessions keep running) and run this again"
       fi
     fi
     say "Plan: Kea $version in $mac_app${im_old:+, replacing Kea $im_old}, from $zip: unpacked with ditto -x -k, then checked with codesign --verify --deep --strict and against Kea's certificate (leaf $certificate_leaf)"
@@ -383,7 +384,7 @@ kea_install() {
     [ "$(mac_bundle_value "$mac_app" CFBundleShortVersionString)" = "$version" ] || die "Kea $version is not in $mac_app after the move"
     say ""
     say "Kea $version is installed in $mac_app. Open it from Launchpad, Spotlight or the Applications folder."
-    say "Its data will live in ~/.kea. To update it, quit it completely (⌥⌘Q; its sessions keep running) and run this again: $command_line"
+    say "Its data will live in ~/.kea. To update it, use Restart to Update when Kea offers it, or quit it completely (⌥⌘Q; its sessions keep running) and run this again: $command_line"
     say "To uninstall: $command_line -s -- --uninstall"
   }
   uninstall_mac() {
@@ -395,6 +396,10 @@ kea_install() {
     mac_running && die "Kea is running: quit it completely first (in Kea, Stop All and Quit ends the sessions too), then run this again. Nothing was removed"
     data_note "Library/Application Support/Kea"
     mac_change rm -rf "$mac_app"
+    # the updater's downloads and Squirrel.Mac's staged update: in your home, so removed as you
+    for um_cache in "$HOME/Library/Caches/$updater_cache" "$HOME/Library/Caches/$app_id.ShipIt"; do
+      if [ -e "$um_cache" ]; then mine rm -rf "$um_cache"; fi
+    done
     [ "$dry_run" = 1 ] || say "Kea is removed from $mac_app."
   }
   data_note() { # data_note <the window's state, under ~>: what stays, and the order for removing everything

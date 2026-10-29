@@ -9,8 +9,8 @@
 # --version 9.9.8-rc.1 (a zip that does not match SHA256SUMS) and 9.9.9-rc.1 (a release signed by another key)
 # refused; the dry run (out/dry-run-mac.txt, for the golden); --user and --no-repo refused; the install (no quarantine
 # attribute, the signature and Kea's certificate, the version); again ("already installed"); an older Kea replaced only
-# when none runs; --uninstall (refused while Kea runs; ~/.kea kept). Prints one line per step; exits non-zero at the
-# first that fails.
+# when none runs; --uninstall (refused while Kea runs; the updater's caches removed; ~/.kea kept). Prints one line per
+# step; exits non-zero at the first that fails.
 set -eu
 
 repo=$1
@@ -102,11 +102,15 @@ refused refused-uninstall-running 'Kea is running' --uninstall
 [ -d "$app" ] || fail '--uninstall removed a running Kea'
 kill "$fake"
 wait "$fake" 2>/dev/null || true
+# what the updater leaves: its downloads and Squirrel.Mac's staged update
+caches="$HOME/Library/Caches/kea-updater $HOME/Library/Caches/dev.kea.app.ShipIt"
+for c in $caches; do mkdir -p "$c" && echo x >"$c/left"; done
 must uninstall-mac --uninstall
 [ ! -e "$app" ] || fail "--uninstall left $app"
+for c in $caches; do [ ! -e "$c" ] || fail "--uninstall left $c"; done
 grep -q "Kea's data stays in ~/.kea" "$out/uninstall-mac.txt" || fail '--uninstall did not say ~/.kea stays'
 kept
 must uninstall-mac-again --uninstall
 grep -q 'nothing to remove' "$out/uninstall-mac-again.txt" || fail '--uninstall with nothing installed'
-ok '--uninstall: refused while Kea runs; then Kea.app removed, ~/.kea kept, and nothing to remove after'
+ok "--uninstall: refused while Kea runs; then Kea.app and the updater's caches removed, ~/.kea kept, and nothing to remove after"
 say PASS

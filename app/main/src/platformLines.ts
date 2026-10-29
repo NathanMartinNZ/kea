@@ -1,6 +1,7 @@
 // Platform report lines that read the same on every system, used by both sides of the OS layer.
 
 import type { PlatformLine } from '@kea/protocol'
+import type { UpdateHow } from './updates/how.ts'
 
 /** Chromium's GPU feature states that mean WebGL2 runs (`enabled`, `enabled_on`, `enabled_readback`). */
 const WEBGL_ON = /^enabled/
@@ -37,4 +38,17 @@ export function terminalRendererLine(webgl2: string, fix: string | null): Platfo
     value: `xterm's DOM renderer, as Chromium has no WebGL2 here (${webgl2 || 'unknown'}): a machine without a GPU driver, or a virtual machine, so typing shows a little later`,
     fix,
   }
+}
+
+/** How this install is updated, as About's report says it. */
+export function updateChannelLine(how: UpdateHow): PlatformLine {
+  const value =
+    how.mode === 'updater'
+      ? 'Kea updates itself'
+      : how.mode === 'packageManager'
+        ? "the system's updates, from Kea's repository"
+        : how.mode === 'command'
+          ? `install.sh, run again${how.auto ? '; Kea checks for a newer version by itself' : ''}`
+          : 'nothing: this build was not installed from a release'
+  return { id: 'updateChannel', label: 'Updates', value, fix: null }
 }

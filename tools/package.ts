@@ -16,24 +16,26 @@
 //               never published
 //
 // Steps: versions agree → the helper for the target (build paths mapped away, so no file names this machine) → release
-// bundles with the list of packages they hold → the licences file → electron-builder's `dir` app (config.ts) → fuses →
-// macOS: signed inside out as `pnpm kea:install` signs, checked, zipped with its blockmap and `latest-mac.yml`, the zip
-// checked unpacked · Linux: checked, staged with the packages' owners and modes, made into the .deb, .rpm and tarball,
-// each checked (its listing, the AppArmor profile, the desktop file, lintian, rpmlint) → both: install.sh for the
-// repository and its key, once both are named.
+// bundles with the list of packages each holds → the licences file (the bundles the system ships) → electron-builder's
+// `dir` app (config.ts) → fuses → macOS: the install kind, version and update feed written in, signed inside out as
+// `pnpm kea:install` signs, checked, zipped with its blockmap and `latest-mac.yml`, the zip checked unpacked · Linux:
+// checked, staged with the packages' owners and modes and each archive's install kind, made into the .deb, .rpm and
+// tarball, each checked (its listing, the AppArmor profile, the desktop file, lintian, rpmlint) → both: install.sh for
+// the repository and its key, once both are named.
 
 import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { isAvailable, need } from '../packages/protocol/src/platform.ts'
-import { parseRepository, RELEASE_REPOSITORY } from '../packages/protocol/src/release.ts'
+import { parseRepository, RELEASE_REPOSITORY, releaseUrls } from '../packages/protocol/src/release.ts'
 import { resolveCargo, runCargo } from './cargo.ts'
 import { buildApp, electronOf, flipFuses, fuseStates, loadFuses, stripNativeModules } from './pack/src/app.ts'
-import { auditResourcesFolder } from './pack/src/audit.ts'
+import { auditResourcesFolder, MAC_BUNDLES } from './pack/src/audit.ts'
 import { compareListing, filesNaming, foreignElves, machineNeedles, parseRpmListing, parseTarListing, RPM_QUERY, sourceMaps } from './pack/src/checks.ts'
 import { chooseTarget, DESKTOP_FILE, fuseTarget, PRODUCT_NAME, resourcesOf, type Format, type Target } from './pack/src/config.ts'
-import { crates, licencesText, npmDependency, type Notice } from './pack/src/licences.ts'
+import { macResourceFiles } from './pack/src/installFiles.ts'
+import { bundledPackages, crates, licencesText, npmDependency, PACKAGE_LICENCES, type Notice } from './pack/src/licences.ts'
 import { installedShiki, releaseNotices, shippedGrammars } from './pack/src/notices.ts'
 import { checkMacApp, designatedRequirement, IDENTITY, signAll, signingIdentity } from './pack/src/macApp.ts'
 import { checkZip, latestMacYml, makeBlockmap, makeZip, zipName } from './pack/src/macZip.ts'
@@ -138,14 +140,15 @@ function rendererModules(): string[] {
  * grammars that ship, tools/pack/src/notices.ts), `notices`, then the bundles' npm packages and the helper's crates.
  */
 function writeLicences(target: Target, o: { version: string; electronDir: string; file: string; notices: readonly Notice[] }): number {
-  const dirs = JSON.parse(fs.readFileSync(PACKAGES, 'utf8')) as string[]
+  // the packages of the bundles this system ships: Linux's leave out the macOS updater's
+  const dirs = must(() => bundledPackages(JSON.parse(fs.readFileSync(PACKAGES, 'utf8')) as unknown, target.system === 'linux' ? MAC_BUNDLES : []))
   const cargo = resolveCargo() ?? fail(`cargo not found: ${packOs.rust.installHint}`)
   const meta = JSON.parse(run(cargo, ['metadata', '--format-version', '1', '--locked', '--offline', '--filter-platform', target.triple, '--manifest-path', path.join(root, 'native/kea-helper/Cargo.toml')], { env: { PATH: `${path.dirname(cargo)}${path.delimiter}${process.env.PATH ?? ''}` } })) as Parameters<typeof crates>[0]
   const deps = [...dirs.map(npmDependency), ...crates(meta)]
   const electron: Notice = { title: `Electron (the runtime Kea is built on) — MIT`, text: fs.readFileSync(path.join(o.electronDir, 'dist', 'LICENSE'), 'utf8') }
   const licence = must(() => fs.readFileSync(path.join(root, 'LICENSE'), 'utf8'))
   const notices = must(() => releaseNotices({ licence, electron, shiki: installedShiki(root), grammars: shippedGrammars(rendererModules()), more: o.notices }))
-  const text = must(() => licencesText({ product: PRODUCT_NAME, version: o.version, deps, notices, files: (d) => fs.readdirSync(d), read: (f) => fs.readFileSync(f, 'utf8') }))
+  const text = must(() => licencesText({ product: PRODUCT_NAME, version: o.version, deps, notices, texts: PACKAGE_LICENCES, files: (d) => fs.readdirSync(d), read: (f) => fs.readFileSync(f, 'utf8') }))
   fs.writeFileSync(o.file, text)
   return deps.length
 }
@@ -164,13 +167,20 @@ let REPOSITORY: string | null = RELEASE_REPOSITORY
 let KEY_FILE: string | null = fs.existsSync(RELEASE_KEY) ? RELEASE_KEY : null
 
 async function packageMac(target: Target, o: { app: string; out: string; version: string; adhoc: boolean; release: boolean; identity: string; fuses: Awaited<ReturnType<typeof loadFuses>> }): Promise<string[]> {
+  step('install kind, version and update feed')
+  // inside the bundle before it is signed, so the signature covers them; no repository, no feed
+  const feedUrl = REPOSITORY === null ? null : releaseUrls(REPOSITORY).latest
+  const written = macResourceFiles({ version: o.version, feed: feedUrl })
+  for (const f of written) fs.writeFileSync(path.join(resourcesOf(target, o.app), f.name), f.text)
+  console.log(`${written.map((f) => `Contents/Resources/${f.name}`).join(', ')}${feedUrl === null ? ' (no repository: no update feed)' : `: the feed ${feedUrl}`}`)
+
   step('codesign, inside-out')
   const signed = must(() => signAll(o.app, o.identity))
   console.log(`${signed.items.length} signatures (${signed.nativeModules.length} native module(s))`)
 
   step('check the app')
   const wire = await o.fuses.getCurrentFuseWire(o.app)
-  for (const l of must(() => checkMacApp(o.app, { fuses: o.fuses, wire, adhoc: o.adhoc, signed: signed.items }))) check('macOS', [], l)
+  for (const l of must(() => checkMacApp(o.app, { fuses: o.fuses, wire, adhoc: o.adhoc, signed: signed.items, feed: feedUrl }))) check('macOS', [], l)
   if (o.release) {
     // the leaf install.sh checks and Squirrel.Mac admits updates by
     const req = designatedRequirement(o.app)

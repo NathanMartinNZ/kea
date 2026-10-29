@@ -45,6 +45,7 @@ export type {
   SupervisedChild,
   SupervisorExitEvent,
   SupervisorOptions,
+  SupervisorRefusedEvent,
   SupervisorRestartEvent,
   SupervisorStartEvent,
   SupervisorState,
@@ -69,3 +70,4 @@ export { ensurePrivateDir, fnv1a64, isOwnSocket, runDir, socketPath, UnsafePathE
 export { rootOnlyFile, type StatFs } from './rootOnly.ts'
 export { holdersHidden } from './visibility.ts'
 export { fileName, nameKey, namesAsStored } from './names.ts'
+export { helperCopyName, installHookHelper } from './helperCopy.ts'

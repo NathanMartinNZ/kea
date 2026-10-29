@@ -711,3 +711,23 @@ pub const MACOS_MIN_MAJOR: u64 = 14;
 pub const GLIBC_MIN_MAJOR: u64 = 2;
 /// Linux's glibc floor is 2.35: its minor part (version)
 pub const GLIBC_MIN_MINOR: u64 = 35;
+/// an automatic update check runs at most this often, counted by the wall clock from the last attempt, so a laptop that slept still checks when it wakes (ms)
+pub const UPDATE_CHECK_INTERVAL_MS: u64 = 86400000;
+/// the first automatic update check of a launch waits this long after the window first loads, so it never competes with startup (ms)
+pub const UPDATE_CHECK_DELAY_MS: u64 = 60000;
+/// how often main tests whether an automatic update check is due; the wall clock decides, since timers stop while the system sleeps (ms)
+pub const UPDATE_TICK_MS: u64 = 3600000;
+/// an update check that has had no answer in this long is ended and counts as failed (ms)
+pub const UPDATE_FETCH_TIMEOUT_MS: u64 = 30000;
+/// a macOS update download that has made no progress in this long is ended and counts as failed; the next check tries again (ms)
+pub const UPDATE_STALL_MS: u64 = 120000;
+/// the release's SHA256SUMS that an update check reads is about 1.4 KB; a larger answer is refused unread (bytes)
+pub const UPDATE_FEED_MAX_BYTES: u64 = 65536;
+/// a macOS update that is still not the running version after this many starts is never downloaded again: a release whose zip is not the version its feed names must not reinstall on every launch (count)
+pub const UPDATE_INSTALL_ATTEMPTS_MAX: u64 = 2;
+/// after a change in Kea's resources folder, main waits this long with no further change before it compares app.asar with the one it started with: a package manager replaces the files in about a second (ms)
+pub const PACKAGE_SETTLE_MS: u64 = 3000;
+/// the exit code of a core, ptyhost or finder worker started from another build than main's (a package replaced under a running Kea): distinct from the codes core and ptyhost use for other ends, and from Node's own (count)
+pub const CHILD_BUILD_MISMATCH_EXIT: u64 = 78;
+/// composer drafts written for a restart Kea makes itself are read by the next start only if younger than this; an older file is deleted unread (ms)
+pub const HANDOFF_FILE_MAX_AGE_MS: u64 = 120000;

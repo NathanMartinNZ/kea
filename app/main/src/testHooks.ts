@@ -22,13 +22,18 @@
 //   reader runs, as the windows are told (no test starts VoiceOver); the memory watchdog's world (how
 //   long the person has been idle, and one interval on a footprint sample in which the processes a test names weigh
 //   what it says, so the watchdog's actions run without a byte being allocated); the Wayland rebuild of the window
-//   (`rebuildWindow`: a minimized window on Wayland, forced on any system).
+//   (`rebuildWindow`: a minimized window on Wayland, forced on any system); the update state, a forced "files
+//   replaced under Kea", and the restarts Kea would have made for it (recorded, never made).
+// · The update check's world comes from main's command line (`updateTestHooks`): a forced install kind, a stand-in
+//   feed on 127.0.0.1 (the only http allowed), a short first delay, and the macOS updater left out
+//   (`--kea-test-update-command`); the default-home rule is lifted.
 
 import fs from 'node:fs'
 import path from 'node:path'
 import v8 from 'node:v8'
 import vm from 'node:vm'
 import type { ipcMain as IpcMain } from 'electron'
+import { INSTALL_KINDS, type InstallKind } from '@kea/protocol'
 import type { Recorded } from './notifier.ts'
 import type { UtilityChild } from './utility.ts'
 
@@ -60,6 +65,26 @@ export type MenuProbe = { menus: string[]; opened: { x: number; y: number }[] }
 /** The notifications as a test sees them: what was recorded, the tags live now, the badge, the denied flag. */
 export type NotificationsProbe = { log: Recorded[]; live: string[]; badge: string; permissionDenied: boolean }
 
+/** The update check's world under the test hooks, from main's command line; null when none of it is given. */
+export type UpdateTestHooks = { kind: InstallKind | null; feed: string | null; delayMs: number | null; command: boolean }
+
+export function updateTestHooks(argv: readonly string[]): UpdateTestHooks | null {
+  const get = (name: string) => argv.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3)
+  const kind = get('kea-test-install-kind')
+  const feed = get('kea-test-update-feed')
+  const delay = get('kea-test-update-delay')
+  // the macOS updater left out, so a Mac run takes the check that reads the release's list of files
+  const command = argv.includes('--kea-test-update-command')
+  if (kind === undefined && feed === undefined && delay === undefined && !command) return null
+  // the stand-in is on this machine, over http, and nowhere else
+  const local = feed !== undefined && /^http:\/\/127\.0\.0\.1:\d+\/.*\/$/.test(feed) ? feed : null
+  const ms = delay === undefined ? Number.NaN : Number(delay)
+  return { kind: (INSTALL_KINDS as readonly string[]).includes(kind ?? '') ? (kind as InstallKind) : null, feed: local, delayMs: Number.isInteger(ms) && ms >= 0 ? ms : null, command }
+}
+
+/** The update check as a test sees it: main's state, the menu item's title, the restarts Kea would have made, core's switch as main last heard it, the timers it holds. */
+export type UpdatesProbe = { state: unknown; title: string; relaunches: string[]; core: boolean | null; timers: number }
+
 /** `globalThis.__keaTest` for the harness. */
 export function installTestApi(o: {
   children: Children
@@ -80,6 +105,9 @@ export function installTestApi(o: {
   platformReport: () => Promise<unknown>
   menu: () => MenuProbe
   rebuildWindow: () => Promise<boolean>
+  updates: () => UpdatesProbe
+  checkUpdates: () => void
+  upgraded: (version: string | null) => void
 }): void {
   let next = 1
   let gc: ((options?: unknown) => void) | null = null
@@ -207,6 +235,19 @@ export function installTestApi(o: {
      */
     rebuildWindow(): Promise<boolean> {
       return o.rebuildWindow()
+    },
+    /** The update state as main holds it, the update item's title, and the restarts Kea would have made (oldest first). */
+    updates(): UpdatesProbe {
+      return o.updates()
+    },
+    /** Check for Updates… as the menu item runs it. */
+    checkUpdates(): void {
+      o.checkUpdates()
+    },
+    /** Kea's files replaced under it, as the package watch would find (`version`: the new tree's, or null). */
+    upgraded(version: string | null): void {
+      if (version !== null && !(typeof version === 'string' && /^\d+\.\d+\.\d+$/.test(version))) throw new Error('upgraded takes a version or null')
+      o.upgraded(version)
     },
     /**
      * Forced GC in main, twice (`--expose-gc` at runtime, then `gc` from a fresh context). `reduce`: then V8's

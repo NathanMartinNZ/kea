@@ -1821,3 +1821,55 @@ why = "Linux's glibc floor is 2.35 (Ubuntu 22.04's, the oldest image the helper 
 value = 35
 unit = "version"
 why = "Linux's glibc floor is 2.35: its minor part"
+
+# ── updates ────────────────────────────────────────────────────────────────────
+
+[update_check_interval_ms]
+value = 86400000
+unit = "ms"
+why = "an automatic update check runs at most this often, counted by the wall clock from the last attempt, so a laptop that slept still checks when it wakes"
+
+[update_check_delay_ms]
+value = 60000
+unit = "ms"
+why = "the first automatic update check of a launch waits this long after the window first loads, so it never competes with startup"
+
+[update_tick_ms]
+value = 3600000
+unit = "ms"
+why = "how often main tests whether an automatic update check is due; the wall clock decides, since timers stop while the system sleeps"
+
+[update_fetch_timeout_ms]
+value = 30000
+unit = "ms"
+why = "an update check that has had no answer in this long is ended and counts as failed"
+
+[update_stall_ms]
+value = 120000
+unit = "ms"
+why = "a macOS update download that has made no progress in this long is ended and counts as failed; the next check tries again"
+
+[update_feed_max_bytes]
+value = 65536
+unit = "bytes"
+why = "the release's SHA256SUMS that an update check reads is about 1.4 KB; a larger answer is refused unread"
+
+[update_install_attempts_max]
+value = 2
+unit = "count"
+why = "a macOS update that is still not the running version after this many starts is never downloaded again: a release whose zip is not the version its feed names must not reinstall on every launch"
+
+[package_settle_ms]
+value = 3000
+unit = "ms"
+why = "after a change in Kea's resources folder, main waits this long with no further change before it compares app.asar with the one it started with: a package manager replaces the files in about a second"
+
+[child_build_mismatch_exit]
+value = 78
+unit = "count"
+why = "the exit code of a core, ptyhost or finder worker started from another build than main's (a package replaced under a running Kea): distinct from the codes core and ptyhost use for other ends, and from Node's own"
+
+[handoff_file_max_age_ms]
+value = 120000
+unit = "ms"
+why = "composer drafts written for a restart Kea makes itself are read by the next start only if younger than this; an older file is deleted unread"

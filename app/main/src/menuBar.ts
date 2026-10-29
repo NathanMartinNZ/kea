@@ -115,14 +115,17 @@ export function trayTooltip(s: MenuBarState | null): string {
 /**
  * The menu-bar item's menu: the sessions that need you (glyph, title and why; an account condition as one line), a
  * separator, Open Kea and Quit Kea Completely (the command table's titles). Native menu styling: Kea's tokens do not
- * apply. `countLine`: a Linux tray shows no title, so its menu says the count first, as the tooltip does.
+ * apply. `countLine`: a Linux tray shows no title, so its menu says the count first, as the tooltip does. `restart`:
+ * Restart to Update or Restart Kea above Open Kea while an update waits for a restart.
  */
-export function trayTemplate(s: MenuBarState | null, act: { openKea(): void; showSession(id: string): void; quit(): void }, o: { countLine?: boolean } = {}): MenuItemConstructorOptions[] {
+export function trayTemplate(s: MenuBarState | null, act: { openKea(): void; showSession(id: string): void; quit(): void; restart?(): void }, o: { countLine?: boolean; restart?: string | null } = {}): MenuItemConstructorOptions[] {
   const sessions = s?.sessions ?? []
   const items: MenuItemConstructorOptions[] = []
   if (o.countLine && s && s.count > 0) items.push({ id: 'count', label: trayTooltip(s).replace(/^Kea · /, ''), enabled: false })
   items.push(...sessions.map((x): MenuItemConstructorOptions => ({ id: `session:${x.id}`, label: `${MENU_GLYPHS[x.glyph]} ${x.title} — ${x.reason}`, click: () => act.showSession(x.id) })))
   if (items.length) items.push({ type: 'separator' })
+  // Restart to Update or Restart Kea, while an update waits for one
+  if (o.restart && act.restart) items.push({ id: 'app.checkUpdates', label: o.restart, click: () => act.restart?.() })
   items.push({ id: 'app.openKea', label: commandById('app.openKea')?.title ?? 'Open Kea', click: () => act.openKea() })
   items.push({ id: 'app.quit', label: commandById('app.quit')?.title ?? 'Quit Kea Completely', click: () => act.quit() })
   return items

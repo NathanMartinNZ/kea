@@ -4,15 +4,16 @@
 //
 // When it is assembled: as each core becomes ready (the start, and a core that restarted, which knows nothing yet), and
 // when a window's renderer starts, since its sandbox is read from it. It is assembled again when a capability it
-// reports changes: the desktop's services (the tray host, the notification service), Chromium's GPU (WebGL2 or not) and
-// core's watcher holding an inotify limit or letting it go. A report is sent to core only when it differs from what
+// reports changes: the desktop's services (the tray host, the notification service), Chromium's GPU (WebGL2 or not),
+// core's watcher holding an inotify limit or letting it go, and how Kea is updated (the macOS updater given up for
+// install.sh). A report is sent to core only when it differs from what
 // that core was last sent. Assembling reads a few files and no child, so it is done at once, never queued.
 
 import type { Logger } from '@kea/kit'
 import type { PlatformReport } from '@kea/protocol'
 
 /** What made main assemble the report: logged with it when it changed. */
-export type PlatformReportWhy = 'coreReady' | 'window' | 'services' | 'gpu' | 'watchLimit' | 'test'
+export type PlatformReportWhy = 'coreReady' | 'window' | 'services' | 'gpu' | 'watchLimit' | 'updates' | 'test'
 
 export interface PlatformReportsOptions {
   /** The report now (the OS layer's `report`); null where the system has none. */

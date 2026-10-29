@@ -9,9 +9,9 @@ import os from 'node:os'
 import path from 'node:path'
 import { performance } from 'node:perf_hooks'
 import * as electron from 'electron'
-import { app, BrowserWindow, dialog, ipcMain, Menu, MessageChannelMain, nativeTheme, Notification, powerMonitor, protocol, screen, session, shell, Tray, type IpcMainEvent, type MenuItemConstructorOptions, type WebContents } from 'electron'
-import { createLogger, registerSingletonGauge, resources, Supervisor, type Logger } from '@kea/kit'
-import { childArgv, childV8Flags, DESKTOP_IDS, EDIT_ROLES, isAvailable, KEA_FILE_SCHEME, L, need, parsePerfBusy, scrubSessionEnv, zMenuState, zPtyId, zResourcesReply, zSessionId, type CollectedResources, type EditRole, type MenuBarState, type PlatformReport, type ResourceReport } from '@kea/protocol'
+import { app, BrowserWindow, dialog, ipcMain, Menu, MessageChannelMain, nativeTheme, Notification, powerMonitor, protocol, screen, session, shell, Tray, type IpcMainEvent, type MenuItemConstructorOptions, type Session, type WebContents } from 'electron'
+import { createLogger, installHookHelper, registerSingletonGauge, resources, Supervisor, type Logger } from '@kea/kit'
+import { childArgv, childV8Flags, DESKTOP_IDS, EDIT_ROLES, isAvailable, KEA_FILE_SCHEME, L, need, parsePerfBusy, parseRepository, RELEASE_REPOSITORY, releaseUrls, scrubSessionEnv, zMenuState, zPtyId, zResourcesReply, zSessionId, type CollectedResources, type EditRole, type InstallKind, type MenuBarState, type PlatformReport, type ReleaseArch, type ResourceReport, type UpdateState } from '@kea/protocol'
 import { COLOR, SIZE_PX } from '@kea/ui/tokens'
 import { installFrontGuard } from './frontGuard.ts'
 import { keaHome } from './home.ts'
@@ -30,7 +30,14 @@ import { RendererLog } from './rendererLog.ts'
 import { collectReports, FootprintSampler, nameProcesses, Replies, rendererKey, ResourceLog, type ReportSource, type WatchdogAction, type WatchdogTrigger } from './resources.ts'
 import { refusedSwitches } from './switches.ts'
 import { WindowHandoff } from './handoff.ts'
-import { childHookEnv, childHookPath, installTestApi } from './testHooks.ts'
+import { childHookEnv, childHookPath, installTestApi, updateTestHooks } from './testHooks.ts'
+import type { UpdaterDriver, UpdaterEvents } from './updates/driver.ts'
+import { checkFeed, updateSessionFetch } from './updates/feed.ts'
+import { NOT_FROM_RELEASE } from './updates/how.ts'
+import { UpdateManager } from './updates/manager.ts'
+import { installUpdateFilters, UPDATE_HEADERS, updateUrlAllowed } from './updates/net.ts'
+import { readMarks, takeHandoff, writeHandoff, writeMarks } from './updates/store.ts'
+import { asarIdentity, plainStat, relaunchArgs, relaunchedFor, treeVersion, UpgradeGuard } from './updates/upgrade.ts'
 import { UtilityChild } from './utility.ts'
 import { limitKind, Watchdog } from './watchdog.ts'
 
@@ -90,13 +97,33 @@ protocol.registerSchemesAsPrivileged([
 // each window's working directories, as core says them: all `kea-file://` may ever read from
 const keaFileDirs = new VisibleDirs()
 
+/** This bundle's build (`tools/build.ts` defines one per build): a child of another build exits at once. Absent unbundled. */
+declare const __KEA_BUILD_ID__: string | undefined
+const BUILD = typeof __KEA_BUILD_ID__ === 'string' ? __KEA_BUILD_ID__ : undefined
+
+/**
+ * This run's own copy of kea-helper under the home (`bin/<version>-<hash>`), which every helper this run starts comes
+ * from: a package manager that replaces Kea's files later leaves it as it is. A checkout without a built helper, or a
+ * copy that fails, uses the build's own.
+ */
+function runHelper(): string {
+  if (!fs.existsSync(HELPER)) return HELPER
+  try {
+    return installHookHelper(HELPER, HOME, VERSION)
+  } catch (e) {
+    log.warn('helper not copied: using the build’s own', { error: e instanceof Error ? e.message : String(e) })
+    return HELPER
+  }
+}
+const RUN_HELPER = runHelper()
+
 // ── supervised children ─────────────────────────────────────────────────────────────
 
 type Child = { sup: Supervisor; current: UtilityChild | null }
-const args = childArgv({ home: HOME, version: VERSION, dev: DEV, helper: HELPER })
+const args = childArgv({ home: HOME, version: VERSION, dev: DEV, helper: RUN_HELPER, ...(BUILD ? { build: BUILD } : {}) })
 // perf harness only: an injected stall in ptyhost, to measure contention; never honoured without --kea-perf
 const PERF_BUSY = PERF ? parsePerfBusy(process.argv.find((a) => a.startsWith('--kea-perf-busy='))?.slice('--kea-perf-busy='.length)) : undefined
-const ptyhostArgs = PERF_BUSY ? childArgv({ home: HOME, version: VERSION, dev: DEV, helper: HELPER, perfBusy: PERF_BUSY }) : args
+const ptyhostArgs = PERF_BUSY ? childArgv({ home: HOME, version: VERSION, dev: DEV, helper: RUN_HELPER, ...(BUILD ? { build: BUILD } : {}), perfBusy: PERF_BUSY }) : args
 // test hooks (testHooks.ts): a dev build under --kea-perf only, never a packaged one
 const CHILD_HOOK = DEV && PERF ? childHookPath(DIST) : null
 const childEnv = CHILD_HOOK ? childHookEnv(CHILD_HOOK) : undefined
@@ -111,6 +138,8 @@ function makeChild(name: 'core' | 'ptyhost', entry: string): Child {
     sup: new Supervisor({
       name,
       logger: log,
+      // no child starts from files a package manager replaced under Kea (updates/upgrade.ts)
+      beforeRespawn: () => upgrade.mayRespawn(),
       spawn: () => {
         // ptyhost's young generation is capped, and each one's old space at its hard limit
         const u = new UtilityChild(name, entry, name === 'ptyhost' ? ptyhostArgs : args, log, childEnv, childV8Flags(name))
@@ -128,9 +157,12 @@ function makeChild(name: 'core' | 'ptyhost', entry: string): Child {
             watchLimitHeld = held
             platformReports.assemble('watchLimit')
           })
+        // whether Kea may check for updates by itself, at core's start and on each change
+        if (name === 'core') u.onUpdates((check) => updates.coreSetting(check))
         u.onExit((code) => {
           if (c.current === u) c.current = null
           log.info('child exited', { name, code })
+          if (code === L.childBuildMismatchExit) upgrade.childFromOtherBuild()
           if (name === 'core') coreAvailability.exited(u.wasReady)
           if (name === 'core') keaFileDirs.clear() // what it said goes with it; the next core says it again
           if (name === 'core') watchLimitHeld = null
@@ -139,6 +171,11 @@ function makeChild(name: 'core' | 'ptyhost', entry: string): Child {
       },
     }),
   }
+  // a refused respawn: the watchdog's restart is over, and Kea restarts into the new files
+  c.sup.onRespawnRefused(() => {
+    for (const done of readyWaiters[name].splice(0)) done()
+    upgrade.respawnRefused()
+  })
   return c
 }
 
@@ -217,6 +254,12 @@ ipcMain.on('kea:hello', (e) => {
     w.webContents.send('kea:showSession', { sessionId: pendingShow })
     pendingShow = null
   }
+  // Check for Updates… asked for with no window: About opens once the new window's page is there
+  if (pendingAbout) {
+    w.webContents.send('kea:command', { id: 'app.settings', args: { page: 'about' } })
+    pendingAbout = false
+  }
+  updates.windowLoaded()
 })
 
 // The commands the window's renderer can run; the menu bar is rebuilt from the table plus this
@@ -312,6 +355,7 @@ ipcMain.on('kea:mainCommand', (e, id: unknown) => {
   if (id === 'app.openKea') openKea()
   else if (id === 'app.closeToMenuBar') closeToMenuBar()
   else if (id === 'app.quit') app.quit()
+  else if (id === 'app.checkUpdates') checkUpdatesCommand()
 })
 
 /**
@@ -528,7 +572,7 @@ function rebuildMenu(): void {
   if (!app.isReady()) return
   const w = menuWindow()
   const state = w ? (menuStates.get(w.webContents.id) ?? null) : null
-  const key = JSON.stringify([!!w, state ? [[...state.commands], state.keys] : null])
+  const key = JSON.stringify([!!w, state ? [[...state.commands], state.keys] : null, updates.title])
   if (key === lastMenu) return
   lastMenu = key
   const template = menuTemplate({
@@ -540,7 +584,8 @@ function rebuildMenu(): void {
       const target = menuWindow()
       if (target && !target.isDestroyed()) target.webContents.send('kea:command', { id, ...(args !== undefined ? { args } : {}) })
     },
-    main: { openKea: () => openKea(), closeToMenuBar: () => closeToMenuBar(), quit: () => app.quit(), reload: () => menuWindow()?.webContents.reload() },
+    main: { openKea: () => openKea(), closeToMenuBar: () => closeToMenuBar(), quit: () => app.quit(), checkUpdates: () => checkUpdatesCommand(), reload: () => menuWindow()?.webContents.reload() },
+    updateTitle: updates.title,
   })
   menuNow = template
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
@@ -655,6 +700,8 @@ let services: DesktopServiceState = { trayHost: null, notifications: null, idleM
 let servicesWatch: { now(): DesktopServiceState; dispose(): void } | null = null
 /** A session to show once the window being made has its renderer (openKea). */
 let pendingShow: string | null = null
+/** Settings › About to show once the window being made has its renderer (Check for Updates… with no window). */
+let pendingAbout = false
 let stoppingAll = false
 /**
  * The Dock icon's show and hide: a hide that Electron ignores, just after a show, is made again later (menuBar.ts).
@@ -757,7 +804,9 @@ function leaveMenuBar(): void {
 }
 
 /** The item's actions: Open Kea, a session, Quit Kea Completely (the tray's menu, its `click` never comes on Linux). */
-const trayActions = { openKea: () => openKea({}, 'tray'), showSession: (id: string) => openKea({ sessionId: id }, 'tray'), quit: () => app.quit() }
+const trayActions = { openKea: () => openKea({}, 'tray'), showSession: (id: string) => openKea({ sessionId: id }, 'tray'), quit: () => app.quit(), restart: () => updates.restart() }
+/** The tray's restart item while an update waits for a restart (Restart to Update, Restart Kea); null otherwise. */
+const trayRestart = (): string | null => (updates.title === 'Check for Updates…' ? null : updates.title)
 
 /** The item's title (the needs-you count; on Linux, which shows none, the first line of its menu) and its menu, from core's state. */
 function updateTray(): void {
@@ -766,7 +815,7 @@ function updateTray(): void {
   const bg = need(mainOs.background)
   bg.setTitle(tray, trayTitle(menuBarState))
   tray.setToolTip(trayTooltip(menuBarState))
-  tray.setContextMenu(Menu.buildFromTemplate(trayTemplate(menuBarState, trayActions, { countLine: bg.countInMenu })))
+  tray.setContextMenu(Menu.buildFromTemplate(trayTemplate(menuBarState, trayActions, { countLine: bg.countInMenu, restart: trayRestart() })))
 }
 
 // ── resources (resources.ts) ────────────────────────────────────────────────────────
@@ -818,7 +867,7 @@ function processPids() {
 // the hourly line rides on the sampler's interval, written whether or not that interval's sample succeeded
 // (and so does the watchdog, with the same sample)
 const sampler = new FootprintSampler({
-  helper: HELPER,
+  helper: RUN_HELPER,
   pids: processPids,
   log,
   onInterval: (s) => {
@@ -979,6 +1028,7 @@ function buildPlatformReport(): PlatformReport | null {
     display: DISPLAY,
     desktopId: DESKTOP_ID,
     displayScale: app.isReady() ? screen.getPrimaryDisplay().scaleFactor : null,
+    updates: UPDATE_HOW,
   })
 }
 
@@ -1017,6 +1067,199 @@ registerSingletonGauge('main.menuBarItem', () => (background.tray ? 1 : 0))
 registerSingletonGauge('main.notifications', () => notifier.size)
 registerSingletonGauge('main.keaFileDirs', () => keaFileDirs.size)
 registerSingletonGauge('main.watchdog', () => watchdog.counts())
+registerSingletonGauge('main.updates', () => updates.counts())
+registerSingletonGauge('main.packageWatch', () => (packageWatch ? 1 : 0))
+
+// ── updates (updates/) ──────────────────────────────────────────────────────────────
+
+/** The update check's world under the test hooks (a dev build under --kea-perf only): an install kind, a stand-in feed, a delay. */
+const UPDATE_HOOKS = DEV && PERF ? updateTestHooks(process.argv) : null
+/** This run uses the default home, where automatic checks may run: no `--kea-home`, no `--kea-perf`. */
+const DEFAULT_HOME = HOME === keaHome({ packaged: app.isPackaged, argv: [], homedir: os.homedir() }) && !PERF
+const REPO = RELEASE_REPOSITORY ? parseRepository(RELEASE_REPOSITORY) : null
+const INSTALL_KIND: InstallKind | null = UPDATE_HOOKS?.kind ?? (isAvailable(mainOs.installKind) ? mainOs.installKind.read(process.resourcesPath) : null)
+/** How this install is updated (the OS layer's `updates`), worked out once at start; the test hooks may leave the macOS updater out. */
+const UPDATE_HOW = ((how) => (UPDATE_HOOKS?.command && how.mode === 'updater' ? { ...how, mode: 'command' as const } : how))(
+  REPO ? mainOs.updates.how({ kind: INSTALL_KIND, repository: RELEASE_REPOSITORY, defaultHome: DEFAULT_HOME || !!UPDATE_HOOKS, resourcesDir: process.resourcesPath }) : NOT_FROM_RELEASE,
+)
+const RELEASE_ARCH: ReleaseArch | null = process.arch === 'arm64' || process.arch === 'x64' ? process.arch : null
+/** The newest release's files: GitHub's, or the stand-in's under the test hooks. */
+const FEED_BASE = UPDATE_HOOKS?.feed ?? (RELEASE_REPOSITORY ? releaseUrls(RELEASE_REPOSITORY).latest : null)
+const allowedUpdateUrl = REPO ? updateUrlAllowed(REPO, UPDATE_HOOKS?.feed ? new URL(UPDATE_HOOKS.feed).origin : null) : () => false
+/** The update check's session: in memory (no `persist:`), so no cookie jar or cache on disk; made at the first check. */
+let updateSession: Session | null = null
+
+function updateFetch() {
+  if (!updateSession) {
+    updateSession = session.fromPartition('kea-updates')
+    installUpdateFilters(updateSession, allowedUpdateUrl, UPDATE_HEADERS, (url) => log.warn('update request refused', { url: url.split('?')[0] }))
+  }
+  return updateSessionFetch(updateSession)
+}
+
+/** The macOS updater, from its own bundle; under the test hooks it reads the stand-in feed from a file it is given. */
+function makeUpdaterDriver(on: UpdaterEvents): UpdaterDriver {
+  const make = mainOs.updates.loadUpdater(DIST)
+  if (!make || !FEED_BASE) throw new Error('this build has no updater')
+  let testConfigPath: string | undefined
+  if (UPDATE_HOOKS?.feed) {
+    testConfigPath = path.join(HOME, 'test-app-update.yml')
+    fs.writeFileSync(testConfigPath, `provider: generic\nurl: ${UPDATE_HOOKS.feed}\nupdaterCacheDirName: kea-updater-test\n`, { mode: 0o600 })
+  }
+  return make({
+    url: FEED_BASE,
+    allowed: allowedUpdateUrl,
+    headers: UPDATE_HEADERS,
+    fetchTimeoutMs: L.updateFetchTimeoutMs,
+    stallMs: L.updateStallMs,
+    log: { info: (m) => log.info(m), warn: (m) => log.warn(m), error: (m) => log.error(m) },
+    on,
+    ...(testConfigPath ? { testConfigPath } : {}),
+  })
+}
+
+/** The update state changed: the windows are told, and the menu and the tray say Restart to Update or Restart Kea. */
+function updateStateChanged(state: UpdateState): void {
+  for (const w of windows.values()) if (!w.isDestroyed()) w.webContents.send('kea:updateState', { state })
+  rebuildMenu()
+  updateTray()
+  platformReports.assemble('updates')
+}
+
+const updates = new UpdateManager({
+  version: VERSION,
+  how: UPDATE_HOW,
+  autoAllowed: DEFAULT_HOME || !!UPDATE_HOOKS,
+  ...(UPDATE_HOOKS?.delayMs != null ? { firstDelayMs: UPDATE_HOOKS.delayMs } : {}),
+  clock: {
+    now: () => Date.now(),
+    setTimeout: (fn, ms) => setTimeout(fn, ms),
+    clearTimeout: (t) => clearTimeout(t as ReturnType<typeof setTimeout>),
+    setInterval: (fn, ms) => setInterval(fn, ms),
+    clearInterval: (t) => clearInterval(t as ReturnType<typeof setInterval>),
+  },
+  marks: { load: () => readMarks(app.getPath('userData')), save: (m) => writeMarks(app.getPath('userData'), m) },
+  feed: () => {
+    const kind = mainOs.updates.releaseFile(INSTALL_KIND)
+    if (!kind || !RELEASE_ARCH || !FEED_BASE) return Promise.resolve(null)
+    return checkFeed({ fetch: updateFetch(), url: `${FEED_BASE}SHA256SUMS`, kind, arch: RELEASE_ARCH, timeoutMs: L.updateFetchTimeoutMs, maxBytes: L.updateFeedMaxBytes })
+  },
+  makeDriver: UPDATE_HOW.mode === 'updater' ? makeUpdaterDriver : null,
+  changed: (state) => updateStateChanged(state),
+  beforeRestart: () => keepDrafts(),
+  // Restart Kea, asked for by the person: whatever restarts this run already made
+  relaunch: () => void relaunchKea(treeVersion(process.resourcesPath) ?? 'unknown'),
+  log,
+})
+// where Kea updates itself: did the version Squirrel had ready install?
+updates.checkInstalled()
+
+/**
+ * Check for Updates…: Restart to Update or Restart Kea while one is offered; otherwise Kea opens (with no window),
+ * Settings › About shows, and a check starts.
+ */
+function checkUpdatesCommand(): void {
+  if (updates.title !== 'Check for Updates…') {
+    updates.restart()
+    return
+  }
+  const w = menuWindow()
+  if (w && !background.background && connections.has(w.webContents.id)) w.webContents.send('kea:command', { id: 'app.settings', args: { page: 'about' } })
+  else pendingAbout = true
+  openKea()
+  updates.checkNow()
+}
+
+ipcMain.on('kea:updateState', (e) => {
+  const w = fromOurWindow(e)
+  if (w) w.webContents.send('kea:updateState', { state: updates.state })
+})
+// About's Check Now and Try Again: a check, nothing else
+ipcMain.on('kea:checkUpdates', (e) => {
+  if (fromOurWindow(e)) updates.checkNow()
+})
+ipcMain.on('kea:restartToUpdate', (e) => {
+  if (fromOurWindow(e)) updates.restart()
+})
+// the line saying Kea checks for updates was in view, or About's Updates block was opened
+ipcMain.on('kea:updateNoticeShown', (e) => {
+  if (fromOurWindow(e)) updates.noticeShown()
+})
+
+/** Keep the window's composer drafts for the next start (a restart Kea makes itself), as the Wayland rebuild hands them over. */
+async function keepDrafts(): Promise<void> {
+  const w = menuWindow()
+  if (!w || w.isDestroyed() || !connections.has(w.webContents.id)) return
+  await handoff.ask((reqId) => w.webContents.send('kea:handoffAsk', { reqId }))
+  const state = handoff.state
+  if (!state || state.drafts.length === 0) return
+  try {
+    writeHandoff(app.getPath('userData'), state, Date.now())
+  } catch (e) {
+    log.warn('drafts not kept for the restart', { error: e instanceof Error ? e.message : String(e) })
+  }
+}
+
+/** The restarts Kea would have made under the test hooks, which record them instead. */
+const relaunchRequests: string[] = [] // bounded: the newest L.logMemoryEntries (an in-memory log for tests)
+let relaunching = false
+
+/** Restart Kea into the files on disk (`target`: their version), the drafts kept; nothing while it quits. */
+async function relaunchKea(target: string): Promise<void> {
+  if (quitting || relaunching) return
+  relaunching = true
+  await keepDrafts()
+  if (PERF) {
+    log.info('restart not made (perf)', { target })
+    relaunchRequests.push(target)
+    if (relaunchRequests.length > L.logMemoryEntries) relaunchRequests.shift()
+    relaunching = false
+    return
+  }
+  log.info('restarting Kea', { target })
+  app.relaunch({ args: relaunchArgs(process.argv, target) })
+  app.quit()
+}
+
+/** Kea's files replaced or removed under it (Linux packages; a rebuilt dev tree): see updates/upgrade.ts. */
+const upgrade = new UpgradeGuard({
+  running: VERSION,
+  relaunchedFor: relaunchedFor(process.argv),
+  identity: (() => {
+    const stat = plainStat()
+    return () => asarIdentity(process.resourcesPath, stat)
+  })(),
+  treeVersion: () => treeVersion(process.resourcesPath),
+  upgraded: (version) => {
+    stopPackageWatch()
+    updates.upgraded(version)
+  },
+  removed: () => {
+    stopPackageWatch()
+    updates.removed()
+  },
+  relaunch: (target) => void relaunchKea(target),
+  log,
+})
+
+/** The package watch (deb and rpm): `resources/` followed, `app.asar` compared once a change settles. */
+let packageWatch: (() => void) | null = null
+function stopPackageWatch(): void {
+  packageWatch?.()
+  packageWatch = null
+}
+function startPackageWatch(): void {
+  if (!isAvailable(mainOs.packageWatch) || (INSTALL_KIND !== 'deb' && INSTALL_KIND !== 'rpm')) return
+  packageWatch = mainOs.packageWatch.watch(
+    process.resourcesPath,
+    () => upgrade.check(),
+    (e) => {
+      // a respawn and a child of another build still find it
+      log.warn('package watch not running', { error: e instanceof Error ? e.message : String(e) })
+      packageWatch = null
+    },
+  )
+}
 
 // ── security ────────────────────────────────────────────────────────────────────────
 
@@ -1073,6 +1316,8 @@ app.on('before-quit', (e) => {
   rendererReports.dispose()
   resourceLog.dispose()
   rendererLogFile.dispose()
+  updates.dispose()
+  stopPackageWatch()
   void shutdownChildren([children.ptyhost, children.core]).finally(() => app.exit(0)) // lifecycle.ts
 })
 
@@ -1119,7 +1364,7 @@ void app.whenReady().then(() => {
       // The menu-bar item as a test sees it (no test can click the real menu bar), and a click on one of its items
       menuBar: () => ({ item: background.tray !== null, background: background.background, trayHost: services.trayHost, title: background.tray ? need(mainOs.background).title(background.tray) : null, dock: isAvailable(mainOs.background) ? mainOs.background.dockVisible(app) : null, state: menuBarState, sheetSeen: quitSheetSeen(app.getPath('userData')) }),
       clickMenuBarItem: (id) => {
-        const t = trayTemplate(menuBarState, trayActions, { countLine: isAvailable(mainOs.background) && mainOs.background.countInMenu }).find((x) => x.id === id)
+        const t = trayTemplate(menuBarState, trayActions, { countLine: isAvailable(mainOs.background) && mainOs.background.countInMenu, restart: trayRestart() }).find((x) => x.id === id)
         if (!background.tray || !t?.click) return false
         ;(t.click as () => void)()
         return true
@@ -1149,6 +1394,10 @@ void app.whenReady().then(() => {
         await rebuildWindow(w)
         return true
       },
+      // The update check, the restarts Kea would have made, and Kea's files replaced under it
+      updates: () => ({ state: updates.state, title: updates.title, relaunches: [...relaunchRequests], core: updates.coreSwitch, timers: updates.counts().timers }),
+      checkUpdates: () => checkUpdatesCommand(),
+      upgraded: (version) => upgrade.replaced(version),
     })
   children.ptyhost.sup.start()
   children.core.sup.start()
@@ -1156,14 +1405,23 @@ void app.whenReady().then(() => {
   // The tray host, the notification service and the idle monitor, followed as they come and go
   servicesWatch = mainOs.desktopServices.watch((st) => servicesChanged(st))
   rebuildMenu()
-  createWindow()
+  // the drafts a restart Kea made itself kept for this start go to its first window
+  const kept = takeHandoff(app.getPath('userData'), Date.now())
+  if (kept) {
+    handoff.restore(kept)
+    handoff.giveTo(createWindow({ handoff: true }).webContents.id)
+    log.info('drafts restored after a restart', { drafts: kept.drafts.length })
+  } else createWindow()
+  // a package manager replacing Kea's files under it (deb, rpm)
+  startPackageWatch()
   // the Dock icon clicked, or Kea opened again from Finder while it runs from the menu bar
   app.on('activate', () => {
     if (windows.size === 0) openKea()
   })
-  // The glyph atlases are refreshed after sleep
+  // The glyph atlases are refreshed after sleep; an update check that came due while asleep, or failed, runs
   powerMonitor.on('resume', () => {
     for (const w of windows.values()) if (!w.isDestroyed()) w.webContents.send('kea:wake')
+    updates.resume()
   })
   // a test build never stays the frontmost app (frontGuard.ts): made active (as macOS may when the display wakes), it
   // hides at once and says so; nothing is installed without --kea-perf, nor where the system has no app in front (Linux:

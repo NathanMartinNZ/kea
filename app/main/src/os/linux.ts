@@ -7,10 +7,12 @@ import os from 'node:os'
 import path from 'node:path'
 import type { MenuItemConstructorOptions } from 'electron'
 import { holdersHidden, rootOnlyFile } from '@kea/kit'
-import { L, need, notAvailable, PLATFORM_LINES, type PlatformLine } from '@kea/protocol'
-import { GPU_DRIVER_FIX, terminalRendererLine } from '../platformLines.ts'
+import { INSTALL_KINDS, L, need, notAvailable, PLATFORM_LINES, RPM_REPOSITORY_PUBLISHED, type PlatformLine } from '@kea/protocol'
+import { LINUX_REPO_FILES } from '@kea/protocol/os/linux'
+import { installCommand, NOT_FROM_RELEASE, packageManagerCommand, type UpdateHow } from '../updates/how.ts'
+import { GPU_DRIVER_FIX, terminalRendererLine, updateChannelLine } from '../platformLines.ts'
 import { sessionBusPath, watchBusNames, type BusNames } from './dbus.ts'
-import type { DesktopServiceState, DisplayServer, IdleSource, MainOs, MenuParts, OpenVia, RaiseHow, ReportInput } from './index.ts'
+import type { DesktopServiceState, DisplayServer, IdleSource, InstallKind, MainOs, MenuParts, OpenVia, RaiseHow, ReportInput, UpdateHowInput } from './index.ts'
 
 // ── the platform report's Linux lines ───────────────────────────────────────────────────────
 
@@ -182,6 +184,17 @@ export function linuxFacts(userName: () => string = () => os.userInfo().username
  * and `VERSION_ID`; null when it names none. Values are shell-quoted, double-quoted ones with backslash escapes.
  */
 export function osReleaseName(text: string): string | null {
+  const kv = osReleaseValues(text)
+  const pretty = kv.get('PRETTY_NAME')
+  if (pretty) return pretty
+  const name = kv.get('NAME')
+  if (!name) return null
+  const version = kv.get('VERSION_ID')
+  return version ? `${name} ${version}` : name
+}
+
+/** os-release(5)'s `KEY=value` lines, unquoted. */
+function osReleaseValues(text: string): Map<string, string> {
   const kv = new Map<string, string>()
   for (const raw of text.split('\n')) {
     const line = raw.trim()
@@ -189,12 +202,23 @@ export function osReleaseName(text: string): string | null {
     if (line.startsWith('#') || eq <= 0) continue
     kv.set(line.slice(0, eq), unquoteValue(line.slice(eq + 1)))
   }
-  const pretty = kv.get('PRETTY_NAME')
-  if (pretty) return pretty
-  const name = kv.get('NAME')
-  if (!name) return null
-  const version = kv.get('VERSION_ID')
-  return version ? `${name} ${version}` : name
+  return kv
+}
+
+/** The system and the ones it is like, from os-release(5): `ID`, then `ID_LIKE`'s words, lower-cased. */
+export function osReleaseIds(text: string): string[] {
+  const kv = osReleaseValues(text)
+  return [kv.get('ID') ?? '', ...(kv.get('ID_LIKE') ?? '').split(/\s+/)].map((w) => w.trim().toLowerCase()).filter((w) => w.length > 0)
+}
+
+/** Which package manager's family the system is, by its ids in order (as install.sh reads them); null for none of them. */
+export function packageFamily(ids: readonly string[]): 'apt' | 'dnf' | 'zypper' | null {
+  for (const id of ids) {
+    if (id === 'debian' || id === 'ubuntu') return 'apt'
+    if (id === 'fedora' || id === 'rhel' || id === 'centos') return 'dnf'
+    if (id === 'suse' || id === 'opensuse' || id.startsWith('opensuse-') || id === 'sles') return 'zypper'
+  }
+  return null
 }
 
 function unquoteValue(v: string): string {
@@ -208,12 +232,86 @@ export function linuxVersion(name: string | null, kernel: string): string {
   return name ? `${name} (Linux ${kernel})` : `Linux ${kernel}`
 }
 
-function osRelease(): string | null {
+/** os-release(5)'s text under `root`: `/etc/os-release`, else `/usr/lib/os-release`; null when neither reads. */
+function osReleaseText(root = '/'): string | null {
   for (const file of ['/etc/os-release', '/usr/lib/os-release']) {
-    const text = readOr<string | null>(() => fs.readFileSync(file, 'utf8'), null)
-    if (text !== null) return osReleaseName(text)
+    const text = readOr<string | null>(() => fs.readFileSync(path.join(root, file), 'utf8'), null)
+    if (text !== null) return text
   }
   return null
+}
+
+function osRelease(): string | null {
+  const text = osReleaseText()
+  return text === null ? null : osReleaseName(text)
+}
+
+// ── how this install is updated ────────────────────────────────────────────────────────────
+
+/**
+ * How Kea was installed: what `<resources>/install-kind` says, where a tarball's tree under the home folder (install.sh
+ * `--user`) is `user`. Null when there is no such file (a dev build).
+ */
+export function readLinuxInstallKind(resourcesDir: string, home: string = os.homedir()): InstallKind | null {
+  const kind = readOr(() => fs.readFileSync(path.join(resourcesDir, 'install-kind'), 'utf8').trim(), '')
+  if (!(INSTALL_KINDS as readonly string[]).includes(kind) || kind === 'mac') return null
+  if (kind === 'tarball' && home && path.resolve(resourcesDir).startsWith(path.resolve(home) + path.sep)) return 'user'
+  return kind as InstallKind
+}
+
+/** The deb's apt source is there and `/etc/default/kea-app` does not turn the repository off (`add_repository=no`). */
+function aptSourceOn(root: string): boolean {
+  if (!fs.existsSync(path.join(root, LINUX_REPO_FILES.aptSource))) return false
+  const defaults = readOr(() => fs.readFileSync(path.join(root, LINUX_REPO_FILES.defaults), 'utf8'), '')
+  return !/^add_repository=no\b/m.test(defaults)
+}
+
+/**
+ * How a Linux install is updated, reading the system's files under `root`: a deb with Kea's apt source by the system's
+ * updates; a deb without it, an rpm (while the rpm repository is not published: `rpmPublished`), a tarball and a
+ * `--user` tree by install.sh, which Kea checks for by itself. A build not from a release is updated by nothing.
+ */
+export function linuxUpdateHow(o: UpdateHowInput, root = '/', rpmPublished: boolean = RPM_REPOSITORY_PUBLISHED): UpdateHow {
+  if (o.kind === null || o.kind === 'mac' || o.repository === null) return NOT_FROM_RELEASE
+  const byCommand = (option: '--no-repo' | '--user' | null): UpdateHow => ({ mode: 'command', auto: true, command: installCommand(o.repository as string, option), why: null })
+  if (o.kind === 'user') return byCommand('--user')
+  if (o.kind === 'tarball') return byCommand(null)
+  if (o.kind === 'deb') return aptSourceOn(root) ? { mode: 'packageManager', auto: false, command: packageManagerCommand('apt'), why: null } : byCommand('--no-repo')
+  // dnf reads yum.repos.d, zypper only zypp/repos.d
+  const text = osReleaseText(root)
+  const family = text === null ? null : packageFamily(osReleaseIds(text))
+  const repoFile = family === 'dnf' ? LINUX_REPO_FILES.rpmRepo : family === 'zypper' ? LINUX_REPO_FILES.zypperRepo : null
+  if (rpmPublished && repoFile && (family === 'dnf' || family === 'zypper') && fs.existsSync(path.join(root, repoFile))) return { mode: 'packageManager', auto: false, command: packageManagerCommand(family), why: null }
+  return byCommand('--no-repo')
+}
+
+/** Follows `resourcesDir` for a package manager's changes: `settled` once L.packageSettleMs passes with no further event. */
+function watchResources(resourcesDir: string, settled: () => void, failed: (e: unknown) => void): () => void {
+  let timer: ReturnType<typeof setTimeout> | null = null
+  let w: fs.FSWatcher | null = null
+  const end = () => {
+    if (timer) clearTimeout(timer)
+    timer = null
+    w?.close()
+    w = null
+  }
+  try {
+    w = fs.watch(resourcesDir, { persistent: false }, () => {
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => {
+        timer = null
+        settled()
+      }, L.packageSettleMs)
+    })
+    w.on('error', (e) => {
+      end()
+      failed(e)
+    })
+  } catch (e) {
+    end()
+    failed(e)
+  }
+  return end
 }
 
 // ── the desktop's services on the session bus ──────────────────────────────────────────────────
@@ -266,7 +364,7 @@ const SEP: MenuItemConstructorOptions = { type: 'separator' }
 
 /**
  * File, Edit, View, Session, Go, Window, Help; no app-name menu, no Services or Hide; Quit in File. File has the
- * Project commands and the App ones (Settings, …), then Open Kea with no window, Close Kea and Quit Kea Completely;
+ * Project commands, then Check for Updates… and the App ones (Settings, …), then Open Kea with no window, Close Kea and Quit Kea Completely;
  * View has View's own, then Terminal, Files and Viewer as submenus; Session has Session's and Server's; Go gathers the
  * navigation commands. The Edit roles register no key, so `Ctrl+C`, `Ctrl+V`, `Ctrl+Z` reach the terminal; the Window
  * menu's items are plain ones, since Electron's roles bring `Ctrl+M`, `Ctrl+W` and `F11` with them.
@@ -285,7 +383,7 @@ export function linuxMenu(p: MenuParts): MenuItemConstructorOptions[] {
     return { ...i, ...(key ? { accelerator: key } : {}), registerAccelerator: false }
   })
   return [
-    { label: 'File', submenu: joined(section('Project'), p.app.filter((i) => !HELP_COMMANDS.has(String(i.id))), p.openKea ? [p.openKea] : [], [p.closeToMenuBar, p.quit]) },
+    { label: 'File', submenu: joined(section('Project'), [p.checkUpdates, ...p.app.filter((i) => !HELP_COMMANDS.has(String(i.id)))], p.openKea ? [p.openKea] : [], [p.closeToMenuBar, p.quit]) },
     { label: 'Edit', submenu: edit },
     { label: 'View', submenu: joined(section('View').filter(notGo), [...sub('Terminal', section('Terminal').filter(notGo)), ...sub('Files', section('Files').filter(notGo)), ...sub('Viewer', section('Viewer'))]) },
     { label: 'Session', submenu: joined(section('Session').filter(notGo), section('Server')) },
@@ -473,9 +571,15 @@ export const linux: MainOs = {
       return sandboxLine(status ? sandboxedBy(status, uidMap) : null, o.execPath)
     },
   },
-  installKind: notAvailable('Kea does not yet tell how it was installed on Linux (deb, rpm, tarball or --user).'),
-  // The desktop, the terminal lines, the sandbox, the terminal renderer, the tray host, notifications, idle and
-  // inotify; there is no install or update line yet
+  installKind: { read: (resourcesDir) => readLinuxInstallKind(resourcesDir) },
+  updates: {
+    how: (o) => linuxUpdateHow(o),
+    releaseFile: (kind) => (kind === 'deb' ? 'deb' : kind === 'rpm' ? 'rpm' : kind === 'tarball' || kind === 'user' ? 'tarball' : null),
+    loadUpdater: () => null,
+  },
+  packageWatch: { watch: watchResources },
+  // How Kea was installed and is updated, the desktop, the terminal lines, the sandbox, the terminal renderer, the tray
+  // host, notifications, idle and inotify
   report: {
     platform: (o: ReportInput) => {
       const extra = desktopLines({
@@ -492,7 +596,10 @@ export const linux: MainOs = {
         watchLimitHeld: o.watchLimitHeld,
       })
       const sandbox = need(linux.sandboxStatus).line({ rendererPid: o.rendererPid, execPath: o.execPath })
-      return { system: 'linux', version: linuxVersion(osRelease(), o.version), arch: o.arch, lines: inAboutOrder([...linuxLines(linuxFacts()), sandbox, ...extra]) }
+      const kind = readLinuxInstallKind(o.resourcesDir)
+      const installed = line('installKind', 'Installed', kind === 'user' ? 'tarball, in your home folder (--user)' : (kind ?? 'by hand (a dev build): Kea does not update itself'))
+      const updates = o.updates ? [updateChannelLine(o.updates)] : []
+      return { system: 'linux', version: linuxVersion(osRelease(), o.version), arch: o.arch, lines: inAboutOrder([installed, ...linuxLines(linuxFacts()), sandbox, ...extra, ...updates]) }
     },
   },
 }

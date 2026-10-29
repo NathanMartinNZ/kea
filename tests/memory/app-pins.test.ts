@@ -102,8 +102,8 @@ describe('terminal stack pins (static)', () => {
     const wanted = register.filter((r) => r.patch.includes('`patches/`') && !/^fixed/i.test(r.status))
     const registered = patchedDependencies()
     // a patched package outside the terminal stack: the copy the process that uses it runs (`svelte`: the renderer's;
-    // `@parcel/watcher`: core's)
-    const users = ['app/renderer', 'app/core'].map((u) => createRequire(path.join(repoRoot, u, 'package.json')))
+    // `@parcel/watcher`: core's; `electron-updater`: main's)
+    const users = ['app/renderer', 'app/core', 'app/main'].map((u) => createRequire(path.join(repoRoot, u, 'package.json')))
     for (const r of wanted) {
       if (installed.has(r.component)) continue
       for (const req of users) {

@@ -7,8 +7,10 @@ import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { L } from '../../../../packages/protocol/src/generated/limits.ts'
-import { releaseUrls } from '../../../../packages/protocol/src/release.ts'
+import { LINUX_REPO_FILES } from '../../../../packages/protocol/src/os/linux.ts'
+import { debArch as debArchOf, releaseFileNames, releaseUrls, rpmArch as rpmArchOf } from '../../../../packages/protocol/src/release.ts'
 import { DESKTOP_FILE, LINUX_NAME, PRODUCT_NAME, type Target } from '../config.ts'
+import { INSTALL_KIND_FILE, linuxInstallKind, VERSION_FILE } from '../installFiles.ts'
 
 /** Where the app's tree goes: `/opt/Kea` (the launcher's default). */
 export const INSTALL_DIR = `/opt/${PRODUCT_NAME}`
@@ -18,12 +20,12 @@ export const ICON_SIZES = [16, 24, 32, 48, 64, 128, 256, 512] as const
 /** Where the profile ships (installed to `/etc/apparmor.d/kea-app` by the script after install, when it parses). */
 export const PROFILE_SOURCE = `${INSTALL_DIR}/resources/apparmor-profile`
 export const PROFILE = `/etc/apparmor.d/${LINUX_NAME}`
-export const APT_SOURCE = `/etc/apt/sources.list.d/${LINUX_NAME}.sources`
+export const APT_SOURCE = LINUX_REPO_FILES.aptSource
 export const APT_KEY = `/usr/share/keyrings/${LINUX_NAME}.gpg`
 /** Where the deb carries the key, which its script copies to `APT_KEY` (so `apt remove` leaves the source working). */
 export const APT_KEY_SOURCE = `${INSTALL_DIR}/resources/${LINUX_NAME}.gpg`
-export const RPM_REPO = `/etc/yum.repos.d/${LINUX_NAME}.repo`
-export const DEFAULTS = `/etc/default/${LINUX_NAME}`
+export const RPM_REPO = LINUX_REPO_FILES.rpmRepo
+export const DEFAULTS = LINUX_REPO_FILES.defaults
 export const DOC_DIR = `/usr/share/doc/${LINUX_NAME}`
 /** The terminal's default font on Linux: the weights the terminal draws with (xterm's defaults: 400, and 700
  * for bold text), where fontconfig gives them to Chromium. No italic: the design uses none, and Chromium slants the
@@ -68,20 +70,19 @@ export function packageVersion(version: string): string {
 }
 
 export function debArch(target: Target): string {
-  return target.arch === 'x64' ? 'amd64' : 'arm64'
+  return debArchOf(target.arch)
 }
 
 export function rpmArch(target: Target): string {
-  return target.arch === 'x64' ? 'x86_64' : 'aarch64'
+  return rpmArchOf(target.arch)
 }
 
-/** The artifacts' names. */
+/** The artifacts' names (packages/protocol's, which main's update check reads back from a release). */
 export function artifactNames(version: string, target: Target): { deb: string; rpm: string; tarball: string; tarDir: string } {
-  const tarDir = `${LINUX_NAME}-${version}-linux-${target.arch}`
-  return { deb: `${LINUX_NAME}_${version}_${debArch(target)}.deb`, rpm: `${LINUX_NAME}-${version}-1.${rpmArch(target)}.rpm`, tarball: `${tarDir}.tar.gz`, tarDir }
+  const { deb, rpm, tarball, tarDir } = releaseFileNames(version, target.arch)
+  return { deb, rpm, tarball, tarDir }
 }
 
-/** The repository's files are written only when there is one and its key. */
 const repositoryOf = (m: PackageMeta) => (m.repository !== null && m.keyFile !== null ? m.repository : null)
 
 /** The apt source, as the deb's script and install.sh write it (the same bytes). */
@@ -253,9 +254,9 @@ export interface RootFile {
 }
 
 /**
- * Every file of the package outside `/opt/Kea`: the launcher, the desktop file, the icons, the terminal's
- * font, the licences, and the repository's files when there is a repository. `icons`: `assets/icon`; `fonts`:
- * `assets/fonts/jetbrains-mono`.
+ * Every file of the package beside the app's tree: the launcher, the desktop file, the icons, the terminal's font, the
+ * licences, how Kea was installed and its version (in `/opt/Kea/resources`, one install kind per archive), and the
+ * repository's files when there is a repository. `icons`: `assets/icon`; `fonts`: `assets/fonts/jetbrains-mono`.
  */
 export function rootFiles(o: { meta: PackageMeta; icons: string; fonts: string; launcher: string; licences: string }): RootFile[] {
   const files: RootFile[] = [
@@ -268,6 +269,10 @@ export function rootFiles(o: { meta: PackageMeta; icons: string; fonts: string; 
     ...TERMINAL_FONTS.map((f) => ({ path: `${FONT_DIR}/${f}`, mode: 0o644, from: path.join(o.fonts, f) })),
     // Debian's place for a package's licences; the same file for the rpm and the tarball
     { path: `${DOC_DIR}/copyright`, mode: 0o644, from: o.licences },
+    // what main reads to tell who updates this Kea, and which version a package upgrade put in place under a running
+    // one (`kea-version`: Electron's own `version` file beside it holds Electron's)
+    ...(['deb', 'rpm', 'tar.gz'] as const).map((f) => ({ path: `${INSTALL_DIR}/resources/${INSTALL_KIND_FILE}`, mode: 0o644, text: `${linuxInstallKind(f)}\n`, only: [f] })),
+    { path: `${INSTALL_DIR}/resources/${VERSION_FILE}`, mode: 0o644, text: `${o.meta.version}\n` },
   ]
   const repo = rpmRepoFile(o.meta)
   if (repo) files.push({ path: RPM_REPO, mode: 0o644, text: repo, only: ['rpm'] })

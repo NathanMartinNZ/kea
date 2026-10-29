@@ -74,8 +74,10 @@ pnpm kea:install --no-install   # stop after the checks; the app is in dist/pack
 pnpm kea:install --adhoc        # check the pipeline without the certificate (never installed)
 ```
 
-The checks cover the signatures, an arm64-only build, and the absence of an update feed, a crash reporter and a
-network client. Nothing in `/Applications` changes before they pass.
+The checks cover the signatures, an arm64-only build, and what the app may reach: no crash reporter, and no network
+client but the update check and the macOS updater, each in its own bundle. The app carries the updater's code but no
+update feed, so it never updates itself: run `pnpm kea:install` again for a newer build. Nothing in `/Applications`
+changes before the checks pass.
 
 ### Updating while sessions are running
 

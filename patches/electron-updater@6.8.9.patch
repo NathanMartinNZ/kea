@@ -1,0 +1,99 @@
+diff --git a/out/AppUpdater.js b/out/AppUpdater.js
+index d6d5debc7943011135e97124b755a41268199313..82768db8021403a5e17917111f0b86e48f483866 100644
+--- a/out/AppUpdater.js
++++ b/out/AppUpdater.js
+@@ -312,23 +312,8 @@ class AppUpdater extends events_1.EventEmitter {
+         return downloadNotification;
+     }
+     async isStagingMatch(updateInfo) {
+-        const rawStagingPercentage = updateInfo.stagingPercentage;
+-        let stagingPercentage = rawStagingPercentage;
+-        if (stagingPercentage == null) {
+-            return true;
+-        }
+-        stagingPercentage = parseInt(stagingPercentage, 10);
+-        if (isNaN(stagingPercentage)) {
+-            this._logger.warn(`Staging percentage is NaN: ${rawStagingPercentage}`);
+-            return true;
+-        }
+-        // convert from user 0-100 to internal 0-1
+-        stagingPercentage = stagingPercentage / 100;
+-        const stagingUserId = await this.stagingUserIdPromise.value;
+-        const val = builder_util_runtime_1.UUID.parse(stagingUserId).readUInt32BE(12);
+-        const percentage = val / 0xffffffff;
+-        this._logger.info(`Staging percentage: ${stagingPercentage}, percentage: ${percentage}, user id: ${stagingUserId}`);
+-        return percentage < stagingPercentage;
++        // Kea has no staged rollouts: every update is for everyone, so no id file is ever made
++        return true;
+     }
+     computeFinalHeaders(headers) {
+         if (this.requestHeaders != null) {
+@@ -383,8 +368,8 @@ class AppUpdater extends events_1.EventEmitter {
+             this.clientPromise = this.configOnDisk.value.then(it => (0, providerFactory_1.createClient)(it, this, this.createProviderRuntimeOptions()));
+         }
+         const client = await this.clientPromise;
+-        const stagingUserId = await this.stagingUserIdPromise.value;
+-        client.setRequestHeaders(this.computeFinalHeaders({ "x-user-staging-id": stagingUserId }));
++        // Kea sends no identifier with a check: no staging id header, and no id file is made for one
++        client.setRequestHeaders(this.computeFinalHeaders({}));
+         return {
+             info: await client.getLatestVersion(),
+             provider: client,
+diff --git a/out/MacUpdater.d.ts b/out/MacUpdater.d.ts
+index 4e1abe1719290d8c2d6031a38ee5c5fe9d0fad20..42cb8ebfaa5b990add37d09aa9bcfe17c92d7d98 100644
+--- a/out/MacUpdater.d.ts
++++ b/out/MacUpdater.d.ts
+@@ -12,7 +12,7 @@ export declare class MacUpdater extends AppUpdater {
+      * On x64 Macs, arm64 files are excluded. */
+     protected static filterFilesForArch(files: ResolvedUpdateFileInfo[], isArm64Mac: boolean): ResolvedUpdateFileInfo[];
+     private debug;
+-    private closeServerIfExists;
++    closeServerIfExists(): void;
+     protected doDownloadUpdate(downloadUpdateOptions: DownloadUpdateOptions): Promise<Array<string>>;
+     private updateDownloaded;
+     private handleUpdateDownloaded;
+diff --git a/out/MacUpdater.js b/out/MacUpdater.js
+index 78b89a7ac91d2158583f642f6c608cbef8d5e711..65a65b9c9c31f7dc5161166d9223db6cfe8b89c2 100644
+--- a/out/MacUpdater.js
++++ b/out/MacUpdater.js
+@@ -8,7 +8,6 @@ const path = require("path");
+ const http_1 = require("http");
+ const AppUpdater_1 = require("./AppUpdater");
+ const Provider_1 = require("./providers/Provider");
+-const child_process_1 = require("child_process");
+ const crypto_1 = require("crypto");
+ class MacUpdater extends AppUpdater_1.AppUpdater {
+     constructor(options, app) {
+@@ -52,30 +51,8 @@ class MacUpdater extends AppUpdater_1.AppUpdater {
+     async doDownloadUpdate(downloadUpdateOptions) {
+         let files = downloadUpdateOptions.updateInfoAndProvider.provider.resolveFiles(downloadUpdateOptions.updateInfoAndProvider.info);
+         const log = this._logger;
+-        // detect if we are running inside Rosetta emulation
+-        const sysctlRosettaInfoKey = "sysctl.proc_translated";
+-        let isRosetta = false;
+-        try {
+-            this.debug("Checking for macOS Rosetta environment");
+-            const result = (0, child_process_1.execFileSync)("sysctl", [sysctlRosettaInfoKey], { encoding: "utf8" });
+-            isRosetta = result.includes(`${sysctlRosettaInfoKey}: 1`);
+-            log.info(`Checked for macOS Rosetta environment (isRosetta=${isRosetta})`);
+-        }
+-        catch (e) {
+-            log.warn(`sysctl shell command to check for macOS Rosetta environment failed: ${e}`);
+-        }
+-        let isArm64Mac = false;
+-        try {
+-            this.debug("Checking for arm64 in uname");
+-            const result = (0, child_process_1.execFileSync)("uname", ["-a"], { encoding: "utf8" });
+-            const isArm = result.includes("ARM");
+-            log.info(`Checked 'uname -a': arm64=${isArm}`);
+-            isArm64Mac = isArm64Mac || isArm;
+-        }
+-        catch (e) {
+-            log.warn(`uname shell command to check for arm64 failed: ${e}`);
+-        }
+-        isArm64Mac = isArm64Mac || process.arch === "arm64" || isRosetta;
++        // Kea ships arm64 only: the architecture is read from the process, with no child process started
++        const isArm64Mac = process.arch === "arm64";
+         // allow arm64 macs to install universal or rosetta2(x64) - https://github.com/electron-userland/electron-builder/pull/5524
+         files = MacUpdater.filterFilesForArch(files, isArm64Mac);
+         const zipFileInfo = (0, Provider_1.findFile)(files, "zip", ["pkg", "dmg"]);

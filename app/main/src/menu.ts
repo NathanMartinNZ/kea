@@ -39,7 +39,9 @@ export interface MenuInput {
   /** A renderer command was chosen. */
   send(id: string, args?: unknown): void
   /** Main's own commands, and the developer reload. */
-  main: { openKea(): void; closeToMenuBar(): void; quit(): void; reload(): void }
+  main: { openKea(): void; closeToMenuBar(): void; quit(): void; checkUpdates(): void; reload(): void }
+  /** The update command's title now (main owns the update state): Check for Updates…, Restart to Update or Restart Kea. */
+  updateTitle?: string
   /** The layout to use; this system's (`mainOs.menu`) when left out. Tests pass the other system's. */
   chrome?: MenuChrome
   /** The keys and titles to use; this system's (`protocolOs`) when left out. Tests pass the other system's. */
@@ -77,12 +79,14 @@ function rendererItem(id: string, input: MenuInput, itemId = id): MenuItemConstr
   }
 }
 
-function mainItem(id: 'app.openKea' | 'app.closeToMenuBar' | 'app.quit', input: MenuInput): MenuItemConstructorOptions {
+function mainItem(id: 'app.openKea' | 'app.closeToMenuBar' | 'app.quit' | 'app.checkUpdates', input: MenuInput): MenuItemConstructorOptions {
   const accel = accelerator(id, input)
   // ⌘Q goes to the menu bar or quits (main.ts); ⌥⌘Q quits completely, holders running on
-  const click = id === 'app.openKea' ? input.main.openKea : id === 'app.closeToMenuBar' ? input.main.closeToMenuBar : input.main.quit
+  const click = id === 'app.openKea' ? input.main.openKea : id === 'app.closeToMenuBar' ? input.main.closeToMenuBar : id === 'app.checkUpdates' ? input.main.checkUpdates : input.main.quit
   const c = commandById(id)
-  return { id, label: c ? systemTitle(c, input.system) : id, ...(accel ? { accelerator: accel } : {}), click: () => click() }
+  // the update command's row names three titles; main says which applies, else the first
+  const label = id === 'app.checkUpdates' ? (input.updateTitle ?? c?.titles?.[0] ?? id) : c ? systemTitle(c, input.system) : id
+  return { id, label, ...(accel ? { accelerator: accel } : {}), click: () => click() }
 }
 
 /** A command's title on this system, or `fallback` where the table has no such row. */
@@ -99,6 +103,7 @@ export function menuTemplate(input: MenuInput): MenuItemConstructorOptions[] {
   const parts: MenuParts = {
     appName: input.appName,
     app: items('App'),
+    checkUpdates: mainItem('app.checkUpdates', input),
     openKea: input.hasWindow ? null : mainItem('app.openKea', input),
     closeToMenuBar: mainItem('app.closeToMenuBar', input),
     quit: mainItem('app.quit', input),

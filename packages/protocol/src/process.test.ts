@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { L } from './generated/limits.ts'
-import { childArgv, childV8Flags, isChildToMain, isMainToChild, parseChildArgv, parsePerfBusy, ptyhostV8Flags } from './process.ts'
+import { buildMismatch, childArgv, childV8Flags, isChildToMain, isMainToChild, parseChildArgv, parsePerfBusy, ptyhostV8Flags } from './process.ts'
 
 describe('process messages and child argv', () => {
   it('U-PROC-1 · child argv round-trips; the perf stall is parsed only in its strict form', () => {
@@ -74,5 +74,15 @@ describe('main ⇄ core for notifications', () => {
     expect(isMainToChild({ k: 'focus', focused: 1 })).toBe(false)
     expect(isMainToChild({ k: 'focus' })).toBe(false)
   })
-})
 
+  it('U-FAIL-13 · main hands its build to each child; a child of another build stops, and a side that knows no build (an unbundled run) never does; core’s update switch reaches main only as a boolean', () => {
+    const a = { home: '/h', version: '1.0.2', dev: false, helper: '/h/bin/1.0.2-0123456789ab/kea-helper', build: '6f1c2d4e-0000-4000-8000-000000000000' }
+    expect(parseChildArgv(['/electron', 'core.cjs', ...childArgv(a)])).toEqual(a)
+    expect(buildMismatch('a', 'b')).toBe(true)
+    expect(buildMismatch('a', 'a')).toBe(false)
+    for (const [mine, mains] of [[undefined, 'b'], ['a', undefined], [undefined, undefined]] as const) expect(buildMismatch(mine, mains)).toBe(false)
+    expect(L.childBuildMismatchExit).not.toBe(1)
+    expect(isChildToMain({ k: 'updates', check: false })).toBe(true)
+    expect(isChildToMain({ k: 'updates', check: 'yes' })).toBe(false)
+  })
+})

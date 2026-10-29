@@ -91,6 +91,8 @@ export type ChildToMain =
    * report's inotify line carries the sysctl fix while one is held, and main assembles it again.
    */
   | { k: 'watchLimit'; held: boolean }
+  /** core: the `updates.check` setting, once ready and on each change (main checks for updates by itself only after it). */
+  | { k: 'updates'; check: boolean }
 
 export function isMainToChild(m: unknown): m is MainToChild {
   if (typeof m !== 'object' || m === null) return false
@@ -141,6 +143,8 @@ export function isChildToMain(m: unknown): m is ChildToMain {
       return Number.isInteger(r.connId) && Array.isArray(r.dirs) && r.dirs.every((d: unknown) => typeof d === 'string' && d.startsWith('/'))
     case 'watchLimit':
       return typeof r.held === 'boolean'
+    case 'updates':
+      return typeof r.check === 'boolean'
   }
   return false
 }
@@ -177,7 +181,7 @@ export function refusedReportId(m: unknown): number | null {
  * `perfBusy`: perf harness only (`--kea-perf`): block the event loop for `ms` every `everyMs`, standing in for a long
  * snapshot serialisation. Main passes it to ptyhost alone.
  */
-export type ChildArgs = { home: string; version: string; dev: boolean; helper?: string; perfBusy?: { ms: number; everyMs: number } }
+export type ChildArgs = { home: string; version: string; dev: boolean; helper?: string; build?: string; perfBusy?: { ms: number; everyMs: number } }
 
 export function childArgv(a: ChildArgs): string[] {
   return [
@@ -185,6 +189,7 @@ export function childArgv(a: ChildArgs): string[] {
     `--kea-version=${a.version}`,
     ...(a.dev ? ['--dev'] : []),
     ...(a.helper ? [`--helper=${a.helper}`] : []),
+    ...(a.build ? [`--kea-build=${a.build}`] : []),
     ...(a.perfBusy ? [`--kea-perf-busy=${a.perfBusy.ms}:${a.perfBusy.everyMs}`] : []),
   ]
 }
@@ -225,6 +230,16 @@ export function parseChildArgv(argv: readonly string[]): ChildArgs {
   const home = get('kea-home')
   if (!home) throw new Error('missing --kea-home')
   const helper = get('helper')
+  const build = get('kea-build')
   const perfBusy = parsePerfBusy(get('kea-perf-busy'))
-  return { home, version: get('kea-version') ?? '0.0.0', dev: argv.includes('--dev'), ...(helper ? { helper } : {}), ...(perfBusy ? { perfBusy } : {}) }
+  return { home, version: get('kea-version') ?? '0.0.0', dev: argv.includes('--dev'), ...(helper ? { helper } : {}), ...(build ? { build } : {}), ...(perfBusy ? { perfBusy } : {}) }
+}
+
+/**
+ * Whether a child built by another build than main's must stop: both sides know their build (bundled code), and they
+ * differ. A package replaced under a running Kea makes a respawned child load the new files under the old main; it then
+ * exits at once with L.childBuildMismatchExit, before it opens anything. Unbundled runs (the tests) know no build.
+ */
+export function buildMismatch(mine: string | undefined, mains: string | undefined): boolean {
+  return !!mine && !!mains && mine !== mains
 }

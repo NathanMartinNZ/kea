@@ -57,15 +57,18 @@ asks for is `sudo`'s. Options go after `sh -s --`, or after `sh install.sh` for 
 |---|---|
 | `--dry-run` | Print what it would do and change nothing |
 | `--version <v>` | Install that release instead of the newest |
-| `--no-repo` | Linux: install the package without Kea's repository, so it is never updated |
+| `--no-repo` | Linux: install the package without Kea's repository, so the system never updates it; Kea says when a newer version is out |
 | `--user` | Linux: install into `~/.local` without root (see below) |
 | `--uninstall` | Remove what it installed; `~/.kea` stays |
 | `--help` | List the options |
 
 ### macOS
 
-The command installs `Kea.app` in `/Applications`, using `sudo` only if you cannot write to that folder. To update,
-quit Kea completely (`⌥⌘Q`; its sessions keep running) and run the command again. Settings, sessions and terminals
+The command installs `Kea.app` in `/Applications`, using `sudo` only if you cannot write to that folder. Kea updates
+itself: once a day it checks for a newer version and downloads it, then the sidebar and the app menu offer Restart to
+Update, which restarts Kea on the new version with every session still running. Kea › Check for Updates… checks now.
+Where Kea cannot replace its own app (a folder you cannot write to), Settings › About says why and gives the install
+command: quit Kea completely (`⌥⌘Q`; its sessions keep running) and run it again. Settings, sessions and terminals
 carry over.
 
 Kea's macOS builds are signed with the project's own certificate, not an Apple Developer ID, and are not notarised.
@@ -92,8 +95,12 @@ The command picks the install for your system:
 | Anything else (Arch, …) | Unpacks the tarball into `/opt/Kea` and lists every file it installs in `/opt/Kea/.install-manifest` |
 
 A package from Kea's repository updates with the rest of the system (`apt upgrade`, `dnf upgrade`, `zypper update` or
-the software centre); quit Kea completely and open it again to run the new version. A tarball install updates by
-running the command again (with `--user` for a home install).
+the software centre). Kea notices when its files are replaced while it runs and offers Restart Kea; it never starts
+part of itself from the new files, so a crash in the meantime restarts the whole app, and your sessions keep running
+either way. Any other install (a tarball, a `--user` home install, a package without Kea's repository, and every rpm
+until the dnf and zypper repositories are published) is updated by running the command again; once a day Kea checks
+for a newer version and the sidebar says when one is out, with the command in Settings › About. File › Check for
+Updates… checks now.
 
 `--user` installs the tarball into your home without root. Kea's own files are then writable by your user, so an
 agent could change Kea itself; the installer says so. Where AppArmor restricts user namespaces (Ubuntu 23.10 and
@@ -119,8 +126,8 @@ systems are best effort. [Installing Kea on Linux by hand](docs/install-linux.md
 curl -fsSL https://github.com/NathanMartinNZ/kea/releases/latest/download/install.sh | sh -s -- --uninstall
 ```
 
-Add `--user` for a home install. This removes the app, and on Linux the package with Kea's repository and key. It
-leaves `~/.kea`: the sessions' worktrees, which may hold uncommitted work, their scrollback and your settings.
+Add `--user` for a home install. This removes the app, on macOS with its update caches, and on Linux the package with
+Kea's repository and key. It leaves `~/.kea`: the sessions' worktrees, which may hold uncommitted work, their scrollback and your settings.
 Terminals still running keep running after Kea is gone.
 
 <details>
@@ -131,7 +138,9 @@ Terminals still running keep running after Kea is gone.
 2. In Kea, stop every session and quit: set Settings › General › On quit to "Stop all sessions and quit", then quit.
 3. Run the uninstall command above.
 4. Delete `~/.kea`, and Electron's window state: `~/Library/Application Support/Kea` and
-   `~/Library/Preferences/dev.kea.app.plist` on macOS, `~/.config/Kea` on Linux.
+   `~/Library/Preferences/dev.kea.app.plist` on macOS, `~/.config/Kea` on Linux. If you dragged Kea to the Trash
+   instead of running the uninstall command, also delete the update caches `~/Library/Caches/kea-updater` and
+   `~/Library/Caches/dev.kea.app.ShipIt`.
 5. In each repository that had sessions, `git worktree prune` drops the entries of the deleted worktrees.
    `git for-each-ref refs/kea` lists snapshots of recently deleted sessions; `git update-ref -d <ref>` removes one.
 
@@ -226,8 +235,10 @@ Electron's window state is in `~/Library/Application Support/Kea` on macOS and `
   agent needs from Kea is passed to its process when it starts. In a repository Kea uses git: a worktree and a branch
   per session, and a ref under `refs/kea/` that keeps a deleted session restorable. It runs `git init` or discards a
   change only when you click it.
-- **Make network requests of its own.** No update check, no telemetry, no crash reports. The agents and your dev
-  servers use the network as they would in a terminal.
+- **Make network requests of its own, apart from the update check.** Once a day, where nothing else updates Kea, it
+  asks GitHub for the newest release's list of files: one request, with no identifier and no cookie. Settings › About
+  turns it off, and Kea shows a line in the sidebar before its first check. No telemetry, no crash reports. The agents
+  and your dev servers use the network as they would in a terminal.
 - **Stop a session because the app went away.** After a quit, a crash or an update the terminals keep running; a
   session ends when you stop, archive or delete it.
 

@@ -1,6 +1,6 @@
 // The whole settings surface, stated once. Each key carries its default, allowed values, label, help text and Settings
 // section; the General, Terminal, Agents, Notifications and Files sections of the Settings UI are rendered from this
-// table (U-SET-3).
+// table (U-SET-3), and the Updates section's rows by Settings › About, which alone draws them.
 // Adding a setting is one entry here. Adapters add their own keys through `AgentSettingsExtension`.
 import { z } from 'zod'
 import { L } from './generated/limits.ts'
@@ -30,7 +30,7 @@ export type SettingDef = {
 
 export const SETTING_CONTROLS = ['toggle', 'select', 'number', 'text', 'path', 'list', 'map', 'none'] as const
 export type SettingControl = (typeof SETTING_CONTROLS)[number]
-export const SETTINGS_SECTIONS = ['General', 'Terminal', 'Agents', 'Notifications', 'Files', 'file only'] as const
+export const SETTINGS_SECTIONS = ['General', 'Terminal', 'Agents', 'Notifications', 'Files', 'Updates', 'file only'] as const
 
 const sel = <const V extends readonly string[]>(values: V, labels: Record<V[number], string>) =>
   values.map((v) => ({ value: v, label: labels[v as V[number]] }))
@@ -110,6 +110,8 @@ export const SETTINGS: readonly SettingDef[] = [
   { key: 'files.compactFolders', schema: z.boolean(), default: true, label: 'Compact folders', section: 'Files', control: 'toggle' },
   { key: 'files.changesScope', schema: z.enum(CHANGES_SCOPE), default: 'branch', label: 'Changes scope', section: 'Files', control: 'select', options: sel(CHANGES_SCOPE, { branch: 'Branch (since it branched)', uncommitted: 'Uncommitted' }) },
   { key: 'files.iconTheme', schema: z.enum(ICON_THEMES), default: 'minimal', label: 'File icons', section: 'Files', control: 'select', options: sel(ICON_THEMES, { minimal: 'Minimal', material: 'Material' }) },
+
+  { key: 'updates.check', schema: z.boolean(), default: true, label: 'Check for updates automatically', help: 'Kea asks GitHub for the newest release now and then. It sends no identifier and no cookie.', section: 'Updates', control: 'toggle' },
 ]
 
 export const zAgentDefaults = z.object({ model: z.string().optional(), effort: z.string().optional(), permissionMode: z.string().optional() })

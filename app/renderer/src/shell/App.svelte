@@ -40,6 +40,7 @@ is a `separator` "Resize sidebar" / "Resize file panel" with its width as its va
   import ToastHost from '../features/sessions/ToastHost.svelte'
   import { registerStatusCommands } from '../features/status/commands.ts'
   import ConditionsFooter from '../features/status/ConditionsFooter.svelte'
+  import UpdateLine from '../features/settings/UpdateLine.svelte'
   import SessionPopover from '../features/status/SessionPopover.svelte'
   import { statusUi } from '../features/status/ui.svelte.ts'
   import { viewingState } from '../features/status/viewing.svelte.ts'
@@ -154,7 +155,8 @@ is a `separator` "Resize sidebar" / "Resize file panel" with its width as its va
     </div>
     <Sidebar />
     <div class="sidebar-footer">
-      <!-- one line per account condition while it lasts, above the gear -->
+      <!-- the update line while there is something to say, then one line per account condition while it lasts, above the gear -->
+      <UpdateLine />
       <ConditionsFooter />
       <!-- the gear opens Settings (`app.settings`, ⌘,) -->
       <button class="quiet-button icon" aria-label={named('app.settings')} data-command="app.settings" onmousedown={keepFocus} onclick={() => commands.run('app.settings')}><Icon name="gear" /></button>

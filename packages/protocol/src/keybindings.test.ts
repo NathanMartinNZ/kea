@@ -105,7 +105,7 @@ describe('keybindings.json', () => {
     expect(cut.notices[0]).toMatchObject({ index: -1, message: `Only the first ${L.keybindingsMaxEntries} entries are read; 3 more are ignored.` })
 
     // what cannot be rebound is said per command, and every reserved chord is one a default or the system already has
-    expect(COMMANDS.filter((c) => rebindable(c, mac) !== null).map((c) => c.id)).toEqual(['session.jumpTo', 'terminal.copy', 'terminal.paste', 'view.cycleFocus', 'app.openKea', 'app.closeToMenuBar', 'app.quit'])
+    expect(COMMANDS.filter((c) => rebindable(c, mac) !== null).map((c) => c.id)).toEqual(['session.jumpTo', 'terminal.copy', 'terminal.paste', 'view.cycleFocus', 'app.checkUpdates', 'app.openKea', 'app.closeToMenuBar', 'app.quit'])
     for (const k of Object.keys(mac.terminalText)) expect(mac.reserved[k]).toBeDefined()
     for (const k of [...Object.keys(mac.reserved), ...Object.keys(mac.intercepts)]) expect(parseChord(k), k).not.toBeNull()
   })
@@ -219,7 +219,7 @@ describe('keybindings.json on Linux', () => {
     expect(said(4)).toBe('Ctrl+Shift+C is Copy in a terminal; it cannot be bound.')
     expect(said(7)).toBe('"what" is not a key: write it like "ctrl+shift+r".')
     expect(said(8)).toMatch(/several keys/)
-    expect(COMMANDS.filter((c) => rebindable(c, keys) !== null).map((c) => c.id)).toEqual(['session.jumpTo', 'terminal.copy', 'terminal.paste', 'view.cycleFocus', 'app.openKea', 'app.closeToMenuBar', 'app.quit'])
+    expect(COMMANDS.filter((c) => rebindable(c, keys) !== null).map((c) => c.id)).toEqual(['session.jumpTo', 'terminal.copy', 'terminal.paste', 'view.cycleFocus', 'app.checkUpdates', 'app.openKea', 'app.closeToMenuBar', 'app.quit'])
     for (const k of [...Object.keys(keys.reserved), ...Object.keys(keys.intercepts)]) expect(parseChord(k), k).not.toBeNull()
     expect(keys.terminalText).toEqual({})
   })

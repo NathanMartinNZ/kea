@@ -100,6 +100,12 @@ function endPackagedRun(home: string, work: string, app: string): void {
 /** The executable a pid runs, in full (`ps comm`); null once it is gone. */
 const executableOf = (pid: number): string | null => processInfo(pid)?.comm ?? null
 
+/** What `<home>/bin` holds: whether `current` is there, and any entry that is neither it nor a build's helper copy. */
+function binEntries(home: string): { current: boolean; others: string[] } {
+  const names = fs.readdirSync(path.join(home, 'bin'))
+  return { current: names.includes('current'), others: names.filter((n) => n !== 'current' && !/^.+-[0-9a-f]{12}$/.test(n)) }
+}
+
 /** Core's log lines of `home` (NDJSON). */
 function coreLog(home: string): { msg: string; [k: string]: unknown }[] {
   const f = path.join(home, 'logs', 'core.log')
@@ -201,9 +207,10 @@ describe('a new build installed over running sessions', () => {
       expect(coreLog(home).filter((l) => l.msg === 'database open').at(-1)).toMatchObject({ fresh: false, setAside: null, integrityChecked: false })
       const shippedN1 = fs.readFileSync(path.join(app, 'Contents', 'Resources', 'kea-helper'))
       expect(shippedN1.equals(shippedN), 'build N+1 ships another helper file (its own signature)').toBe(false)
-      // no terminal started yet by N+1: bin/current is still build N's, and no agent ever ran, so no copy for hooks
+      // no terminal started yet by N+1: bin/current is still build N's; beside it bin/ holds only builds' own helper
+      // copies (main makes each run's at start), nothing else
       expect(fs.readFileSync(current).equals(shippedN)).toBe(true)
-      expect(fs.readdirSync(path.join(home, 'bin'))).toEqual(['current'])
+      expect(binEntries(home)).toEqual({ current: true, others: [] })
       expect(executableOf(a.pid)).toBe(current)
       expect(await quit(kea)).toBe(0)
       kea = null
@@ -217,7 +224,7 @@ describe('a new build installed over running sessions', () => {
       await answered(home, b.ptyId, 0, kea, ANSWER_MS)
       expect(executableOf(b.pid), 'a new terminal starts from the same stable path').toBe(current)
       expect(fs.readFileSync(current).equals(shippedN1), 'build N+1’s helper, renamed over build N’s').toBe(true)
-      expect(fs.readdirSync(path.join(home, 'bin'))).toEqual(['current'])
+      expect(binEntries(home)).toEqual({ current: true, others: [] })
       expect(fs.readdirSync(path.dirname(current)), 'no temp file left').toEqual(['kea-helper'])
       expect(await quit(kea)).toBe(0)
       kea = null
@@ -306,10 +313,12 @@ describe('a new build installed over running sessions', () => {
     const before = kr.holders().filter((h) => kr.holderAlive(h))
     expect(before.length).toBeGreaterThanOrEqual(2) // the first shell and the agent
     for (const h of before) expect(executableOf(h.pid), `holder ${h.ptyId}`).toBe(current)
-    // the agent's hooks run build N's own copy, which core installed for its launch
+    // the agent's hooks run build N's own copy, which main made at start and core handed to its launch
     const [nameN = '', ...others] = copies()
     expect(others).toEqual([])
     expect(nameN).toMatch(new RegExp(`^${escape(versionOf(testAppDist()))}-[0-9a-f]{12}$`))
+    // build N+1 ships the same helper under another version: main makes its copy under that version at start
+    const nameN1 = `${versionOf(next)}${nameN.slice(versionOf(testAppDist()).length)}`
     expect((await kea.quitFromMenu()).code, 'Quit Kea Completely').toBe(0)
 
     // ── build N+1 on the same home: every holder is the same process, still running bin/current
@@ -329,17 +338,17 @@ describe('a new build installed over running sessions', () => {
     expect(agentHooks(agent.log).at(-1)).toBe('Stop')
     expect(fs.existsSync(path.join(kr.home, 'sessions', id, 'spool.ndjson')), 'no hook had to spool: core took each one').toBe(false)
 
-    // ── a new terminal starts from bin/current too; build N's copy stays while its agent runs
+    // ── a new terminal starts from bin/current too; build N's copy stays while its agent runs, beside N+1's own
     const tab = await again.newTab()
     const fresh = await until('the new tab’s holder', () => kr.holders().find((h) => h.ptyId === tab && kr.holderAlive(h)))
     expect(executableOf(fresh.pid)).toBe(current)
-    expect(copies()).toEqual([nameN])
+    expect(copies().sort()).toEqual([nameN, nameN1].sort())
 
     // ── build N's last holders end: its copy goes, and nothing else does
     kr.killHolders(before)
     await until('build N’s holders to be gone', () => before.every((h) => !isAlive(h.pid)) || undefined)
     await until('core to remove build N’s copy', () => copyLooks(kr.home).some((l) => l.removed.includes(nameN)) || undefined)
-    expect(copies()).toEqual([])
+    expect(copies()).toEqual([nameN1])
     expect(fs.existsSync(current), 'bin/current is never removed').toBe(true)
     expect(kr.holderAlive(fresh), 'the new terminal is untouched').toBe(true)
     await again.select(tab)

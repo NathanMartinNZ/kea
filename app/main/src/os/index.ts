@@ -2,7 +2,9 @@
 // `select.ts` picks `darwin.ts` or `linux.ts` once, at start. Nothing here imports Electron at run time (types only),
 // so the decisions stay unit-testable: a capability that acts on Electron is handed the object it acts on.
 import type { App, BrowserWindowConstructorOptions, MenuItemConstructorOptions, Notification, Tray } from 'electron'
-import type { NotAvailable, PlatformLine, PlatformReport, System } from '@kea/protocol'
+import type { NotAvailable, PlatformLine, PlatformReport, ReleaseFileKind, System } from '@kea/protocol'
+import type { MakeUpdater } from '../updates/driver.ts'
+import type { UpdateHow } from '../updates/how.ts'
 
 /** Which display server the window is on: macOS's own, or Linux's Wayland or X11. */
 export type DisplayServer = 'quartz' | 'wayland' | 'x11'
@@ -50,6 +52,8 @@ export interface MenuParts {
   appName: string
   /** The App category's commands (Settings, Copy Diagnostics, …), each an item. */
   app: MenuItemConstructorOptions[]
+  /** Check for Updates… (main's own; titled Restart to Update or Restart Kea while one is offered). */
+  checkUpdates: MenuItemConstructorOptions
   /** Open Kea, while there is no window; null while there is one. */
   openKea: MenuItemConstructorOptions | null
   /** `app.closeToMenuBar` and `app.quit` (main's own). */
@@ -181,6 +185,36 @@ export interface InstallKindReader {
   read(resourcesDir: string): InstallKind | null
 }
 
+/** What `updates.how` is told about this run. */
+export interface UpdateHowInput {
+  /** How Kea was installed (the test hooks may force one); null for a build not from a release. */
+  kind: InstallKind | null
+  /** Kea's release repository (`owner/name`); null for none. */
+  repository: string | null
+  /** This run uses the default home (no `--kea-home`, no `--kea-perf`), or the test hooks lift that rule. */
+  defaultHome: boolean
+  /** The app's resources folder (macOS: `Kea.app/Contents/Resources`; Linux: `<tree>/resources`). */
+  resourcesDir: string
+}
+
+/** `updates`: how this install is updated, and the macOS updater. */
+export interface Updates {
+  how(o: UpdateHowInput): UpdateHow
+  /** Which of a release's files this install updates from (the check looks for its name); null where none. */
+  releaseFile(kind: InstallKind | null): ReleaseFileKind | null
+  /** The macOS updater from its own bundle (`<dist>/updater.cjs`), loaded when first asked for; null where there is none. */
+  loadUpdater(dist: string): MakeUpdater | null
+}
+
+/** `packageWatch`: Kea's package replaced or removed under the running Kea (Linux's deb and rpm). */
+export interface PackageWatch {
+  /**
+   * Follows `resourcesDir`: `settled` once L.packageSettleMs has passed with no further change in it; `failed` when the
+   * watch cannot start or ends with an error. Returns its end.
+   */
+  watch(resourcesDir: string, settled: () => void, failed: (e: unknown) => void): () => void
+}
+
 /** What main knows when it assembles the platform report, gathered at the time it is asked for. */
 export interface ReportInput {
   version: string
@@ -204,6 +238,8 @@ export interface ReportInput {
   desktopId: string
   /** The primary display's scale factor (`screen.getPrimaryDisplay().scaleFactor`); null before the app is ready. */
   displayScale: number | null
+  /** How this install is updated (`updates.how`); left out or null where main has not worked it out. */
+  updates?: UpdateHow | null
 }
 
 /** The platform report, as main assembles it. */
@@ -226,6 +262,8 @@ export interface MainOs {
   readonly idle: Idle
   readonly sandboxStatus: SandboxStatus | NotAvailable
   readonly installKind: InstallKindReader | NotAvailable
+  readonly updates: Updates
+  readonly packageWatch: PackageWatch | NotAvailable
   readonly report: Report | NotAvailable
 }
 

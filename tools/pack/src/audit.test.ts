@@ -1,10 +1,12 @@
 import fs from 'node:fs'
+import { createRequire } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { asarEntries, asarFile } from './asar.ts'
 import { PRUNE_MARK } from '../../../packages/protocol/src/disk.ts'
-import { ALLOWED_MODULES, appCodeNames, firstPruneDue, auditApp, auditCsp, auditEntries, auditNetLog, auditNodeBundle, auditPage, auditResources, NODE_BUNDLES } from './audit.ts'
+import { ALLOWED_MODULES, appCodeNames, firstPruneDue, auditApp, auditCsp, auditEntries, auditFeed, auditMacBundles, auditNetLog, auditNodeBundle, auditPage, auditResources, auditResourcesFolder, MAC_BUNDLES, NODE_BUNDLES } from './audit.ts'
+import { updateConfigYml } from './installFiles.ts'
 
 const dirs: string[] = []
 afterEach(() => {
@@ -56,13 +58,19 @@ const CLEAN: Tree = {
   renderer: { 'index.html': '<script type="module" src="./assets/index.js"></script>' },
   native_modules: { 'better-sqlite3': { prebuilds: { 'darwin-arm64.node': { unpacked: 'mach-o' } } } },
 }
+/** What the macOS updater's bundle names: Electron's updater, the feed's calls, its session, net.request, and http for its local server. */
+const UPDATER = 'const e = require("electron"), h = require("http"); e.autoUpdater.setFeedURL(o); u.checkForUpdates(); const p = "electron-updater"; e.session.fromPartition(p, { cache: false }); e.net.request(r); h.createServer()'
+/** A macOS app's archive: the updater's bundle beside the rest. */
+const MAC_CLEAN: Tree = { ...CLEAN, 'updater.cjs': UPDATER }
+const FEED = 'https://github.com/some-owner/kea/releases/latest/download/'
 
-function fakeApp(tree: Tree, o: { resources?: string[] } = {}): string {
+function fakeApp(tree: Tree, o: { resources?: string[]; files?: Record<string, string> } = {}): string {
   const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'kea-pack-test-')))
   dirs.push(tmp)
   const app = path.join(tmp, 'Kea.app')
   writeAsar(path.join(app, 'Contents', 'Resources', 'app.asar'), tree)
   for (const r of o.resources ?? []) fs.writeFileSync(path.join(app, 'Contents', 'Resources', r), '')
+  for (const [name, text] of Object.entries(o.files ?? {})) fs.writeFileSync(path.join(app, 'Contents', 'Resources', name), text)
   return app
 }
 
@@ -113,11 +121,11 @@ describe('what a packaged Kea must not carry (tools/pack/src/audit.ts)', () => {
   it('U-PACK-18 · the bundle holds no update feed, no updater keys, no notarisation ticket, no node_modules tree, and its native modules are unpacked', () => {
     expect(auditResources(['app.asar', 'app.asar.unpacked', 'kea-helper', 'electron.icns'], ['CFBundleIdentifier', 'ElectronAsarIntegrity'], ['Info.plist', 'MacOS', 'Resources', 'Frameworks', '_CodeSignature'])).toEqual([])
     expect(auditResources(['app.asar', 'app-update.yml'], ['SUFeedURL'], ['CodeResources']).join('\n')).toMatch(/app-update\.yml is an update feed[\s\S]*SUFeedURL[\s\S]*notarisation ticket/)
-    const app = fakeApp(CLEAN)
-    const ok = auditApp(app, ['CFBundleIdentifier'])
+    const app = fakeApp(MAC_CLEAN)
+    const ok = auditApp(app, ['CFBundleIdentifier'], null)
     expect(ok.problems).toEqual([])
     expect(ok.nativeModules).toEqual(['native_modules/better-sqlite3/prebuilds/darwin-arm64.node'])
-    expect(ok.summary).toMatch(/5 Node-side bundles/)
+    expect(ok.summary).toMatch(/no update feed, crash reporter or network client in 6 Node-side bundles/)
 
     const bad = fakeApp(
       {
@@ -130,7 +138,7 @@ describe('what a packaged Kea must not carry (tools/pack/src/audit.ts)', () => {
       },
       { resources: ['app-update.yml'] },
     )
-    const problems = auditApp(bad, ['SUFeedURL']).problems.join('\n')
+    const problems = auditApp(bad, ['SUFeedURL'], null).problems.join('\n')
     for (const what of [/core\.cjs loads "node:https"/, /autoUpdater/, /Content-Security-Policy part "connect-src 'self'"/, /app\.asar has no preload\.cjs/, /node_modules tree/, /watcher\.node is packed inside app\.asar/, /index\.html loads https:\/\/cdn\.example/, /app-update\.yml/, /SUFeedURL/]) expect(problems).toMatch(what)
     // a native module marked unpacked but missing beside the archive
     const asar = path.join(app, 'Contents', 'Resources', 'app.asar')
@@ -155,6 +163,81 @@ describe('what a packaged Kea must not carry (tools/pack/src/audit.ts)', () => {
     expect(firstPruneDue(null, true), 'nothing installed').toBe(false)
     expect(firstPruneDue(declares, false), 'the new build does not prune').toBe(false)
   })
+
+  it('U-PACK-49 · what one bundle may name or load for a reason: main a session of its own and its fetch, the macOS updater its own calls, net.request and http; no other bundle any of them', () => {
+    const others = NODE_BUNDLES.filter((b) => b !== 'main.cjs')
+    // a session's fetch, however it is reached; a class's own fetch method stays allowed everywhere (U-PACK-17)
+    for (const code of ['await ses.fetch(url, { redirect: "follow" })', 'import_electron.session.defaultSession.fetch(u)', 'this.ses.fetch(u)', 'ses?.fetch(u)']) {
+      expect(auditNodeBundle('main.cjs', code), code).toEqual([])
+      for (const b of [...others, ...MAC_BUNDLES]) expect(auditNodeBundle(b, code).join('\n'), `${b}: ${code}`).toMatch(/a session's fetch/)
+    }
+    const partition = 'import_electron.session.fromPartition("kea-updates", { cache: false })'
+    expect(auditNodeBundle('main.cjs', partition)).toEqual([])
+    for (const b of others) expect(auditNodeBundle(b, partition).join('\n'), b).toMatch(/fromPartition/)
+    // main names no updater and makes no other request
+    for (const code of ['import_electron.autoUpdater.on("x", f)', 'u.checkForUpdates()', 'require("electron-updater")', 'import_electron.net.request(u)', 'import_electron.net.fetch(u)', 'require("http")', 'fetch(u)']) expect(auditNodeBundle('main.cjs', code), code).not.toEqual([])
+
+    // the updater: its own calls, its session, net.request, and http for the server Squirrel.Mac downloads from
+    expect(auditNodeBundle('updater.cjs', UPDATER)).toEqual([])
+    for (const b of NODE_BUNDLES) expect(auditNodeBundle(b, UPDATER).length, `${b} may name none of it`).toBeGreaterThan(0)
+    const refused: [string, RegExp][] = [
+      ['require("https")', /loads "https"/],
+      ['import_electron.net.fetch(u)', /net\.fetch/],
+      ['await fetch(u)', /fetch call/],
+      ['import_electron.crashReporter.start({})', /crashReporter/],
+      ['new WebSocket(u)', /WebSocket/],
+      // graceful-fs's patch of the process's fs, a second copy of Kea's kit, and what the patch takes out
+      ['var gracefulQueue = Symbol.for("graceful-fs.queue")', /graceful-fs's patch/],
+      ['function createResourceRegistry2() {}', /Kea's kit/],
+      ['var child_process_1 = require("child_process")', /a child process/],
+      ['client.setRequestHeaders({ "x-user-staging-id": id })', /staging id/],
+      ['await this.stagingUserIdPromise.value', /staging id/],
+    ]
+    for (const [code, what] of refused) expect(auditNodeBundle('updater.cjs', code).join('\n'), code).toMatch(what)
+  })
+
+  it('U-PACK-50 · every macOS app carries the updater’s bundle and a Linux app none; app-update.yml only in a release’s macOS app, naming the release feed exactly', () => {
+    const entries = (app: string) => asarEntries(path.join(app, 'Contents', 'Resources', 'app.asar'))
+    expect(auditMacBundles(entries(fakeApp(MAC_CLEAN)), true)).toEqual([])
+    expect(auditMacBundles(entries(fakeApp(CLEAN)), true).join('\n')).toMatch(/app\.asar has no updater\.cjs/)
+    expect(auditMacBundles(entries(fakeApp(CLEAN)), false)).toEqual([])
+    expect(auditMacBundles(entries(fakeApp(MAC_CLEAN)), false).join('\n')).toMatch(/holds updater\.cjs/)
+
+    // `pnpm kea:install`'s app: the updater's code and no feed, so the updater never runs
+    const local = fakeApp(MAC_CLEAN)
+    expect(auditApp(local, [], null).problems).toEqual([])
+    expect(auditApp(local, [], FEED).problems.join('\n')).toMatch(/app-update\.yml is missing/)
+    // a release's app: the feed, exactly as tools/pack writes it
+    const release = fakeApp(MAC_CLEAN, { files: { 'app-update.yml': updateConfigYml(FEED) } })
+    const audit = auditApp(release, [], FEED)
+    expect(audit.problems).toEqual([])
+    expect(audit.summary).toMatch(new RegExp(`^the update feed ${FEED.replace(/[./]/g, '\\$&')}; no crash reporter or network client in 6 Node-side bundles`))
+    expect(auditApp(release, [], null).problems.join('\n')).toMatch(/app-update\.yml is an update feed/)
+    expect(auditFeed(updateConfigYml('https://example.invalid/'), FEED).join('\n')).toMatch(/does not name the feed/)
+    expect(auditFeed(null, null)).toEqual([])
+    // on macOS the updater's bundle is scanned by its own rules
+    expect(auditApp(fakeApp({ ...MAC_CLEAN, 'updater.cjs': `${UPDATER}; require("https")` }), [], null).problems.join('\n')).toMatch(/updater\.cjs loads "https"/)
+
+    // a Linux resources folder: no feed and no updater bundle
+    expect(auditResourcesFolder(path.join(fakeApp(CLEAN), 'Contents', 'Resources'), null).problems).toEqual([])
+    expect(auditResourcesFolder(path.join(release, 'Contents', 'Resources'), null).problems.join('\n')).toMatch(/holds updater\.cjs[\s\S]*app-update\.yml is an update feed/)
+  })
+
+  // The patch is per package version (patches/electron-updater@<version>.patch): a new version fails here until its
+  // patch is made again.
+  it('U-PACK-51 · the electron-updater the macOS updater bundles is Kea’s patched one: MacUpdater starts no child, AppUpdater sends no staging id and offers every update, the local server can be closed', () => {
+    const root = path.resolve(import.meta.dirname, '..', '..', '..')
+    const dir = path.dirname(createRequire(path.join(root, 'app/main/package.json')).resolve('electron-updater/package.json'))
+    const version = (JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')) as { version: string }).version
+    expect(fs.existsSync(path.join(root, 'patches', `electron-updater@${version}.patch`)), `a patch for electron-updater ${version}`).toBe(true)
+    const read = (f: string) => fs.readFileSync(path.join(dir, 'out', f), 'utf8')
+    const mac = read('MacUpdater.js')
+    expect(mac).not.toMatch(/child_process|execFileSync/)
+    const app = read('AppUpdater.js')
+    expect(app).not.toMatch(/x-user-staging-id|stagingUserIdPromise\.value/)
+    expect(app).toMatch(/async isStagingMatch\(updateInfo\) \{\s*(?:\/\/[^\n]*\s*)?return true;\s*\}/)
+    expect(read('MacUpdater.d.ts')).toMatch(/^\s*closeServerIfExists\(\): void;$/m)
+  })
 })
 
 describe("the app's sources", () => {
@@ -173,24 +256,37 @@ describe("the app's sources", () => {
     return out
   }
 
-  it('U-PACK-20 · no source file of the app imports a network module or names an updater or crash reporter', () => {
+  // The few files that may name these, each for its bundle's reason (audit.ts BUNDLE_RULES): the macOS updater's entry
+  // and its driver (updater.cjs); main's session for the update check, and the request for the release feed through it.
+  const MAY_NAME_UPDATER = ['app/main/src/os/squirrel.ts', 'app/main/src/os/squirrelDriver.ts']
+  const MAY_MAKE_SESSION = ['app/main/src/main.ts', 'app/main/src/os/squirrel.ts']
+  const MAY_FETCH = ['app/main/src/updates/feed.ts']
+
+  it('U-PACK-20 · no source file of the app imports a network module or names an updater or crash reporter, but the few allowed to for their bundle', () => {
     const files = sources()
     expect(files.length).toBeGreaterThan(200)
     const problems: string[] = []
     const IMPORT = /\bfrom\s+['"]((?:node:)?[a-z_/0-9]+)['"]|\bimport\(\s*['"]((?:node:)?[a-z_/0-9]+)['"]\s*\)|\brequire\(\s*['"]((?:node:)?[a-z_/0-9]+)['"]\s*\)/g
     const NETWORK = new Set(['http', 'https', 'http2', 'tls', 'dgram', 'dns', 'inspector'].flatMap((m) => [m, `node:${m}`]))
     for (const f of files) {
+      const rel = path.relative(root, f).split(path.sep).join('/')
       const text = fs.readFileSync(f, 'utf8')
       for (const m of text.matchAll(IMPORT)) {
         const mod = (m[1] ?? m[2] ?? m[3]) as string
-        if (NETWORK.has(mod)) problems.push(`${path.relative(root, f)} imports ${mod}`)
+        if (NETWORK.has(mod)) problems.push(`${rel} imports ${mod}`)
       }
-      if (/\b(?:autoUpdater|crashReporter|setFeedURL)\b|electron-updater/.test(text)) problems.push(`${path.relative(root, f)} names an updater or crash reporter`)
+      if (/\bcrashReporter\b/.test(text)) problems.push(`${rel} names a crash reporter`)
+      if (/\b(?:autoUpdater|setFeedURL|checkForUpdates)\b|electron-updater/.test(text) && !MAY_NAME_UPDATER.includes(rel)) problems.push(`${rel} names an updater`)
+      if (/\bfromPartition\s*\(/.test(text) && !MAY_MAKE_SESSION.includes(rel)) problems.push(`${rel} makes a session of its own`)
+      if (/(?<![\w$.])(?!this\.fetch\b)[\w$]+(?:\??\.[\w$]+)*\??\.fetch\s*\(|(?<![.\w$])fetch\s*\(/.test(text) && !MAY_FETCH.includes(rel)) problems.push(`${rel} fetches`)
     }
     expect(problems).toEqual([])
     // the list the packaged audit holds every bundle to has no network module on it
     for (const m of NETWORK) expect(ALLOWED_MODULES.has(m), m).toBe(false)
     expect([...NODE_BUNDLES]).toEqual(['main.cjs', 'core.cjs', 'ptyhost.cjs', 'finder-worker.cjs', 'preload.cjs'])
+    expect([...MAC_BUNDLES]).toEqual(['updater.cjs'])
+    // the allowed files exist, so the list never names one that moved
+    for (const f of new Set([...MAY_NAME_UPDATER, ...MAY_MAKE_SESSION, ...MAY_FETCH])) expect(fs.existsSync(path.join(root, f)), f).toBe(true)
   })
 })
 

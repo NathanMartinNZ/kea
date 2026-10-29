@@ -161,6 +161,7 @@ export const COMMANDS: readonly CommandDef[] = [
   { id: 'view.focusWork', title: 'Focus Work Pane', category: 'View', keys: ['⌘['], linuxKeys: ['Ctrl+Shift+PageUp'] },
   { id: 'view.openIn', title: 'Open in… (each detected editor)', category: 'View', surfaces: ['editor ▾'], titles: ['Open in…'] },
   { id: 'view.openInTerminalApp', title: 'Open in Terminal App', category: 'View', surfaces: ['editor ▾'] },
+  { id: 'app.checkUpdates', title: 'Check for Updates… / Restart to Update / Restart Kea', category: 'App', surfaces: ['menu-bar item'], titles: ['Check for Updates…', 'Restart to Update', 'Restart Kea'] },
   { id: 'app.settings', title: 'Settings', category: 'App', keys: ['⌘,'], linuxKeys: ['Ctrl+Shift+,'] },
   { id: 'app.reloadShellEnv', title: 'Reload Shell Environment', category: 'App', other: 'Settings › Advanced' },
   { id: 'app.copyDiagnostics', title: 'Copy Diagnostics', category: 'App', other: 'Settings › Advanced' },
@@ -209,8 +210,8 @@ export const SELECT_ALL_COMMAND = 'terminal.selectAll'
 /** Commands whose action is a native menu role, so the browser's own clipboard events reach the focused element. */
 export const NATIVE_ROLES: Readonly<Record<string, 'copy' | 'paste'>> = { 'terminal.copy': 'copy', 'terminal.paste': 'paste' }
 
-/** Commands main runs itself: they must work with no window (quit, reopen). */
-export const MAIN_COMMANDS: readonly string[] = ['app.openKea', 'app.closeToMenuBar', 'app.quit']
+/** Commands main runs itself: they must work with no window (quit, reopen, the update check, whose state is main's). */
+export const MAIN_COMMANDS: readonly string[] = ['app.openKea', 'app.closeToMenuBar', 'app.quit', 'app.checkUpdates']
 
 // ── shortcuts ──────────────────────────────────────────────────────────────────────────────────────
 

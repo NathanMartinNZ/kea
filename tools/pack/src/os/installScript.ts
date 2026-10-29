@@ -1,8 +1,8 @@
 // install.sh, built. `install.sh` beside this file is the template; the build writes in what a release names:
 // the repository (RELEASE_REPOSITORY), the repository key's fingerprint (read from the key the Linux packages carry),
 // the shared certificate's leaf, the oldest versions Kea supports (constants/), the repository files
-// exactly as the packages write them, and the tarball's files outside its tree. So install.sh and the packages can
-// never disagree. Until the repository is named and its key exists, a release build refuses and only tests build it,
+// exactly as the packages write them, the tarball's files outside its tree, and the macOS updater's cache folder that
+// `--uninstall` removes. So install.sh and the packages can never disagree. Until the repository is named and its key exists, a release build refuses and only tests build it,
 // with a test repository and a test key. Pure but for the CLI at the end:
 //
 //   node tools/pack/src/os/installScript.ts --out <file>                                       a release's (needs the key)
@@ -12,6 +12,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { L } from '../../../../packages/protocol/src/generated/limits.ts'
 import { parseRepository, RELEASE_REPOSITORY } from '../../../../packages/protocol/src/release.ts'
+import { UPDATER_CACHE } from '../installFiles.ts'
 import { CERTIFICATE_LEAF } from '../release.ts'
 import { aptSourceText, INSTALL_DIR, rootFiles, rpmRepoText, zypperRepoText } from './linuxPackage.ts'
 
@@ -116,6 +117,7 @@ export function buildInstallScript(template: string, v: InstallScriptValues): st
     DNF_REPO_OFF: text(rpmRepoText(v.repository, false)),
     ZYPPER_REPO: text(zypperRepoText(v.repository)),
     TARBALL_FILES: tarballFiles().join('\n'),
+    UPDATER_CACHE,
   }
   const unknown = new Set<string>()
   const out = template.replace(/@@([A-Z_]+)@@/g, (_, name: string) => {

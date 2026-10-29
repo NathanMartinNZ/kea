@@ -1,6 +1,17 @@
-// Linux's side of protocol's OS layer (index.ts).
+// Linux's side of protocol's OS layer (index.ts), and the system files Kea's Linux packages and install.sh write
+// outside the app's folder, which the packages and main's update check both name from here.
 import type { Chord } from '../commands.ts'
+import { LINUX_NAME } from '../release.ts'
 import type { ProtocolOs } from './index.ts'
+
+/** The files that say whether Kea's repository is set up: apt's source and the deb's switch, dnf's and zypper's repository files. */
+export const LINUX_REPO_FILES = {
+  aptSource: `/etc/apt/sources.list.d/${LINUX_NAME}.sources`,
+  /** `add_repository=no` here keeps the deb from adding its apt source (install.sh `--no-repo`). */
+  defaults: `/etc/default/${LINUX_NAME}`,
+  rpmRepo: `/etc/yum.repos.d/${LINUX_NAME}.repo`,
+  zypperRepo: `/etc/zypp/repos.d/${LINUX_NAME}.repo`,
+} as const
 
 /** The keys a chord names by word, as a Linux label writes them; any other key is its character, upper-cased. */
 const KEY_NAMES: Readonly<Record<string, string>> = { enter: 'Enter', backspace: 'Backspace', tab: 'Tab', escape: 'Esc', left: 'Left', right: 'Right', up: 'Up', down: 'Down', space: 'Space', delete: 'Delete', insert: 'Insert', home: 'Home', end: 'End', pageup: 'PageUp', pagedown: 'PageDown' }

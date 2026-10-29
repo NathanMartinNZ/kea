@@ -109,7 +109,7 @@ const every = (items: Item[]): Item[] => items.flatMap((i) => [i, ...every(sub(i
 
 function linuxMenuInput(o: Partial<MenuInput> = {}): MenuInput & { sent: string[] } {
   const sent: string[] = []
-  return { appName: 'Kea', renderer: null, hasWindow: true, dev: false, send: (id) => sent.push(id), main: { openKea: () => sent.push('main:openKea'), closeToMenuBar: () => sent.push('main:closeToMenuBar'), quit: () => sent.push('main:quit'), reload: () => undefined }, chrome: need(linux.menu), system: protocolLinux, sent, ...o }
+  return { appName: 'Kea', renderer: null, hasWindow: true, dev: false, send: (id) => sent.push(id), main: { openKea: () => sent.push('main:openKea'), closeToMenuBar: () => sent.push('main:closeToMenuBar'), quit: () => sent.push('main:quit'), checkUpdates: () => sent.push('main:checkUpdates'), reload: () => undefined }, chrome: need(linux.menu), system: protocolLinux, sent, ...o }
 }
 
 describe('the window on Linux', () => {

@@ -272,4 +272,15 @@ describe('the tray on Linux', () => {
     const main = fs.readFileSync(path.join(import.meta.dirname, 'main.ts'), 'utf8')
     expect(main).not.toMatch(/\.on\(\s*['"](click|double-click|right-click)['"]/)
   })
+
+  it('U-DST-39 · while an update waits for a restart the tray’s menu offers it above Open Kea, and its click restarts; otherwise it has none', () => {
+    const restart = vi.fn()
+    const act = { openKea: vi.fn(), showSession: vi.fn(), quit: vi.fn(), restart }
+    expect(trayTemplate(null, act).map((i) => i.id)).toEqual(['app.openKea', 'app.quit'])
+    const t = trayTemplate(null, act, { restart: 'Restart to Update' })
+    expect(t.map((i) => i.id)).toEqual(['app.checkUpdates', 'app.openKea', 'app.quit'])
+    expect(t[0]!.label).toBe('Restart to Update')
+    ;(t[0]!.click as () => void)()
+    expect(restart).toHaveBeenCalledTimes(1)
+  })
 })

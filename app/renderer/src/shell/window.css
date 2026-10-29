@@ -1363,6 +1363,28 @@ code.sheet-row-title,
   max-width: calc(100% - var(--size-dot) - var(--space-2));
 }
 
+/* the update line: the condition line's type and colour, led by a dot in the accent (an update is not a warning) */
+.update-dot {
+  flex: none;
+  width: var(--size-dot);
+  height: var(--size-dot);
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.update-open {
+  height: auto;
+  padding: 0;
+  font-size: inherit;
+  color: inherit;
+  text-align: left;
+}
+
+.update-close {
+  flex: none;
+  margin-left: auto;
+}
+
 /* the needs-you dot sits in the tab's own right padding: a tab that gets one keeps its width */
 .tab-dot {
   position: absolute;

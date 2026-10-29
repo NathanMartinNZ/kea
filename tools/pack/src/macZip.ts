@@ -5,12 +5,11 @@ import fs from 'node:fs'
 import { createRequire } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
-import { releaseUrls } from '../../../packages/protocol/src/release.ts'
-import { PRODUCT_NAME } from './config.ts'
+import { PRODUCT_NAME, releaseFileNames, releaseUrls } from '../../../packages/protocol/src/release.ts'
 import { designatedRequirement, quiet, tool, verifyDeep } from './macApp.ts'
 
 export function zipName(version: string): string {
-  return `${PRODUCT_NAME}-${version}-arm64-mac.zip`
+  return releaseFileNames(version, 'arm64').zip
 }
 
 /** `ditto -c -k --sequesterRsrc --keepParent`: the bundle with its links, modes and signatures as they are. */

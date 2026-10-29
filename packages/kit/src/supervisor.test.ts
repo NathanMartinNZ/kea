@@ -49,11 +49,12 @@ class FakeChild implements SupervisedChild {
   }
 }
 
-function setup(opts: { heartbeat?: boolean; configure?: (c: FakeChild) => void } = {}) {
+function setup(opts: { heartbeat?: boolean; configure?: (c: FakeChild) => void; beforeRespawn?: () => boolean } = {}) {
   const spawned: FakeChild[] = []
   const sup = new Supervisor({
     name: 'core',
     heartbeat: opts.heartbeat ?? false,
+    ...(opts.beforeRespawn ? { beforeRespawn: opts.beforeRespawn } : {}),
     spawn: () => {
       const c = new FakeChild()
       opts.configure?.(c)
@@ -258,5 +259,66 @@ describe('Supervisor', () => {
     expect(attempts).toBe(3)
     expect(sup.state).toBe('running')
     expect(reasons).toEqual(['spawn-failed', 'spawn-failed'])
+  })
+
+  it('U-FAIL-10 · a refused respawn starts no child and schedules no retry; the first start is never asked', () => {
+    const asked: number[] = []
+    let allow = false
+    const { sup, spawned, delays } = setup({ beforeRespawn: () => (asked.push(spawned.length), allow) })
+    const refused: number[] = []
+    sup.onRespawnRefused((e) => refused.push(e.generation))
+    sup.start()
+    expect(spawned).toHaveLength(1)
+    expect(asked).toEqual([])
+    ;(spawned[0] as FakeChild).exit(1)
+    const [d0] = expectedDelays(1) as [number]
+    expect(delays).toEqual([d0])
+    vi.advanceTimersByTime(d0)
+    expect(asked).toEqual([1])
+    expect(refused).toEqual([2])
+    expect(spawned).toHaveLength(1)
+    expect(sup.state).toBe('refused')
+    expect(sup.child).toBeUndefined()
+    expect(vi.getTimerCount()).toBe(0)
+    // nothing retries by itself, even once the answer would change
+    allow = true
+    vi.advanceTimersByTime(L.supervisorBackoffMaxMs * 10)
+    expect(spawned).toHaveLength(1)
+  })
+
+  it('U-FAIL-11 · restart() asks too, and stop() still ends a refused Supervisor', async () => {
+    const { sup, spawned, delays } = setup({ beforeRespawn: () => false })
+    const refused: number[] = []
+    sup.onRespawnRefused((e) => refused.push(e.generation))
+    sup.start()
+    await sup.restart()
+    expect(spawned).toHaveLength(1)
+    expect(refused).toEqual([2])
+    expect(delays).toEqual([])
+    expect(sup.state).toBe('refused')
+    await sup.restart()
+    expect(refused).toEqual([2])
+    await sup.stop()
+    expect(sup.state).toBe('stopped')
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('U-FAIL-12 · a stop during a restart in flight never asks: the exit after stop() respawns nothing', async () => {
+    let asked = 0
+    const { sup, spawned } = setup({
+      beforeRespawn: () => (asked++, true),
+      configure: (c) => {
+        c.exitOnKill = false
+      },
+    })
+    sup.start()
+    const first = spawned[0] as FakeChild
+    void sup.restart()
+    const stopped = sup.stop()
+    first.exit(null)
+    await stopped
+    expect(asked).toBe(0)
+    expect(spawned).toHaveLength(1)
+    expect(sup.state).toBe('stopped')
   })
 })

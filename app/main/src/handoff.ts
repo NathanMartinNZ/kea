@@ -4,7 +4,9 @@
 // to the window made in its place, whose preload asks for it as it starts (as often as Electron runs that preload while
 // the window loads), until its page has started (`kea:hello`); then it is let go, so a reload later takes nothing. A
 // window that does not answer in L.windowHandoffTimeoutMs is replaced without them. Other window-lived state (the find
-// bar's query, the switcher's order, a paste waiting for its confirmation) is not handed over.
+// bar's query, the switcher's order, a paste waiting for its confirmation) is not handed over. A restart Kea makes
+// itself (Restart to Update, Restart Kea) carries the drafts the same way, through a file the next start reads once
+// (`updates/store.ts`), restored here for its first window.
 
 import { L, zWindowHandoff, type WindowHandoff as Handoff } from '@kea/protocol'
 
@@ -49,6 +51,18 @@ export class WindowHandoff {
   /** How many drafts are held for the next window (the log's), null when nothing is. */
   get held(): number | null {
     return this.kept?.drafts.length ?? null
+  }
+
+  /** What the old window handed over, for the file a restart Kea makes itself keeps it in; null when nothing is held. */
+  get state(): Handoff | null {
+    return this.kept
+  }
+
+  /** What the window kept for the restart that started this run (`<userData>/handoff.json`), held for the first window. */
+  restore(state: Handoff): void {
+    this.finish()
+    this.kept = state
+    this.target = null
   }
 
   /** The window made in the old one's place (`windowId`: its webContents id), which alone may take what was handed over. */

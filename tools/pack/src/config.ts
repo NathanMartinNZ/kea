@@ -8,13 +8,12 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { L } from '../../../packages/protocol/src/generated/limits.ts'
 import { DESKTOP_IDS } from '../../../packages/protocol/src/platform.ts'
+import { LINUX_NAME, PRODUCT_NAME } from '../../../packages/protocol/src/release.ts'
 import { APP_ID } from './target.ts'
 
-export const PRODUCT_NAME = 'Kea'
+export { LINUX_NAME, PRODUCT_NAME }
 /** The app's copyright line (macOS shows it in Finder's Get Info and the About panel). */
 export const COPYRIGHT = 'Copyright © 2026 The Kea contributors'
-/** Linux's executable and package name; the macOS bundle's executable stays `Kea`. */
-export const LINUX_NAME = 'kea-app'
 /** The packaged app id on Linux: the desktop file's name, the window class, Electron's `desktopName`. */
 export const DESKTOP_FILE = `${DESKTOP_IDS.packaged}.desktop`
 export const HELPER_NAME = 'kea-helper'
@@ -146,10 +145,15 @@ export function macConfig(i: AppInputs): Record<string, unknown> {
   }
 }
 
-/** `/opt/Kea`'s tree for a Linux target: the executable `kea-app`, the packaged `desktopName`. */
+/**
+ * `/opt/Kea`'s tree for a Linux target: the executable `kea-app`, the packaged `desktopName`, and no `updater.cjs`
+ * (the macOS updater's bundle, which Linux's audit refuses).
+ */
 export function linuxConfig(target: Target, i: AppInputs): Record<string, unknown> {
+  const base = shared(target, i, { ...(i.version ? { version: i.version } : {}), desktopName: DESKTOP_FILE })
   return {
-    ...shared(target, i, { ...(i.version ? { version: i.version } : {}), desktopName: DESKTOP_FILE }),
+    ...base,
+    files: [...(base.files as string[]), '!updater.cjs'],
     executableName: LINUX_NAME,
     linux: { target: [{ target: 'dir', arch: [target.arch] }], executableName: LINUX_NAME },
   }

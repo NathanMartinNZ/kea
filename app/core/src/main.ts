@@ -6,7 +6,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createLogger, resources, tryLock } from '@kea/kit'
-import { fromElectronPort, isMainToChild, need, parseChildArgv, type ChildToMain, type RpcPeer } from '@kea/protocol'
+import { buildMismatch, fromElectronPort, isMainToChild, L, need, parseChildArgv, type ChildToMain, type RpcPeer } from '@kea/protocol'
 import { procsExecutables } from './agents/helper.ts'
 import { createCore } from './core.ts'
 import { sandboxEditorHost, systemEditorHost } from './editor/host.ts'
@@ -16,10 +16,14 @@ import { coreOs } from './os/index.ts'
 import { followVisibleDirs } from './platform/visibleDirs.ts'
 import { Watcher } from './platform/watch/watcher.ts'
 import { registerCoreGauges } from './resources/gauges.ts'
+import { watchUpdatesSetting } from './settings/updatesSetting.ts'
 import { watchMenuBar } from './sessions/lifecycle.ts'
 import { offerToTestHook } from './status/seam.ts'
 import { fileShellEnv, ShellEnvCache } from './terminal/shellEnv.ts'
 import { backupWriter } from './worktrees/backup.ts'
+
+/** The build this bundle belongs to (tools/build.ts defines it); absent when the code runs unbundled. */
+declare const __KEA_BUILD_ID__: string | undefined
 
 interface ParentPort {
   on(event: 'message', listener: (e: { data: unknown; ports: unknown[] }) => void): void
@@ -34,6 +38,13 @@ const send = (m: ChildToMain) => parentPort.postMessage(m)
 
 fs.mkdirSync(path.join(args.home, 'run'), { recursive: true, mode: 0o700 })
 fs.mkdirSync(path.join(args.home, 'logs'), { recursive: true, mode: 0o700 })
+// A core from another build than main's (a package manager replaced Kea's files under a running Kea) stops here,
+// before it takes the lock or opens anything, with the exit code main reads as "Kea's files changed"
+const ownBuild = typeof __KEA_BUILD_ID__ === 'string' ? __KEA_BUILD_ID__ : undefined
+if (buildMismatch(ownBuild, args.build)) {
+  createLogger({ dir: path.join(args.home, 'logs'), process: 'core', level: 'info' }).warn('started from another build than main: exiting', { build: ownBuild, main: args.build })
+  process.exit(L.childBuildMismatchExit)
+}
 const lockPath = path.join(args.home, 'run', 'core.lock')
 let lock: ReturnType<typeof tryLock>
 try {
@@ -209,3 +220,10 @@ watchMenuBar({
 
 log.info('started', { pid: process.pid, home: args.home, version: args.version })
 send({ k: 'ready' })
+
+// Whether main may check for updates by itself (sent now, then on each change of the switch)
+watchUpdatesSetting({
+  check: () => core.settings.values.get('updates.check'),
+  onSettings: (cb) => core.settings.onChange(cb),
+  send: (check) => send({ k: 'updates', check }),
+})

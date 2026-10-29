@@ -13,7 +13,7 @@ const data = (c: Record<string, unknown>) => Object.fromEntries(Object.entries(c
 describe('tools/pack config', () => {
   // The macOS configuration is the app `pnpm kea:install` and the zip share, with the icon, no source maps, the
   // copyright line and the oldest macOS Kea supports; a suffix build sets its version; the licences ship only when
-  // given, with Chromium's credits on macOS. Linux: the executable `kea-app`, the packaged desktopName.
+  // given, with Chromium's credits on macOS. Linux: the executable `kea-app`, the packaged desktopName, no updater bundle.
   it('U-PACK-31 · one config per system over shared parts: macOS as kea:install built it, plus the icon; Linux’s executable and desktopName', () => {
     expect(data(macConfig(inputs))).toEqual({
       appId: 'dev.kea.app',
@@ -49,7 +49,8 @@ describe('tools/pack config', () => {
       { from: '/w/licenses.txt', to: 'licenses.txt' },
     ])
     expect(builderConfig(TARGETS['linux-arm64'], inputs).linux).toEqual({ target: [{ target: 'dir', arch: ['arm64'] }], executableName: 'kea-app' })
-    for (const k of ['appId', 'productName', 'copyright', 'asar', 'asarUnpack', 'files', 'publish']) expect(lx[k], k).toEqual(macConfig(inputs)[k])
+    for (const k of ['appId', 'productName', 'copyright', 'asar', 'asarUnpack', 'publish']) expect(lx[k], k).toEqual(macConfig(inputs)[k])
+    expect(lx.files, "Linux's tree leaves out the macOS updater's bundle").toEqual(['**/*', '!**/*.map', '!updater.cjs'])
 
     // where the app lands, its resources and the file the fuses are in
     expect(builtApp(TARGETS['mac-arm64'], '/o')).toBe('/o/mac-arm64/Kea.app')

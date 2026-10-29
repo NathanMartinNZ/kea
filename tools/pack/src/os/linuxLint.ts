@@ -34,7 +34,7 @@ export const ACCEPTED_RPMLINT: readonly Accepted[] = [
   { tag: 'non-standard-executable-perm', why: SANDBOX },
   { tag: 'missing-call-to-setgroups-before-setuid', why: SANDBOX },
   { tag: 'binary-or-shlib-defines-rpath', why: "Electron's executable finds its own libraries beside it ($ORIGIN)" },
-  { tag: 'binary-or-shlib-calls-gethostbyname', why: "Chromium's network stack, inside Electron; Kea itself makes no request" },
+  { tag: 'binary-or-shlib-calls-gethostbyname', why: "Chromium's network stack, inside Electron, which Kea's one request of its own, the update check, goes through" },
   { tag: 'explicit-lib-dependency', why: "dependencies are Kea's own list (RPM_REQUIRES in tools/pack/src/os/linuxPackage.ts), not rpm's scan (AutoReqProv off: the scan would name Ubuntu's library builds)" },
   { tag: 'no-dependency-on', why: "openSUSE's convention for apps' locale files; Kea's locales are Chromium's .pak files" },
   { tag: 'dangerous-command-in-%post', why: 'the script copies the AppArmor profile into place' },

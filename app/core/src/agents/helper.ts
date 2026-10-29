@@ -1,7 +1,8 @@
-// The kea-helper copy agents' hooks run: one per build, `<KEA_HOME>/bin/<version>-<hash>/kea-helper`, so an update
-// never replaces an executable a running agent's hooks call, and a rebuilt helper is never mistaken for an earlier
-// build's copy. Holders start from another file, the newest helper at `<KEA_HOME>/bin/current/kea-helper` (ptyhost),
-// which nothing here touches.
+// The kea-helper copy agents' hooks run: one per build, `<KEA_HOME>/bin/<version>-<hash>/kea-helper` (kit's
+// `helperCopy.ts`), so an update never replaces an executable a running agent's hooks call, and a rebuilt helper is
+// never mistaken for an earlier build's copy. Main makes this run's copy at start and passes it as `--helper`, so the
+// lazy install here finds it in place under the same name. Holders start from another file, the newest helper at
+// `<KEA_HOME>/bin/current/kea-helper` (ptyhost), which nothing here touches.
 //
 // The copies of earlier builds are removed here too (`HelperCopies`), since core is the process that reads the
 // filesystem and knows what runs: a copy goes only when it is not this build's nor the one the agents' hooks were last
@@ -13,32 +14,13 @@
 import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
-import { runProcess, type Logger } from '@kea/kit'
+import { helperCopyName, runProcess, type Logger } from '@kea/kit'
 import { L, parseProcs } from '@kea/protocol'
 
 /** The executable every copy holds. */
 const HELPER_EXECUTABLE = 'kea-helper'
 
-/**
- * The folder name of a build's helper copy: the Kea version and a hash of the binary, so a rebuilt helper is never
- * taken for an earlier build's copy with the same version.
- */
-export function helperCopyName(source: string, keaVersion: string): string {
-  return `${keaVersion}-${createHash('sha256').update(fs.readFileSync(source)).digest('hex').slice(0, 12)}`
-}
-
-/** `<home>/bin/<version>-<sha256(binary)[:12]>/kea-helper`, copied there from `source` if absent; returns its path. */
-export function installHookHelper(source: string, home: string, keaVersion: string): string {
-  const dir = path.join(home, 'bin', helperCopyName(source, keaVersion))
-  const dest = path.join(dir, 'kea-helper')
-  if (fs.existsSync(dest)) return dest
-  fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
-  const tmp = `${dest}.${process.pid}.tmp`
-  fs.copyFileSync(source, tmp)
-  fs.chmodSync(tmp, 0o755)
-  fs.renameSync(tmp, dest)
-  return dest
-}
+export { helperCopyName, installHookHelper } from '@kea/kit'
 
 /** What a helper copy's folder is called: `<version>-<12 hex digits>`. Nothing else in `bin/` is ever removed here. */
 const COPY_NAME = /^.+-[0-9a-f]{12}$/

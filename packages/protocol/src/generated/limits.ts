@@ -712,6 +712,26 @@ export const L = {
   glibcMinMajor: 2,
   /** Linux's glibc floor is 2.35: its minor part (version) */
   glibcMinMinor: 35,
+  /** an automatic update check runs at most this often, counted by the wall clock from the last attempt, so a laptop that slept still checks when it wakes (ms) */
+  updateCheckIntervalMs: 86400000,
+  /** the first automatic update check of a launch waits this long after the window first loads, so it never competes with startup (ms) */
+  updateCheckDelayMs: 60000,
+  /** how often main tests whether an automatic update check is due; the wall clock decides, since timers stop while the system sleeps (ms) */
+  updateTickMs: 3600000,
+  /** an update check that has had no answer in this long is ended and counts as failed (ms) */
+  updateFetchTimeoutMs: 30000,
+  /** a macOS update download that has made no progress in this long is ended and counts as failed; the next check tries again (ms) */
+  updateStallMs: 120000,
+  /** the release's SHA256SUMS that an update check reads is about 1.4 KB; a larger answer is refused unread (bytes) */
+  updateFeedMaxBytes: 65536,
+  /** a macOS update that is still not the running version after this many starts is never downloaded again: a release whose zip is not the version its feed names must not reinstall on every launch (count) */
+  updateInstallAttemptsMax: 2,
+  /** after a change in Kea's resources folder, main waits this long with no further change before it compares app.asar with the one it started with: a package manager replaces the files in about a second (ms) */
+  packageSettleMs: 3000,
+  /** the exit code of a core, ptyhost or finder worker started from another build than main's (a package replaced under a running Kea): distinct from the codes core and ptyhost use for other ends, and from Node's own (count) */
+  childBuildMismatchExit: 78,
+  /** composer drafts written for a restart Kea makes itself are read by the next start only if younger than this; an older file is deleted unread (ms) */
+  handoffFileMaxAgeMs: 120000,
 } as const
 
 export type LimitName = keyof typeof L
@@ -1073,4 +1093,14 @@ export const LIMIT_META: Record<LimitName, { unit: string; why: string; whyLinux
   macosMinMajor: { unit: "version", why: "the oldest macOS Kea supports: install.sh refuses an older one" },
   glibcMinMajor: { unit: "version", why: "Linux's glibc floor is 2.35 (Ubuntu 22.04's, the oldest image the helper is built on): its major part. The .deb depends on it and install.sh's tarball refuses below it" },
   glibcMinMinor: { unit: "version", why: "Linux's glibc floor is 2.35: its minor part" },
+  updateCheckIntervalMs: { unit: "ms", why: "an automatic update check runs at most this often, counted by the wall clock from the last attempt, so a laptop that slept still checks when it wakes" },
+  updateCheckDelayMs: { unit: "ms", why: "the first automatic update check of a launch waits this long after the window first loads, so it never competes with startup" },
+  updateTickMs: { unit: "ms", why: "how often main tests whether an automatic update check is due; the wall clock decides, since timers stop while the system sleeps" },
+  updateFetchTimeoutMs: { unit: "ms", why: "an update check that has had no answer in this long is ended and counts as failed" },
+  updateStallMs: { unit: "ms", why: "a macOS update download that has made no progress in this long is ended and counts as failed; the next check tries again" },
+  updateFeedMaxBytes: { unit: "bytes", why: "the release's SHA256SUMS that an update check reads is about 1.4 KB; a larger answer is refused unread" },
+  updateInstallAttemptsMax: { unit: "count", why: "a macOS update that is still not the running version after this many starts is never downloaded again: a release whose zip is not the version its feed names must not reinstall on every launch" },
+  packageSettleMs: { unit: "ms", why: "after a change in Kea's resources folder, main waits this long with no further change before it compares app.asar with the one it started with: a package manager replaces the files in about a second" },
+  childBuildMismatchExit: { unit: "count", why: "the exit code of a core, ptyhost or finder worker started from another build than main's (a package replaced under a running Kea): distinct from the codes core and ptyhost use for other ends, and from Node's own" },
+  handoffFileMaxAgeMs: { unit: "ms", why: "composer drafts written for a restart Kea makes itself are read by the next start only if younger than this; an older file is deleted unread" },
 }

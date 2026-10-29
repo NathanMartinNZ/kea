@@ -12,15 +12,17 @@ signed and installed on this Mac) are made of.
     modules, the fuses) · `macApp.ts` (signing inside out with the local certificate, and the checks of a built
     Kea.app) · `icons.ts` (`assets/icon/`, below) · `appPackage.ts` (the built app's `package.json`: its `desktopName`
     is the dev build's, `dev.kea.app.dev.desktop`; the Linux packages set `dev.kea.app.desktop` in `config.ts`).
-  - `pnpm package`'s own: `macZip.ts` (the zip with `ditto`, its blockmap, `latest-mac.yml`, the zip checked
-    unpacked) · `os/linuxPackage.ts` (the Linux packages' one staged root, every file with its owner and mode, the
-    desktop file, the AppArmor profile, the scripts after install and after removal, the deb's control file, the rpm's
-    spec) · `os/linuxLint.ts` (what lintian and rpmlint may say, each with why) · `checks.ts` (the checks on both
-    systems: nothing names the build machine, no source maps, every ELF the target's; the packages' listings read
-    back) · `licences.ts` (the licences file: the bundles' npm packages, the helper's crates, Electron's) ·
+  - `pnpm package`'s own: `macZip.ts` (the zip with `ditto`, its blockmap, `latest-mac.yml`, the zip checked unpacked)
+    · `installFiles.ts` (what a package records in the app's resources folder: `install-kind`, `kea-version` and, in
+    the macOS release app only, `app-update.yml`, the updater's feed) · `os/linuxPackage.ts` (the Linux packages' one
+    staged root, every file with its owner and mode, the desktop file, the AppArmor profile, the scripts after install
+    and after removal, the deb's control file, the rpm's spec) · `os/linuxLint.ts` (what lintian and rpmlint may say,
+    each with why) · `checks.ts` (the checks on both systems: nothing names the build machine, no source maps, every
+    ELF the target's; the packages' listings read back) · `licences.ts` (the licences file: the npm packages of the
+    bundles the system ships, the helper's crates, Electron's; the texts of the few packages that ship none) ·
     `notices.ts` (the notices the licences file carries besides the packages' own licence files, in order: Kea's
-    licence, Electron's, then Oniguruma's and the TextMate grammars' that the file viewer's syntax highlighter bundles,
-    pinned to the versions it names) · `release.ts` (one version; what a `--release` build needs; the shared
+    licence, Electron's, then Oniguruma's and the TextMate grammars' that the file viewer's syntax highlighter
+    bundles, pinned to the versions it names) · `release.ts` (one version; what a `--release` build needs; the shared
     certificate's leaf, which `install.sh` pins) · `os/smoke-linux.sh` (the package smoke test, below).
   - `install.sh`: `os/install.sh` is its template, `os/installScript.ts` the build that writes in the release's values
     (below); `os/installFixtures.ts` makes the signed stand-in release its unit tests check against
@@ -29,12 +31,14 @@ signed and installed on this Mac) are made of.
     Pages), `os/install-e2e.sh` (the containers), `os/install-container.sh` and `os/install-macos.sh` (one system
     each), `os/dry-run-normal.sh` (the goldens).
   - `pnpm kea:install`'s own: `signature.ts` (reading a signature back) · `asar.ts` and `audit.ts` (what a packaged
-    Kea must not carry: an update feed, a crash reporter, a network client; native modules unpacked; a run's net
-    log) · `processes.ts` and `running.ts` (this user's processes from `kea-helper procs --args` of the build's own
-    release helper; which are the Kea of one bundle, its holders by build, asking it to quit) · `replace.ts` (stage,
-    swap, recover) · `target.ts` and `options.ts` (where an install may go, which switches install at all) ·
-    `plan.ts` (what the tool says before it changes anything, and whether Kea is opened again) · `unregister.ts` (a
-    test build taken out of LaunchServices before it is deleted).
+    Kea may reach: no crash reporter or network client but main's update check and the macOS updater's bundle,
+    `updater.cjs`, each held to its own list; `updater.cjs` in every macOS app and in no Linux one; an update feed
+    only in a release's macOS app; native modules unpacked; a run's net log) · `processes.ts` and `running.ts` (this
+    user's processes from `kea-helper procs --args` of the build's own release helper; which are the Kea of one
+    bundle, its holders by build, asking it to quit) · `replace.ts` (stage, swap, recover) · `target.ts` and
+    `options.ts` (where an install may go, which switches install at all) · `plan.ts` (what the tool says before it
+    changes anything, and whether Kea is opened again) · `unregister.ts` (a test build taken out of LaunchServices
+    before it is deleted).
   - `os/`, the parts that differ by system: `packTools`, every system tool by its path (macOS's for signing and the
     install, Linux's for the packages); `rust`, where cargo is; `installPlace`, `/Applications`, the refusal off Apple
     silicon and the certificate steps (Linux has none: its packages install Kea); `nativeAddons`, the darwin
@@ -57,22 +61,27 @@ Always on a machine of the target's system and architecture (another is refused:
 built where they run). The files go to `dist/package`:
 
 - **mac-arm64**: `Kea-<version>-arm64-mac.zip`, its `.blockmap` and `latest-mac.yml` (which names the zip by its
-  versioned release URL). The app is signed inside out exactly as `pnpm kea:install` signs it, with the "Kea Local Code
-  Signing" certificate every macOS release carries ("Always Allow" at codesign's keychain prompt, as below); the
-  private key never leaves the keychain. Without the certificate, `--adhoc` checks the pipeline.
+  versioned release URL). Before signing, the app gets `install-kind` (`mac`), `kea-version` and `app-update.yml` in
+  `Contents/Resources`: the last names the release feed (`releases/latest/download/`) for Kea's updater, which reads its
+  cache folder from it, and the check refuses the app without it. The app is signed inside out exactly as `pnpm
+  kea:install` signs it, with the "Kea Local Code Signing" certificate every macOS release carries ("Always Allow" at
+  codesign's keychain prompt, as below); the private key never leaves the keychain. Without the certificate, `--adhoc`
+  checks the pipeline. An app from `pnpm kea:install` has none of the three files, so it never updates itself.
 - **linux-arm64**, **linux-x64**: `kea-app_<version>_<arch>.deb`, `kea-app-<version>-1.<arch>.rpm`,
-  `kea-app-<version>-linux-<arch>.tar.gz`, each with the same files. Needs `dpkg-deb`, `rpmbuild` and `rpm` (Ubuntu's
-  `rpm` package), `lintian`, `rpmlint`, `desktop-file-validate` and `apparmor_parser` (AppArmor 4 reads the profile's
-  abi; on an older one that check is skipped and the smoke test checks the profile where it is installed).
+  `kea-app-<version>-linux-<arch>.tar.gz`, each with the same files but its own `/opt/Kea/resources/install-kind`
+  (`deb`, `rpm` or `tarball`), with `kea-version` beside it and without `updater.cjs` (the macOS updater). Needs
+  `dpkg-deb`, `rpmbuild` and `rpm` (Ubuntu's `rpm` package), `lintian`, `rpmlint`, `desktop-file-validate` and
+  `apparmor_parser` (AppArmor 4 reads the profile's abi; on an older one that check is skipped and the smoke test checks
+  the profile where it is installed).
 
 Steps: one version for the app, every package and the helper → the helper for the target, built with this machine's
-paths mapped away (`--remap-path-prefix`) → release bundles into `dist/pack-app`, with the list of npm packages they
-hold → the licences file → electron-builder's `dir` app → debug symbols out of the native modules (a module pnpm built
-here names its build folder in them) → fuses → the system's checks and the archives, each checked. A failing line
-stops the run and says why. `--release` also refuses while Kea's repository is not named
-(`packages/protocol/src/release.ts`; never guessed), while the Linux repository key is missing
-(`assets/release/kea-app.gpg`, not in the repository yet: it is added for the first release), with `--adhoc`, and
-with what lint accepts only until a release (the packages' placeholder maintainer address).
+paths mapped away (`--remap-path-prefix`) → release bundles into `dist/pack-app`, with the list of npm packages each
+holds → the licences file (on Linux without the macOS updater's packages) → electron-builder's `dir` app → debug
+symbols out of the native modules (a module pnpm built here names its build folder in them) → fuses → the system's
+checks and the archives, each checked. A failing line stops the run and says why. `--release` also refuses while Kea's
+repository is not named (`packages/protocol/src/release.ts`; never guessed), while the Linux repository key is missing
+(`assets/release/kea-app.gpg`, not in the repository yet: it is added for the first release), with `--adhoc`, and with
+what lint accepts only until a release (the packages' placeholder maintainer address).
 
 The Linux packages also install the terminal font from `assets/fonts/` (its README gives the source, hashes and
 licence) into `/usr/share/fonts/kea-app/`, so fontconfig gives it to Chromium with no code of Kea's; its licence goes
@@ -85,23 +94,25 @@ names them):
 podman run --rm -v $PWD/dist/package:/pkgs:ro -v $PWD/tools/pack/src/os/smoke-linux.sh:/smoke.sh:ro <image> sh /smoke.sh /pkgs/<package>
 ```
 
-It installs the package with the system's own tool, checks the files, modes, desktop file, font and AppArmor profile,
-starts Kea as a new user under an Xvfb of its own with a temporary KEA_HOME, reads the platform report, quits Kea
-completely and starts it again, removes the package and checks that only `~/.config/Kea` and KEA_HOME are left (the
-desktop libraries' own stores, fontconfig's and dconf's caches, NSS's certificate database and IBus's bus address, are
-reported, not counted). It opens no terminal: a packaged Kea has no test hooks and refuses the debugging switches, so
-checking that a terminal survives the quit needs a driver for the packaged window, which this test does not have.
+It installs the package with the system's own tool, checks the files, modes, desktop file, font, AppArmor profile,
+install kind and version, starts Kea as a new user under an Xvfb of its own with a temporary KEA_HOME, reads the
+platform report, quits Kea completely and starts it again, removes the package and checks that only `~/.config/Kea`
+and KEA_HOME are left (the desktop libraries' own stores, fontconfig's and dconf's caches, NSS's certificate database
+and IBus's bus address, are reported, not counted). It opens no terminal: a packaged Kea has no test hooks and refuses
+the debugging switches, so checking that a terminal survives the quit needs a driver for the packaged window, which
+this test does not have.
 
 ## `install.sh`
 
 The release's installer for both systems. `os/install.sh` is a template: `os/installScript.ts` writes in the
 repository (`RELEASE_REPOSITORY`), the repository key's fingerprint (read from the key, v4 or v6), the shared
-certificate's leaf, the oldest versions from `constants/`, the repository files exactly as the packages write them and
-the tarball's files outside its tree, and refuses a value it does not know or a `@@` left over. `pnpm package` writes
-it into the output when the repository's key is present; `--release` refuses without it. A test build names a test
-repository and key: `pnpm package --test-repository <owner/name> --test-key <key>`, or alone,
-`node tools/pack/src/os/installScript.ts --out <file> --test-repository <owner/name> --test-key <key>`. Never run it on
-a machine of your own: only in containers and VMs (it installs, and `install-macos.sh` edits `/etc/hosts`).
+certificate's leaf, the oldest versions from `constants/`, the repository files exactly as the packages write them,
+the tarball's files outside its tree and the macOS updater's cache folder (which `--uninstall` removes with
+Squirrel.Mac's staged update), and refuses a value it does not know or a `@@` left over. `pnpm package` writes it into
+the output when the repository's key is present; `--release` refuses without it. A test build names a test repository
+and key: `pnpm package --test-repository <owner/name> --test-key <key>`, or alone, `node
+tools/pack/src/os/installScript.ts --out <file> --test-repository <owner/name> --test-key <key>`. Never run it on a
+machine of your own: only in containers and VMs (it installs, and `install-macos.sh` edits `/etc/hosts`).
 
 The repository's README gives the one-line install and `docs/install-linux.md` the commands to install by hand on
 Linux; a unit test holds both to what the dry runs print.

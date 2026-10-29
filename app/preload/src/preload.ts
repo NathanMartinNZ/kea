@@ -74,6 +74,7 @@ ipcRenderer.on('kea:quitSheet', (_e, msg: { live: unknown; background?: unknown 
 ipcRenderer.on('kea:showSession', (_e, msg: { sessionId: unknown }) => {
   if (typeof msg?.sessionId === 'string') toPage({ kea: 'showSession', sessionId: msg.sessionId }, [])
 })
+ipcRenderer.on('kea:updateState', (_e, msg: { state: unknown }) => toPage({ kea: 'updateState', state: msg?.state }, []))
 ipcRenderer.on('kea:handoffAsk', (_e, msg: { reqId: unknown }) => {
   if (Number.isInteger(msg?.reqId)) toPage({ kea: 'handoffAsk', reqId: msg.reqId }, [])
 })
@@ -119,6 +120,14 @@ contextBridge.exposeInMainWorld('kea', {
   openHomeItem: (which: string): void => {
     if (typeof which === 'string') ipcRenderer.send('kea:openHomeItem', which)
   },
+  /** Ask main for its update state; it arrives as `{ kea: 'updateState', state }`, as every change does. */
+  askUpdateState: (): void => ipcRenderer.send('kea:updateState'),
+  /** About's Check Now and Try Again: a check, nothing else. */
+  checkUpdates: (): void => ipcRenderer.send('kea:checkUpdates'),
+  /** Restart to Update (macOS) or Restart Kea (Linux), while main offers one. */
+  restartToUpdate: (): void => ipcRenderer.send('kea:restartToUpdate'),
+  /** The line saying Kea checks for updates was in view, or About's Updates block was opened. */
+  updateNoticeShown: (): void => ipcRenderer.send('kea:updateNoticeShown'),
   /** Run one of main's own commands from the palette (`MAIN_COMMANDS`: they work with no window). Main checks it. */
   mainCommand: (id: string): void => {
     if (typeof id === 'string') ipcRenderer.send('kea:mainCommand', id)

@@ -104,8 +104,11 @@ export function verifyDeep(app: string): string | null {
   return deep.status === 0 ? null : deep.out
 }
 
-/** The checks of a built Kea.app, line by line: each failure names the line it breaks; returns the lines that hold. */
-export function checkMacApp(app: string, o: { fuses: FusesApi; wire: FuseWire; adhoc: boolean; signed: readonly string[] }): string[] {
+/**
+ * The checks of a built Kea.app, line by line: each failure names the line it breaks; returns the lines that hold.
+ * `feed`: the release feed its `app-update.yml` names (`pnpm package`), or null for an app with none (`pnpm kea:install`).
+ */
+export function checkMacApp(app: string, o: { fuses: FusesApi; wire: FuseWire; adhoc: boolean; signed: readonly string[]; feed: string | null }): string[] {
   const lines: string[] = []
   const deep = verifyDeep(app)
   if (deep !== null) throw new Error(`codesign --verify --deep --strict failed:\n${deep}`)
@@ -153,8 +156,8 @@ export function checkMacApp(app: string, o: { fuses: FusesApi; wire: FuseWire; a
   if (resources.includes('default_app.asar') || resources.includes('app')) throw new Error(`Contents/Resources must hold no default_app.asar or app/ (${resources.join(', ')})`)
   lines.push(`Info.plist: ElectronAsarIntegrity covers ${asars.join(', ')}`)
 
-  // No update feed, no crash reporter, no network client; native modules unpacked (audit.ts)
-  const audit = auditApp(app, Object.keys(plist))
+  // No crash reporter or network client beyond each bundle's own; the feed only where expected; native modules unpacked (audit.ts)
+  const audit = auditApp(app, Object.keys(plist), o.feed)
   if (audit.problems.length) throw new Error(`the packaged app carries what Kea must not ship:\n  ${audit.problems.join('\n  ')}`)
   const unsignedNative = audit.nativeModules.filter((n) => !o.signed.includes(path.join(app, 'Contents', 'Resources', 'app.asar.unpacked', n)))
   if (unsignedNative.length) throw new Error(`native modules in app.asar.unpacked that were not signed: ${unsignedNative.join(', ')}`)

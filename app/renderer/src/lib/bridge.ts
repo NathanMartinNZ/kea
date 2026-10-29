@@ -6,10 +6,11 @@
 // renderer's resource report, answered by the reporter `setResourceReporter` installs, and the window's own question
 // for every process's report (`resourceReports`: Copy diagnostics and the dev HUD); the native pieces of the window's
 // UI: the folder picker (`pickFolder`), `reveal`, `openSettingsFile` and `pathForFile` for dropped files; the
-// first-quit sheet main asks for and its answer, and a session main asks the window to show. Ports and main's messages
-// arrive by window.postMessage from the preload, because contextBridge cannot carry MessagePorts.
+// first-quit sheet main asks for and its answer, and a session main asks the window to show; main's update state and
+// the window's update actions (`onUpdateState`, `checkUpdates`, `restartToUpdate`, `updateNoticeShown`). Ports and
+// main's messages arrive by window.postMessage from the preload, because contextBridge cannot carry MessagePorts.
 
-import { asCollectedResources, isCommandId, zWindowHandoff, zWindowMenuNode, type CollectedResources, type CommandInvocation, type EditRole, type MenuState, type ResourceReport, type WindowHandoff, type WindowMenuNode } from '@kea/protocol'
+import { asCollectedResources, isCommandId, zUpdateState, zWindowHandoff, zWindowMenuNode, type CollectedResources, type CommandInvocation, type EditRole, type MenuState, type ResourceReport, type UpdateState, type WindowHandoff, type WindowMenuNode } from '@kea/protocol'
 
 interface PreloadApi {
   platform: { version: string; arch: string; perf: boolean }
@@ -27,6 +28,10 @@ interface PreloadApi {
   askNotificationState(reqId: number): void
   openNotificationSettings(): void
   mainCommand(id: string): void
+  askUpdateState(): void
+  checkUpdates(): void
+  restartToUpdate(): void
+  updateNoticeShown(): void
   editRole(role: EditRole): void
   pickMenu(id: string): void
   pathForFile(file: File): string
@@ -57,6 +62,9 @@ const reportAsks = new Map<number, (c: CollectedResources | null) => void>() // 
 const quitSheetListeners = new Set<(live: number, background: boolean) => void>() // bounded: the window's one quit-sheet installer
 const showSessionListeners = new Set<(sessionId: string) => void>() // bounded: the window's one installer
 const windowMenuListeners = new Set<(m: WindowMenuOpening) => void>() // bounded: the window's one menu layer (Linux)
+const updateListeners = new Set<(s: UpdateState) => void>() // bounded: the window's one update store
+/** Main's update state as it last said; null until it says. */
+let updateState: UpdateState | null = null
 let nextReq = 1
 let lastRpc: MessagePort | null = null
 let reporter: (() => ResourceReport) | null = null
@@ -157,6 +165,13 @@ window.addEventListener('message', (e: MessageEvent) => {
     case 'showSession': {
       const id = (d as { sessionId?: unknown }).sessionId
       if (typeof id === 'string') for (const l of [...showSessionListeners]) l(id)
+      return
+    }
+    case 'updateState': {
+      const r = zUpdateState.safeParse((d as { state?: unknown }).state)
+      if (!r.success) return
+      updateState = r.data
+      for (const l of [...updateListeners]) l(r.data)
       return
     }
     case 'handoffAsk': {
@@ -390,4 +405,27 @@ export function onShowSession(cb: (sessionId: string) => void): () => void {
 /** Open a link in the default browser. Main opens only http, https and mailto and denies the window itself. */
 export function openExternal(url: string): void {
   window.open(url, '_blank', 'noopener,noreferrer')
+}
+
+/** Main's update state now (asked for at the first call) and at each change. Returns an unsubscribe function. */
+export function onUpdateState(cb: (s: UpdateState) => void): () => void {
+  updateListeners.add(cb)
+  if (updateState) cb(updateState)
+  else window.kea.askUpdateState()
+  return () => updateListeners.delete(cb)
+}
+
+/** A check now (About's Check Now and Try Again). */
+export function checkUpdates(): void {
+  window.kea.checkUpdates()
+}
+
+/** Restart to Update or Restart Kea, while main offers one. */
+export function restartToUpdate(): void {
+  window.kea.restartToUpdate()
+}
+
+/** The line saying Kea checks for updates was in view, or About's Updates block was opened. */
+export function updateNoticeShown(): void {
+  window.kea.updateNoticeShown()
 }

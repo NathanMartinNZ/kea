@@ -47,9 +47,11 @@ for f in /usr/share/applications/dev.kea.app.desktop /usr/share/icons/hicolor/25
   fi
   fail "$f is missing"
 done
+[ "$(cat /opt/Kea/resources/install-kind)" = "$family" ] || fail "/opt/Kea/resources/install-kind says $(cat /opt/Kea/resources/install-kind 2>/dev/null), not $family"
+grep -Eqx '[0-9]+\.[0-9]+\.[0-9]+([-~][0-9A-Za-z.-]+)?' /opt/Kea/resources/kea-version || fail "/opt/Kea/resources/kea-version holds no version"
 grep -q '^Exec=/usr/bin/kea-app %U$' /usr/share/applications/dev.kea.app.desktop || fail 'the desktop file does not start the launcher'
 grep -q '^StartupWMClass=dev.kea.app$' /usr/share/applications/dev.kea.app.desktop || fail "the desktop file's StartupWMClass"
-ok 'files in place: launcher, app, chrome-sandbox 4755 root, desktop file, icons, licences, profile'
+ok "files in place: launcher, app, chrome-sandbox 4755 root, desktop file, icons, licences, profile, install kind $family, version $(cat /opt/Kea/resources/kea-version)"
 for f in Regular Bold; do [ "$(mode /usr/share/fonts/kea-app/JetBrainsMono-$f.ttf)" = '644 root:root' ] || fail "the terminal font's $f style"; done
 if command -v fc-match >/dev/null 2>&1; then
   case $(fc-match -f '%{file}' 'JetBrains Mono') in

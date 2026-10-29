@@ -52,7 +52,7 @@ describe('settings schema', () => {
   })
 
   it('U-SET-3 · every key is a complete row descriptor: label, section, a valid default and a control', () => {
-    const sections: SettingsSection[] = ['General', 'Terminal', 'Agents', 'Notifications', 'Files', 'file only']
+    const sections: SettingsSection[] = ['General', 'Terminal', 'Agents', 'Notifications', 'Files', 'Updates', 'file only']
     const defs = allSettingDefs([claude])
     for (const d of defs) {
       expect(d.label.length, d.fullKey).toBeGreaterThan(0)
@@ -91,5 +91,12 @@ describe('settings schema', () => {
     const defs = allSettingDefs([claude]).filter((d) => d.agent === 'claude')
     expect(defs.at(-1)?.fullKey).toBe('agents.claude.renderer')
     expect(defs.map((d) => d.key)).toEqual(['command', 'defaults', 'allowDangerousModes', 'extraArgs', 'env', 'throughLoginShell', 'renderer'])
+  })
+
+  it('U-SET-10 · the Updates section holds the switch for checking by itself, a toggle on by default, which only Settings › About draws', () => {
+    const rows = allSettingDefs([claude]).filter((d) => d.section === 'Updates')
+    expect(rows.map((d) => d.fullKey)).toEqual(['updates.check'])
+    expect(rows[0]).toMatchObject({ control: 'toggle', default: true, label: 'Check for updates automatically' })
+    expect(rows[0]!.help).toMatch(/no identifier and no cookie/)
   })
 })

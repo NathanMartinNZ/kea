@@ -2,11 +2,13 @@ import type { MenuItemConstructorOptions } from 'electron'
 import { describe, expect, it, vi } from 'vitest'
 import { COMMANDS, MAIN_COMMANDS, need, zMenuState } from '@kea/protocol'
 import { darwin as protocolDarwin } from '@kea/protocol/os/darwin'
+import { linux as protocolLinux } from '@kea/protocol/os/linux'
 import { darwin } from './os/darwin.ts'
+import { linux } from './os/linux.ts'
 import { menuTemplate, windowMenuState, type MenuInput, type WindowMenuState } from './menu.ts'
 
 function input(over: Partial<MenuInput> = {}): MenuInput {
-  return { appName: 'Kea', renderer: null, hasWindow: true, dev: false, send: vi.fn(), main: { openKea: vi.fn(), closeToMenuBar: vi.fn(), quit: vi.fn(), reload: vi.fn() }, chrome: need(darwin.menu), system: protocolDarwin, ...over }
+  return { appName: 'Kea', renderer: null, hasWindow: true, dev: false, send: vi.fn(), main: { openKea: vi.fn(), closeToMenuBar: vi.fn(), quit: vi.fn(), checkUpdates: vi.fn(), reload: vi.fn() }, chrome: need(darwin.menu), system: protocolDarwin, ...over }
 }
 
 /** A renderer's report: these commands, each available or not. */
@@ -138,5 +140,23 @@ describe('menu bar', () => {
     // a title that is not one of the row's never reaches main
     expect(zMenuState.safeParse({ commands: [{ id: 'server.toggle', enabled: true, title: 'Anything' }] }).success).toBe(false)
     expect(zMenuState.safeParse({ commands: [{ id: 'session.new', enabled: true, title: 'New Session' }] }).success).toBe(false)
+  })
+
+  it('U-DST-38 · Check for Updates… sits after About in the app menu on macOS and first in File’s app group on Linux, works with no window, and takes main’s title (Restart to Update, Restart Kea)', () => {
+    const mac = input({ hasWindow: false })
+    const app = named(menuTemplate(mac), 'Kea')
+    expect(app[0]).toMatchObject({ role: 'about' })
+    expect(app[1]).toMatchObject({ id: 'app.checkUpdates', label: 'Check for Updates…' })
+    expect(app[1]!.enabled, 'never disabled: main runs it').toBeUndefined()
+    ;(app[1]!.click as () => void)()
+    expect(mac.main.checkUpdates).toHaveBeenCalledTimes(1)
+    for (const title of ['Restart to Update', 'Restart Kea']) expect(named(menuTemplate(input({ updateTitle: title })), 'Kea')[1]).toMatchObject({ id: 'app.checkUpdates', label: title })
+
+    const lin = input({ chrome: need(linux.menu), system: protocolLinux })
+    const file = named(menuTemplate(lin), 'File')
+    const first = file.findIndex((m) => m.id === 'app.checkUpdates')
+    expect(first).toBeGreaterThan(-1)
+    expect(file[first - 1], 'the app group starts after a separator').toMatchObject({ type: 'separator' })
+    expect(named(menuTemplate({ ...lin, updateTitle: 'Restart Kea' }), 'File')[first]).toMatchObject({ label: 'Restart Kea' })
   })
 })

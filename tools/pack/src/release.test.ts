@@ -1,8 +1,11 @@
 // The licences file, one version, a release build's rules, the repository's URLs and macOS's feed.
+import fs from 'node:fs'
+import { createRequire } from 'node:module'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { parseRepository, RELEASE_REPOSITORY, releaseUrls } from '../../../packages/protocol/src/release.ts'
-import { crates, licenceFiles, licencesText, repositoryOf, type Dependency } from './licences.ts'
+import { MAC_BUNDLES } from './audit.ts'
+import { bundledPackages, crates, licenceFiles, licencesText, npmDependency, PACKAGE_LICENCES, repositoryOf, type Dependency } from './licences.ts'
 import { latestMacYml, zipName } from './macZip.ts'
 import { cargoVersion, installScriptStep, releaseProblems, VERSION_RE, versionProblems } from './release.ts'
 
@@ -45,7 +48,7 @@ describe('licences, versions and releases', () => {
       { name: '@xterm/headless', version: '6.0.0', licence: 'MIT', dir: '/n/headless', repository: 'xtermjs/xterm.js' },
     ]
     const files: Record<string, string[]> = { '/n/zod': ['LICENSE', 'index.js'], '/n/xterm': ['LICENSE'], '/n/headless': ['package.json'] }
-    const text = licencesText({ product: 'Kea', version: '0.1.0', deps, notices: [{ title: 'Electron — MIT', text: 'electron licence' }], files: (d) => files[d] ?? [], read: (f) => `text of ${f}\n` })
+    const text = licencesText({ product: 'Kea', version: '0.1.0', deps, notices: [{ title: 'Electron — MIT', text: 'electron licence' }], texts: {}, files: (d) => files[d] ?? [], read: (f) => `text of ${f}\n` })
     expect(text.split('\n').slice(0, 2)).toEqual(['Kea 0.1.0: the licences of the software it is made of.', "Chromium's credits are in LICENSES.chromium.html, in Kea's folder (macOS: Kea.app/Contents/Resources)."])
     const sections = text.split(`${'-'.repeat(78)}\n`).slice(1).map((s) => s.trim())
     expect(sections).toEqual([
@@ -54,7 +57,30 @@ describe('licences, versions and releases', () => {
       '@xterm/xterm@6.0.0 — MIT\n\ntext of /n/xterm/LICENSE',
       'zod@4.0.0 — MIT\n\ntext of /n/zod/LICENSE',
     ])
-    expect(() => licencesText({ product: 'Kea', version: '1', deps: [{ ...deps[2]!, repository: 'other/repo' }], notices: [], files: (d) => files[d] ?? [], read: () => '' })).toThrow(/no licence text for @xterm\/headless@6.0.0/)
+    expect(() => licencesText({ product: 'Kea', version: '1', deps: [{ ...deps[2]!, repository: 'other/repo' }], notices: [], texts: {}, files: (d) => files[d] ?? [], read: () => '' })).toThrow(/no licence text for @xterm\/headless@6.0.0/)
+  })
+
+  // Each system's file lists the packages of the bundles it ships: Linux's leave out the macOS updater's, but for a
+  // package another bundle holds too; the old flat list is refused. A package that ships no licence file and has no
+  // sibling to borrow from takes its text from PACKAGE_LICENCES, pinned to its version: lazy-val, which the updater
+  // bundles, is one, and the installed lazy-val still ships none and declares MIT under the author the text names.
+  it('U-PACK-53 · the licences per bundle: Linux’s leave out the macOS updater’s packages; a package without a licence file takes the text pinned for its version', () => {
+    const byBundle = { 'main.cjs': ['/n/zod'], 'core.cjs': ['/n/zod', '/n/debug'], 'updater.cjs': ['/n/debug', '/n/lazy-val', '/n/fs-extra'], native_modules: ['/n/better-sqlite3'] }
+    expect(bundledPackages(byBundle, [])).toEqual(['/n/better-sqlite3', '/n/debug', '/n/fs-extra', '/n/lazy-val', '/n/zod'])
+    expect(bundledPackages(byBundle, MAC_BUNDLES), 'debug stays: core holds it too').toEqual(['/n/better-sqlite3', '/n/debug', '/n/zod'])
+    for (const bad of [['/n/zod'], null, { 'main.cjs': '/n/zod' }]) expect(() => bundledPackages(bad, []), JSON.stringify(bad)).toThrow(/build again with tools\/build\.ts --packages-out/)
+
+    const lazy: Dependency = { name: 'lazy-val', version: '1.0.5', licence: 'MIT', dir: '/n/lazy-val', repository: 'develar/lazy-val' }
+    const text = licencesText({ product: 'Kea', version: '1', deps: [lazy], notices: [], texts: PACKAGE_LICENCES, files: () => ['package.json', 'out'], read: () => '' })
+    expect(text).toContain(`lazy-val@1.0.5 — MIT\n\n${PACKAGE_LICENCES['lazy-val@1.0.5']}`)
+    expect(PACKAGE_LICENCES['lazy-val@1.0.5']).toMatch(/^MIT License\n\nCopyright \(c\) Vladimir Krivosheev\n\nPermission is hereby granted/)
+    expect(() => licencesText({ product: 'Kea', version: '1', deps: [{ ...lazy, version: '1.0.6' }], notices: [], texts: PACKAGE_LICENCES, files: () => [], read: () => '' })).toThrow(/no licence text for lazy-val@1\.0\.6: add the licence its package\.json declares to PACKAGE_LICENCES/)
+    // the one installed: still without a licence file, MIT, by the author the text names
+    const installed = npmDependency(path.dirname(createRequire(createRequire(path.join(root, 'app/main/package.json')).resolve('electron-updater/package.json')).resolve('lazy-val/package.json')))
+    expect(`${installed.name}@${installed.version}`).toBe('lazy-val@1.0.5')
+    expect(installed.licence).toBe('MIT')
+    expect(licenceFiles(installed, fs.readdirSync(installed.dir))).toEqual([])
+    expect((JSON.parse(fs.readFileSync(path.join(installed.dir, 'package.json'), 'utf8')) as { author: string }).author).toBe('Vladimir Krivosheev')
   })
 
   // One version: package.json's, semver or a release candidate, and the helper's Cargo.toml the same (true of this

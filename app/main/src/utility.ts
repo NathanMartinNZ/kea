@@ -20,6 +20,7 @@ export class UtilityChild implements SupervisedChild {
   private readonly notices = new Emitter<NotificationOp>({ name: 'UtilityChild.notify' })
   private readonly visibles = new Emitter<{ connId: number; dirs: string[] }>({ name: 'UtilityChild.visible' })
   private readonly watchLimits = new Emitter<boolean>({ name: 'UtilityChild.watchLimit' })
+  private readonly updateChecks = new Emitter<boolean>({ name: 'UtilityChild.updates' })
   private readonly stops = new Replies<true>()
   private n = 0
   private exited = false
@@ -58,6 +59,7 @@ export class UtilityChild implements SupervisedChild {
         this.notices.fire(op)
       } else if (m.k === 'visible') this.visibles.fire({ connId: m.connId, dirs: m.dirs })
       else if (m.k === 'watchLimit') this.watchLimits.fire(m.held)
+      else if (m.k === 'updates') this.updateChecks.fire(m.check)
     })
     this.proc.on('exit', (code: number) => {
       if (this.exited) return
@@ -72,6 +74,7 @@ export class UtilityChild implements SupervisedChild {
       this.notices.dispose()
       this.visibles.dispose()
       this.watchLimits.dispose()
+      this.updateChecks.dispose()
       this.stops.dispose()
     })
   }
@@ -147,6 +150,11 @@ export class UtilityChild implements SupervisedChild {
    */
   onWatchLimit(cb: (held: boolean) => void): Disposable {
     return this.watchLimits.event(cb)
+  }
+
+  /** Core: whether Kea may check for updates by itself (`updates.check`), at its start and on each change. */
+  onUpdates(cb: (check: boolean) => void): Disposable {
+    return this.updateChecks.event(cb)
   }
 
   /** Core: stop every session (Stop All and Quit); resolves on its answer, at `deadlineMs` or when it exits. */

@@ -9,6 +9,8 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { L } from '../../../../packages/protocol/src/generated/limits.ts'
 import { RELEASE_REPOSITORY } from '../../../../packages/protocol/src/release.ts'
 import { CERTIFICATE_LEAF } from '../release.ts'
+import { UPDATER_CACHE } from '../installFiles.ts'
+import { APP_ID } from '../target.ts'
 import { SIGNING, standInRelease } from './installFixtures.ts'
 import { armor, buildInstallScript, dearmor, keyFingerprint, RELEASE_KEY, releaseValues, tarballFiles, TEMPLATE } from './installScript.ts'
 import { aptSourceText, rpmRepoText, zypperRepoText } from './linuxPackage.ts'
@@ -356,5 +358,34 @@ describe('install.sh', () => {
       expect(expected.split('\n').length, `${family}: the golden has commands`).toBeGreaterThan(3)
       expect(block.endsWith(expected), `${family}: the page's block ends with the dry run's files and commands`).toBe(true)
     }
+  })
+
+  // macOS's --uninstall: the app as before, then the updater's downloads and Squirrel.Mac's staged update, which are
+  // the user's own (removed as them, shown in a dry run, only where they exist), and only after the checks that the
+  // app is Kea and that it is not running; with no app there is nothing to remove. A running Kea refuses an install
+  // with what works for every version: Restart to Update where Kea offers it, or quitting it completely.
+  it('U-PACK-54 · on macOS --uninstall removes the updater’s caches after its checks; an install over a running Kea names Restart to Update and quitting completely', () => {
+    const s = buildInstallScript(template, values)
+    expect(s).toContain(`updater_cache='${UPDATER_CACHE}'`)
+    expect(s).toContain(`app_id=${APP_ID}\n`)
+    const body = s.slice(s.indexOf('  uninstall_mac() {'), s.indexOf('\n  }\n', s.indexOf('  uninstall_mac() {')))
+    const at = (needle: string) => {
+      const i = body.indexOf(needle)
+      expect(i, needle).toBeGreaterThanOrEqual(0)
+      return i
+    }
+    const order = [
+      at('nothing to remove.'),
+      at('return 0'),
+      at('CFBundleIdentifier'),
+      at('mac_running && die'),
+      at('mac_change rm -rf "$mac_app"'),
+      at('for um_cache in "$HOME/Library/Caches/$updater_cache" "$HOME/Library/Caches/$app_id.ShipIt"; do'),
+      at('if [ -e "$um_cache" ]; then mine rm -rf "$um_cache"; fi'),
+    ]
+    expect([...order].sort((a, b) => a - b), 'in this order').toEqual(order)
+    const running = /die "Kea \$\{im_old:-\(an older version\)\} is running from \$mac_app, so nothing was replaced: ([^"]+)"/.exec(s)?.[1] ?? ''
+    expect(running).toMatch(/Restart to Update/)
+    expect(running).toMatch(/quit it completely \(Quit Kea Completely, ⌥⌘Q; its sessions keep running\) and run this again/)
   })
 })

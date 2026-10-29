@@ -54,4 +54,19 @@ describe('the window handoff', () => {
     h.giveTo(NEW)
     expect(h.take(NEW)).toBeNull()
   })
+
+  it('U-DST-31 · drafts kept across a restart Kea made itself are held for the first window only, until its page has started; the state read for the file is the old window’s answer', async () => {
+    const h = new WindowHandoff()
+    h.restore({ drafts: [[PROJECT, draft]] } as never)
+    expect(h.take(7), 'no window named yet').toBeNull()
+    h.giveTo(7)
+    expect(h.take(7)).toEqual({ drafts: [[PROJECT, draft]] })
+    h.started(7)
+    expect(h.take(7)).toBeNull()
+    const asked: number[] = []
+    const done = h.ask((id) => asked.push(id))
+    h.answer(asked[0], { drafts: [[PROJECT, draft]] })
+    await done
+    expect(h.state).toEqual({ drafts: [[PROJECT, draft]] })
+  })
 })

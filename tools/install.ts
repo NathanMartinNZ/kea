@@ -25,7 +25,8 @@
 // unsigned, `.node` files unpacked from the asar, kea-helper in Contents/Resources → fuses → codesign inside-out (every
 // loose Mach-O, every nested framework and helper app, kea-helper as `dev.kea.helper`, then the app; hardened runtime
 // off, no entitlements, no timestamp server) → verify (signatures and who made each, arm64 only, kea-helper's
-// identifier, fuses read back, no update feed, crash reporter or network client: tools/pack/src/audit.ts) → install.
+// identifier, fuses read back, no update feed or crash reporter, no network client beyond each bundle's own:
+// tools/pack/src/audit.ts) → install.
 //
 // Install (tools/pack/src): the release kea-helper first, which lists the processes (`kea-helper procs`); then,
 // before the app is built, say what is there and what will happen (read-only looks), and say it again before the
@@ -295,7 +296,8 @@ async function main(): Promise<void> {
 
   step('verify')
   const wire = await fuses.getCurrentFuseWire(app)
-  const lines = must(() => checkMacApp(app, { fuses, wire, adhoc: o.adhoc, signed: signed.items }))
+  // no feed and no install kind: an app this tool installs is never updated by Kea's updater
+  const lines = must(() => checkMacApp(app, { fuses, wire, adhoc: o.adhoc, signed: signed.items, feed: null }))
 
   let last = ['not installed']
   if (o.target) {

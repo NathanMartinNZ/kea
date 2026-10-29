@@ -5,9 +5,12 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { createLogger, registerSingletonGauge, resources, tryLock } from '@kea/kit'
-import { fromElectronPort, isMainToChild, L, parseChildArgv, ptyhostApi, RpcPeer, type ChildToMain, type PtyhostNote } from '@kea/protocol'
+import { buildMismatch, fromElectronPort, isMainToChild, L, parseChildArgv, ptyhostApi, RpcPeer, type ChildToMain, type PtyhostNote } from '@kea/protocol'
 import { installExceptionGuard } from './guard.ts'
 import { PtyManager } from './manager.ts'
+
+/** The build this bundle belongs to (tools/build.ts defines it); absent when the code runs unbundled. */
+declare const __KEA_BUILD_ID__: string | undefined
 
 /** The slice of Electron's `process.parentPort` used here (this package does not depend on electron). */
 interface ParentPort {
@@ -23,6 +26,13 @@ const send = (m: ChildToMain) => parentPort.postMessage(m)
 
 fs.mkdirSync(path.join(args.home, 'run'), { recursive: true, mode: 0o700 })
 fs.mkdirSync(path.join(args.home, 'logs'), { recursive: true, mode: 0o700 })
+// A ptyhost from another build than main's (a package manager replaced Kea's files under a running Kea) stops here,
+// before it takes the lock or opens anything, with the exit code main reads as "Kea's files changed"
+const ownBuild = typeof __KEA_BUILD_ID__ === 'string' ? __KEA_BUILD_ID__ : undefined
+if (buildMismatch(ownBuild, args.build)) {
+  createLogger({ dir: path.join(args.home, 'logs'), process: 'ptyhost', level: 'info' }).warn('started from another build than main: exiting', { build: ownBuild, main: args.build })
+  process.exit(L.childBuildMismatchExit)
+}
 const lockPath = path.join(args.home, 'run', 'ptyhost.lock')
 let lock: ReturnType<typeof tryLock>
 try {

@@ -1,5 +1,8 @@
 // `pnpm build`: bundle every process into dist/app (the directory Electron runs, and the one packaging ships).
 //   main.cjs, core.cjs, ptyhost.cjs  esbuild, CommonJS for Node 24 (electron and native modules external)
+//   finder-worker.cjs                esbuild: the finder's worker thread, which core starts
+//   updater.cjs                      esbuild: the macOS updater (app/main/src/os/squirrel.ts), which main loads only
+//                                    when it makes the updater; only the Mac app ships it (tools/pack/src/config.ts)
 //   preload.cjs                      esbuild, CommonJS: a sandboxed preload cannot be an ES module
 //   renderer/                        Vite (app/renderer/vite.config.ts)
 // CommonJS everywhere keeps utility processes and the preload on Electron's best-trodden path; sources stay ESM.
@@ -16,12 +19,15 @@
 // nothing else (NODE_ENV, Vite's mode and the checks they guard stay the dev build's): the memory suite's build, where
 // dev Svelte's error stacks of often-written signals would keep closed views alive. Vitest's NODE_ENV (`test`)
 // otherwise gives a test build dev Svelte (app/renderer/vite.config.ts).
-// `--packages-out <file>` writes the folders of the npm packages the bundles hold (esbuild's and Vite's inputs, and the
-// native packages), for the licences file a package carries (tools/pack/src/licences.ts).
+// Every esbuild bundle gets `__KEA_BUILD_ID__`, one random id per run, so a child can tell it was built with its main.
+// `--packages-out <file>` writes the folders of the npm packages each bundle holds, as `{ "<bundle>": [folders] }`
+// (esbuild's and Vite's inputs; the native packages under `native_modules`), for the licences file a package carries
+// (tools/pack/src/licences.ts), which leaves out the bundles a system does not ship.
 // `--out dist/<name>` builds elsewhere (the chaos and memory suites use dist/test-app-<tag>, so a `pnpm dev` or `pnpm perf`
 // rebuilding dist/app never pulls files from under a running test). It must sit two levels below the repo root, as
 // dist/app does: a dev main finds the release kea-helper at `../../native/kea-helper/target/release`.
 
+import { randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 import { createRequire } from 'node:module'
 import path from 'node:path'
@@ -56,9 +62,11 @@ const common = {
   // kit reads import.meta.url only to trim its own frames from leak stacks; in a bundle it is absent, by design
   logOverride: { 'empty-import-meta': 'silent' },
   absWorkingDir: root,
-  define: { 'process.env.NODE_ENV': JSON.stringify(release ? 'production' : 'development'), __KEA_PERF_PROBES__: JSON.stringify(perfProbes) },
+  define: { 'process.env.NODE_ENV': JSON.stringify(release ? 'production' : 'development'), __KEA_PERF_PROBES__: JSON.stringify(perfProbes), __KEA_BUILD_ID__: JSON.stringify(randomUUID()) },
 }
 const node = { ...common, platform: 'node', target: 'node24' }
+/** Node's own fs in place of graceful-fs in the updater's bundle (the shim says why). */
+const gracefulFs = path.join(root, 'tools/shims/graceful-fs.cjs')
 const jsoncEsm = path.join(path.dirname(createRequire(path.join(root, 'app/core/package.json')).resolve('jsonc-parser/package.json')), 'lib/esm/main.js')
 
 /**
@@ -126,35 +134,43 @@ const started = performance.now()
 fs.rmSync(out, { recursive: true, force: true })
 fs.mkdirSync(out, { recursive: true })
 
-const built = await Promise.all([
-  esbuild.build({ ...node, entryPoints: ['app/main/src/main.ts'], outfile: path.join(out, 'main.cjs'), external: ['electron'] }),
-  esbuild.build({ ...common, platform: 'browser', target: 'chrome140', entryPoints: ['app/preload/src/preload.ts'], outfile: path.join(out, 'preload.cjs'), external: ['electron'] }),
+/** Every bundle by the name `--packages-out` lists it under. */
+const jobs: [string, Promise<unknown>][] = [
+  ['main.cjs', esbuild.build({ ...node, entryPoints: ['app/main/src/main.ts'], outfile: path.join(out, 'main.cjs'), external: ['electron'] })],
+  ['preload.cjs', esbuild.build({ ...common, platform: 'browser', target: 'chrome140', entryPoints: ['app/preload/src/preload.ts'], outfile: path.join(out, 'preload.cjs'), external: ['electron'] })],
   // jsonc-parser's `main` is a UMD build whose require() calls esbuild cannot follow (a bundle without ./impl/*): its ESM build
-  esbuild.build({ ...node, entryPoints: ['app/core/src/main.ts'], outfile: path.join(out, 'core.cjs'), external: ['electron', '@parcel/watcher'], plugins: [nativeModules], alias: { 'jsonc-parser': jsoncEsm } }),
+  ['core.cjs', esbuild.build({ ...node, entryPoints: ['app/core/src/main.ts'], outfile: path.join(out, 'core.cjs'), external: ['electron', '@parcel/watcher'], plugins: [nativeModules], alias: { 'jsonc-parser': jsoncEsm } })],
   // the finder's worker thread: its own bundle beside core.cjs, which core reads and starts (files/finder.ts)
-  esbuild.build({ ...node, entryPoints: ['app/core/src/files/finder-worker.ts'], outfile: path.join(out, 'finder-worker.cjs') }),
-  esbuild.build({ ...node, entryPoints: ['app/ptyhost/src/main.ts'], outfile: path.join(out, 'ptyhost.cjs'), external: ['electron'] }),
-  vite.build({ configFile: path.join(root, 'app/renderer/vite.config.ts'), logLevel: 'warn', mode: release ? 'production' : 'development', build: { outDir: path.join(out, 'renderer') } }),
-])
+  ['finder-worker.cjs', esbuild.build({ ...node, entryPoints: ['app/core/src/files/finder-worker.ts'], outfile: path.join(out, 'finder-worker.cjs') })],
+  ['ptyhost.cjs', esbuild.build({ ...node, entryPoints: ['app/ptyhost/src/main.ts'], outfile: path.join(out, 'ptyhost.cjs'), external: ['electron'] })],
+  // the macOS updater: built on either system, so a bundle is one build everywhere; Linux's packages leave it out
+  ['updater.cjs', esbuild.build({ ...node, entryPoints: ['app/main/src/os/squirrel.ts'], outfile: path.join(out, 'updater.cjs'), external: ['electron'], alias: { 'graceful-fs': gracefulFs } })],
+  ['renderer', vite.build({ configFile: path.join(root, 'app/renderer/vite.config.ts'), logLevel: 'warn', mode: release ? 'production' : 'development', build: { outDir: path.join(out, 'renderer') } })],
+]
+const built = await Promise.all(jobs.map(([, job]) => job))
 
 copyNativeModules()
 copyAgentFiles()
 
 if (packagesOut) {
-  // every module the bundles were made of (esbuild's inputs are relative to the repo; Vite's chunks list absolute ids)
-  const inputs: string[] = []
-  for (const r of built) {
+  const byBundle: Record<string, string[]> = {}
+  for (const [i, [name]] of jobs.entries()) {
+    // every module the bundle was made of (esbuild's inputs are relative to the repo; Vite's chunks list absolute ids)
+    const r = built[i]
+    const inputs: string[] = []
     const meta = (r as { metafile?: { inputs: Record<string, unknown> } } | null)?.metafile
-    if (meta) inputs.push(...Object.keys(meta.inputs).map((i) => path.resolve(root, i)))
+    if (meta) inputs.push(...Object.keys(meta.inputs).map((id) => path.resolve(root, id)))
     else for (const o of [r].flat() as { output?: { modules?: Record<string, unknown> }[] }[]) for (const c of o?.output ?? []) inputs.push(...Object.keys(c.modules ?? {}))
+    const dirs = new Set<string>()
+    for (const id of inputs) {
+      // the package a module belongs to: the last `node_modules/<name>` (or `@scope/name`) on its path
+      const m = /^(.*[\\/]node_modules[\\/](?:@[^\\/]+[\\/])?[^\\/]+)[\\/]/.exec(id.replace(/^\0+/, '').replace(/\?.*$/, ''))
+      if (m) dirs.add(fs.realpathSync(m[1] as string))
+    }
+    byBundle[name] = [...dirs].sort()
   }
-  const dirs = new Set(NATIVE.map((n) => fs.realpathSync(nativeDir(n))))
-  for (const id of inputs) {
-    // the package a module belongs to: the last `node_modules/<name>` (or `@scope/name`) on its path
-    const m = /^(.*[\\/]node_modules[\\/](?:@[^\\/]+[\\/])?[^\\/]+)[\\/]/.exec(id.replace(/^\0+/, '').replace(/\?.*$/, ''))
-    if (m) dirs.add(fs.realpathSync(m[1] as string))
-  }
-  fs.writeFileSync(packagesOut, `${JSON.stringify([...dirs].sort(), null, 2)}\n`)
+  byBundle[NATIVE_DIR] = NATIVE.map((n) => fs.realpathSync(nativeDir(n))).sort()
+  fs.writeFileSync(packagesOut, `${JSON.stringify(byBundle, null, 2)}\n`)
 }
 
 const version = (JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')) as { version: string }).version

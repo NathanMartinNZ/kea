@@ -122,7 +122,7 @@ describe('command table', () => {
       const whole = parts.every((p) => p.includes(' '))
       expect([JSON.stringify(shared), ...(whole ? [JSON.stringify(parts)] : [])], c.id).toContain(JSON.stringify(c.titles))
     }
-    expect(COMMANDS.filter((c) => c.titles).map((c) => c.id)).toEqual(['files.cut', 'files.copy', 'files.undo', 'server.toggle', 'view.toggleAgentPane', 'view.openIn'])
+    expect(COMMANDS.filter((c) => c.titles).map((c) => c.id)).toEqual(['files.cut', 'files.copy', 'files.undo', 'server.toggle', 'view.toggleAgentPane', 'view.openIn', 'app.checkUpdates'])
   })
 
   it('U-KB-2 · unique ids, a category for every command, every default binding unique in its scope', () => {
@@ -170,7 +170,7 @@ describe('command table', () => {
     }
     expect(surfaceMenu('session ⌃').slice(0, 4)).toEqual(['session.rename', 'session.openInEditor', 'session.reveal', 'session.copyBranch'])
     expect(surfaceMenu('editor ▾')).toEqual(['session.reveal', 'session.copyWorktreePath', 'view.openIn', 'view.openInTerminalApp'])
-    expect(surfaceMenu('menu-bar item')).toEqual(['app.openKea', 'app.quit'])
+    expect(surfaceMenu('menu-bar item')).toEqual(['app.checkUpdates', 'app.openKea', 'app.quit'])
     // a terminal's menu reads as a terminal app's: the clipboard first, then Find and Clear
     expect(surfaceMenu('terminal ⌃')).toEqual(['terminal.copy', 'terminal.paste', 'terminal.selectAll', 'terminal.find', 'terminal.clear'])
     // the file tree's menus: a row's, and the folder's own (the Files bar, the space under the rows)
