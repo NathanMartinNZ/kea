@@ -253,8 +253,20 @@ describe('cursors', () => {
     const set = sheet.rules.filter((r) => cursor(r) !== undefined)
     const by = (value: string) => set.filter((r) => cursor(r) === value).map((r) => r.selector).sort()
     // the hand-kept list: a new cursor is added here on purpose
-    expect(by('pointer')).toEqual(['.branch-chip', '.config-summary', '.diff-stat', '.link-button', '.server-chip', '.viewer-preview a[data-path]', '.viewer-preview a[href]'].sort())
-    expect(by('text')).toEqual(['.viewer .cm-editor .cm-content'])
+    expect(by('pointer')).toEqual(
+      [
+        '.branch-chip',
+        '.config-summary',
+        '.diff-stat',
+        '.kea-terminal .xterm.enable-mouse-events .xterm-cursor-pointer',
+        '.kea-terminal .xterm.enable-mouse-events.xterm-cursor-pointer',
+        '.link-button',
+        '.server-chip',
+        '.viewer-preview a[data-path]',
+        '.viewer-preview a[href]',
+      ].sort(),
+    )
+    expect(by('text')).toEqual(['.kea-terminal .xterm.enable-mouse-events', '.viewer .cm-editor .cm-content'])
     expect(by('col-resize')).toEqual(['.divider', '.window.resizing'])
     expect(by('zoom-in')).toEqual(['.viewer-image img'])
     expect(by('zoom-out')).toEqual(['.viewer-image.actual img'])
