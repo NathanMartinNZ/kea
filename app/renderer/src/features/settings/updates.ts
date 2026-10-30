@@ -143,13 +143,15 @@ export interface FooterUpdate {
   /** ✕ hides it: the notice for good, "is out" for that version until Kea next starts. */
   close: boolean
   version: string | null
+  /** The end of `text` that names what a click does; a line that wraps never splits it. */
+  action: string | null
 }
 
 export function footerUpdate(s: UpdateState, o: { dismissed(version: string): boolean; notice: boolean }): FooterUpdate | null {
   const p = s.phase
-  if (p.k === 'ready') return { kind: 'ready', text: `Kea ${p.version} is ready — Restart to Update`, click: 'restart', close: false, version: p.version }
-  if (p.k === 'upgraded') return { kind: 'upgraded', text: 'Kea was updated — Restart Kea', click: 'restart', close: false, version: p.version }
-  if (p.k === 'available' && !o.dismissed(p.version)) return { kind: 'out', text: `Kea ${p.version} is out`, click: 'about', close: true, version: p.version }
-  if (o.notice) return { kind: 'notice', text: `Kea checks GitHub ${checkInterval()} for a newer version · Settings`, click: 'about', close: true, version: null }
+  if (p.k === 'ready') return { kind: 'ready', text: `Kea ${p.version} is ready — Restart to Update`, click: 'restart', close: false, version: p.version, action: 'Restart to Update' }
+  if (p.k === 'upgraded') return { kind: 'upgraded', text: 'Kea was updated — Restart Kea', click: 'restart', close: false, version: p.version, action: 'Restart Kea' }
+  if (p.k === 'available' && !o.dismissed(p.version)) return { kind: 'out', text: `Kea ${p.version} is out`, click: 'about', close: true, version: p.version, action: null }
+  if (o.notice) return { kind: 'notice', text: `Kea checks GitHub ${checkInterval()} for a newer version · Settings`, click: 'about', close: true, version: null, action: 'Settings' }
   return null
 }

@@ -1363,26 +1363,51 @@ code.sheet-row-title,
   max-width: calc(100% - var(--size-dot) - var(--space-2));
 }
 
-/* the update line: the condition line's type and colour, led by a dot in the accent (an update is not a warning) */
-.update-dot {
-  flex: none;
-  width: var(--size-dot);
-  height: var(--size-dot);
-  border-radius: 50%;
-  background: var(--accent);
-}
-
+/* the update line: the condition line's type and colour, led by a dot in the accent (an update is not a warning). The dot
+   starts the text, with a hanging indent, so a wrapped line keeps it on its first line */
 .update-open {
+  /* a block, not the quiet button's flex box: the text and its action flow as one text, which wraps or ends in an ellipsis */
+  display: block;
   height: auto;
-  padding: 0;
+  padding: 0 0 0 calc(var(--size-dot) + var(--space-2));
+  text-indent: calc(-1 * (var(--size-dot) + var(--space-2)));
   font-size: inherit;
   color: inherit;
   text-align: left;
 }
 
+.update-open::before {
+  content: '';
+  display: inline-block;
+  width: var(--size-dot);
+  height: var(--size-dot);
+  margin-right: var(--space-2);
+  border-radius: 50%;
+  background: var(--accent);
+  vertical-align: middle;
+}
+
 .update-close {
   flex: none;
   margin-left: auto;
+}
+
+/* the text and ✕ stay on one row: wider than compact the text wraps, its action never split; compact, it is cut short */
+.update-line {
+  flex-wrap: nowrap;
+}
+
+/* the dot is the text's own, so the text may take the whole row */
+.update-line > .update-open {
+  max-width: 100%;
+}
+
+.update-line:not(.compact) > .update-open {
+  white-space: normal;
+}
+
+.update-action {
+  white-space: nowrap;
 }
 
 /* the needs-you dot sits in the tab's own right padding: a tab that gets one keeps its width */

@@ -33,12 +33,17 @@ describe('the update state in the window', () => {
   })
 
   it('U-DST-45 · the footer: "is out" with ✕ until dismissed for that version, ready and updated without ✕ (a click restarts), the one-time line saying how often Kea checks', () => {
-    expect(footerUpdate(at({ phase: { k: 'available', version: '1.0.3' } }), none)).toEqual({ kind: 'out', text: 'Kea 1.0.3 is out', click: 'about', close: true, version: '1.0.3' })
+    expect(footerUpdate(at({ phase: { k: 'available', version: '1.0.3' } }), none)).toEqual({ kind: 'out', text: 'Kea 1.0.3 is out', click: 'about', close: true, version: '1.0.3', action: null })
     expect(footerUpdate(at({ phase: { k: 'available', version: '1.0.3' } }), { dismissed: (v) => v === '1.0.3', notice: false })).toBeNull()
-    expect(footerUpdate(at({ phase: { k: 'ready', version: '1.0.3' } }), none)).toMatchObject({ text: 'Kea 1.0.3 is ready — Restart to Update', click: 'restart', close: false })
-    expect(footerUpdate(at({ phase: { k: 'upgraded', version: '1.0.3' } }), none)).toMatchObject({ text: 'Kea was updated — Restart Kea', click: 'restart', close: false })
-    expect(footerUpdate(at({}), { dismissed: () => false, notice: true })).toMatchObject({ kind: 'notice', text: 'Kea checks GitHub once a day for a newer version · Settings', close: true })
+    expect(footerUpdate(at({ phase: { k: 'ready', version: '1.0.3' } }), none)).toMatchObject({ text: 'Kea 1.0.3 is ready — Restart to Update', click: 'restart', close: false, action: 'Restart to Update' })
+    expect(footerUpdate(at({ phase: { k: 'upgraded', version: '1.0.3' } }), none)).toMatchObject({ text: 'Kea was updated — Restart Kea', click: 'restart', close: false, action: 'Restart Kea' })
+    expect(footerUpdate(at({}), { dismissed: () => false, notice: true })).toMatchObject({ kind: 'notice', text: 'Kea checks GitHub once a day for a newer version · Settings', close: true, action: 'Settings' })
     expect(footerUpdate(at({ phase: { k: 'current', version: '1.0.2' } }), none)).toBeNull()
+    // a line's action is the end of its text, which the footer keeps whole on one line
+    for (const phase of [{ k: 'ready', version: '1.0.3' }, { k: 'upgraded', version: null }] as const) {
+      const line = footerUpdate(at({ phase }), none)!
+      expect(line.text.endsWith(` ${line.action}`), line.text).toBe(true)
+    }
     expect(checkInterval(86_400_000)).toBe('once a day')
     expect(checkInterval(43_200_000)).toBe('every 12 hours')
     expect(checkInterval(172_800_000)).toBe('every 2 days')

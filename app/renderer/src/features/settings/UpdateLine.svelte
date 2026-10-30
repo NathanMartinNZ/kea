@@ -4,6 +4,8 @@ accent (an update is not a warning): "Kea 1.0.3 is out" (a click opens Settings 
 until Kea next starts), "Kea 1.0.3 is ready — Restart to Update" and "Kea was updated — Restart Kea" (a click
 restarts; no ✕), or, once per home where Kea checks by itself, the line saying it does (a click opens About; ✕ closes
 it). That line counts as seen only while it is in view in a window in front, and the first automatic check waits for it.
+Wider than compact the line wraps rather than being cut short, and its action is never split; compact, it is cut short
+and its tooltip has the whole wording.
 -->
 <script lang="ts">
   import { untrack } from 'svelte'
@@ -54,9 +56,11 @@ it). That line counts as seen only while it is in view in a window in front, and
 </script>
 
 {#if line}
-  <div class="condition-line update-line" role="status" aria-label={line.text} data-update-line={line.kind} bind:this={el}>
-    <span class="update-dot" aria-hidden="true"></span>
-    <button class="quiet-button update-open condition-text" data-tip={sidebarCompact() ? line.text : undefined} onmousedown={keepFocus} onclick={open}>{line.text}</button>
+  {@const lead = line.action ? line.text.slice(0, line.text.length - line.action.length) : line.text}
+  <div class="condition-line update-line" class:compact={sidebarCompact()} role="status" aria-label={line.text} data-update-line={line.kind} bind:this={el}>
+    <button class="quiet-button update-open condition-text" data-tip={sidebarCompact() ? line.text : undefined} onmousedown={keepFocus} onclick={open}
+      >{lead}{#if line.action}<span class="update-action">{line.action}</span>{/if}</button
+    >
     {#if line.close}
       <button class="quiet-button icon update-close" aria-label="Dismiss" data-tip="Dismiss" onmousedown={keepFocus} onclick={close}><Icon name="close" /></button>
     {/if}
