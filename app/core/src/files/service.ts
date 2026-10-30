@@ -221,7 +221,7 @@ export class FilesService implements GitFacts, Disposable {
       const scope = zDiffScope.safeParse(v.scope)
       return {
         expanded: Array.isArray(v.expanded) ? v.expanded.filter((p): p is string => typeof p === 'string') : [],
-        scope: scope.success ? scope.data : 'branch',
+        ...(scope.success ? { scope: scope.data } : {}),
         ui: v.ui && typeof v.ui === 'object' && !Array.isArray(v.ui) ? v.ui : {},
         ...(v.fsmonitor === true ? { fsmonitor: true } : {}),
         ...(v.fsmonitor === true && v.fsmonitorPrior && typeof v.fsmonitorPrior === 'object' ? { fsmonitorPrior: Object.fromEntries(FSMONITOR_KEYS.flatMap((k) => (typeof v.fsmonitorPrior?.[k] === 'string' ? [[k, v.fsmonitorPrior[k]]] : []))) } : {}),
@@ -267,6 +267,7 @@ export class FilesService implements GitFacts, Disposable {
       fsmonitor: this.fsmonitor,
       trashTool: this.o.trashTool ?? null,
       persist: (sid, files) => this.save(sid, files),
+      defaultScope: () => this.defaultScope(),
       repository: (sid) => this.bound?.repository?.(sid),
       changed: (sid) => {
         for (const l of [...this.listeners]) {
@@ -344,7 +345,7 @@ export class FilesService implements GitFacts, Disposable {
       'files.open': ({ sessionId }) => {
         const s = this.shown(sessionId)
         const p = s.persisted()
-        return { ok: true, expanded: p.expanded, scope: p.scope, ui: p.ui, trash: s.trashAvailable, undo: s.undoKind }
+        return { ok: true, expanded: p.expanded, scope: s.scope, ui: p.ui, trash: s.trashAvailable, undo: s.undoKind }
       },
       'files.expand': async ({ sessionId, path }) => ({ ok: await this.shown(sessionId).expand(path) }),
       'files.collapse': ({ sessionId, path }) => ({ ok: this.shown(sessionId).collapse(path) }),
@@ -399,10 +400,25 @@ export class FilesService implements GitFacts, Disposable {
     this.sessions.get(sessionId)?.refreshSoon(false)
   }
 
+  private scopeSetting: () => DiffScope = () => 'branch'
+
+  /** The scope of a session whose user has not chosen one: the `files.changesScope` setting (core binds it). */
+  defaultScope(): DiffScope {
+    return this.scopeSetting()
+  }
+
+  /** Bind the setting; the sessions in memory that have no scope of their own follow it. */
+  followScopeSetting(get: () => DiffScope): () => void {
+    this.scopeSetting = get
+    return () => {
+      for (const s of this.sessions.values()) s.followDefaultScope(get())
+    }
+  }
+
   // ── GitFacts ──────────────────────────────────────────────────────────────────────────────────
 
   scope(sessionId: string): DiffScope {
-    return this.sessions.get(sessionId)?.scope ?? this.load(sessionId)?.scope ?? 'branch'
+    return this.sessions.get(sessionId)?.scope ?? this.load(sessionId)?.scope ?? this.defaultScope()
   }
 
   async base(sessionId: string, scope: DiffScope): Promise<string | null> {

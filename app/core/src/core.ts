@@ -235,6 +235,7 @@ export function createCore(o: CoreOptions): Core {
   const ghostty = new GhosttyFile({ path: o.ghosttyConfig ?? null, log, ...(o.watchSettings !== false ? { watcher: watch } : {}) })
   const followGhostty = () => ghostty.follow(settings.values.get('terminal.theme') === GHOSTTY_THEME)
   settings.onChange(followGhostty)
+  settings.onChange(files.followScopeSetting(() => settings.values.get('files.changesScope')))
   followGhostty()
   // keybindings.json, followed as settings.json is
   const keybindings = new KeybindingsFile({ home, log, watch: o.watchSettings !== false, watcher: watch })

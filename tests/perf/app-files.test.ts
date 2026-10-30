@@ -125,7 +125,8 @@ interface FileSession {
 
 /** Kea with one session of `make`'s repository (inside the run's home, so the run's cleanup removes it), its tree's root listed. */
 async function sessionOf(make: (o: { parent: string }) => FixtureRepo, prompt: string, liveMs = LIVE_MS): Promise<FileSession> {
-  const { run, kea } = await startKea()
+  // the panel hides ignored files here, as the budgets below were set for it
+  const { run, kea } = await startKea({ settings: { files: { showIgnored: false } } })
   const page = await kea.page()
   const repo = make({ parent: run.home })
   await addProject(kea, repo.root)

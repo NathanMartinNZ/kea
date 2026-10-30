@@ -57,7 +57,7 @@ that git ignores while ignored files are hidden (with Show). In Files the Files 
 
   function showHidden(path: string): void {
     panel.hidden = null
-    if (!filesModel.ui.showIgnored) commands.run('files.toggleIgnored')
+    if (!filesModel.showIgnored) commands.run('files.toggleIgnored')
     filesModel.reveal(path)
   }
 

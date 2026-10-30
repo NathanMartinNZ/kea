@@ -41,7 +41,7 @@ function clipGoes(sessionId: string, from: string): void {
 
 /** Carry out what follows a done operation. `began`: it began in the list. `open`: a new file, shown in the viewer. */
 export function applyAnswer(sessionId: string, r: Extract<FileOpResult, { ok: true }>, o: { began: boolean; open?: boolean }): void {
-  const plan = afterPlan(r, { sessionId, shown: filesModel.sessionId, showIgnored: filesModel.ui.showIgnored, began: o.began, inPanel: keyboardInPanel(), from: r.from })
+  const plan = afterPlan(r, { sessionId, shown: filesModel.sessionId, showIgnored: filesModel.showIgnored, began: o.began, inPanel: keyboardInPanel(), from: r.from })
   if (plan.tabs) {
     moveFileTabs(sessionId, plan.tabs.from, plan.tabs.to)
     clipGoes(sessionId, plan.tabs.from)

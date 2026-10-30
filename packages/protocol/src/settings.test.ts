@@ -1,3 +1,5 @@
+import fs from 'node:fs'
+import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import { allSettingDefs, parseSettings, SETTINGS, type AgentSettingsExtension, type SettingsSection } from './settings.ts'
@@ -98,5 +100,29 @@ describe('settings schema', () => {
     expect(rows.map((d) => d.fullKey)).toEqual(['updates.check'])
     expect(rows[0]).toMatchObject({ control: 'toggle', default: true, label: 'Check for updates automatically' })
     expect(rows[0]!.help).toMatch(/no identifier and no cookie/)
+  })
+
+  it('U-SET-11 · every setting in the table is named as a string by code outside the table and the tests, so no row of Settings is a switch that does nothing', () => {
+    // keys that are stored and shown without a reader, each with the reason
+    const unread: Record<string, string> = {}
+    const root = path.resolve(import.meta.dirname, '../../..')
+    const skip = new Set(['node_modules', 'dist', 'out', 'target', '.svelte-kit', 'generated'])
+    const text: string[] = []
+    const walk = (dir: string): void => {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (e.isDirectory()) {
+          if (!skip.has(e.name)) walk(path.join(dir, e.name))
+        } else if (/\.(ts|svelte)$/.test(e.name) && !/\.test\./.test(e.name)) {
+          // the table's own rows do not count as a reader
+          text.push(fs.readFileSync(path.join(dir, e.name), 'utf8').split('\n').filter((l) => !/^\s*\{ key: '/.test(l)).join('\n'))
+        }
+      }
+    }
+    for (const top of ['app', 'packages']) for (const pkg of fs.readdirSync(path.join(root, top))) if (fs.existsSync(path.join(root, top, pkg, 'src'))) walk(path.join(root, top, pkg, 'src'))
+    const all = text.join('\n')
+    const dead = SETTINGS.map((d) => d.key).filter((k) => !all.includes(`'${k}'`) && !all.includes(`"${k}"`) && !(k in unread))
+    expect(dead).toEqual([])
+    // an entry whose key has a reader is removed from the list
+    expect(Object.keys(unread).filter((k) => all.includes(`'${k}'`) || all.includes(`"${k}"`))).toEqual([])
   })
 })

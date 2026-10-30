@@ -58,6 +58,9 @@ const DEEP = { 'lib/top.ts': 'export const top = 0\n', 'lib/deep/other.ts': 'exp
 test('E-FT-2 · the file tree with real clicks and keys: folders open and close (a single-child chain as one row), a click shows a file in the preview tab, the arrows, typing a name, Space and Enter walk it, ⌘↵ and a double-click open the editor; a file written, changed or deleted on disk shows with its letter, its folder’s dot and the header’s count; ignored files stay hidden until asked for; the row’s menu runs the `file ⌃` commands; the viewer’s breadcrumb reveals a folder that was closed, and a file in folders the tree never loaded, from Changes too; and the tree comes back as it was after another session was shown', async ({ run, launch }) => {
   const editors = new EditorWorld(run)
   editors.editor('vscode')
+  // ignored files are shown by default; this test starts from the panel hiding them
+  const settingsFile = path.join(run.home, 'settings.json')
+  fs.writeFileSync(settingsFile, `${JSON.stringify({ ...JSON.parse(fs.readFileSync(settingsFile, 'utf8')), files: { showIgnored: false } }, null, 2)}\n`)
   const kea = await launch()
   const { id, worktree } = await sessionWith(kea, run, { ...NESTED, ...DEEP })
   const page = await kea.page()

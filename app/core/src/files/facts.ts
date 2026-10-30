@@ -7,7 +7,7 @@ import type { Disposable } from '@kea/kit'
 import type { DiffScope, GitEntry } from '@kea/protocol'
 
 export interface GitFacts {
-  /** The session's active scope; `branch` until the session chose otherwise. */
+  /** The session's active scope; the `files.changesScope` setting until the session chose otherwise. */
   scope(sessionId: string): DiffScope
   /**
    * The commit a scope compares against, as a full object id: the merge base (`branch`), or `HEAD`'s commit

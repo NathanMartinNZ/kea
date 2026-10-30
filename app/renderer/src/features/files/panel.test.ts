@@ -1,13 +1,23 @@
 // The file panel's pure parts: which rows are drawn, what the keys do, what the Changes view and the finder say. The
 // components only lay these out.
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { DISCARD_REFUSALS, filesApi, TREE_HEAD_KEY, treeKey, type GitEntry, type GitHead, type TreeEntry, type TreeRow } from '@kea/protocol'
 import { baseLabel, branchLine, branchText, changedList, changeRow, DISCARD_REFUSED, diffHeader, diffStat, discardBlocked, discardPlan, discardRequests, firstChangedLine, midPath, totalsText } from './changes.ts'
 import { finderMove, finderNote, hitRow, midParts } from './finder.ts'
 import { isTypeKey, listKey, treeKey as key, typeAhead } from './keys.ts'
-import { parsePanelUi } from './panelUi.ts'
+import { NO_UI, parsePanelUi } from './panelUi.ts'
 import { flattenTree } from './rows.ts'
 import { pageRows, rowWindow, scrollToShow } from './window.ts'
+
+// the model talks to core through the window's bridge: nothing is asked of it here
+vi.mock('../../lib/rpc.ts', () => ({ call: async () => ({}), subscribe: () => () => undefined }))
+const values = vi.hoisted(() => ({ 'files.showIgnored': true, 'files.compactFolders': true }))
+vi.mock('../settings/store.ts', () => ({ settings: { get: (key: keyof typeof values) => values[key], subscribe: () => () => undefined } }))
+
+async function newModel() {
+  const { FilesModel } = await import('./model.ts')
+  return new FilesModel()
+}
 
 const d = (name: string): TreeEntry => ({ name, kind: 'dir', ignored: false })
 const f = (name: string): TreeEntry => ({ name, kind: 'file', ignored: false })
@@ -304,9 +314,41 @@ describe('the file panel’s lists', () => {
   })
 
   it('U-FT-16 · the panel state core kept for a session is read field by field: anything missing or of the wrong kind takes its default, so a state written by another version never breaks the panel', () => {
-    const none = { mode: null, showIgnored: false, hintClosed: false, files: { top: 0, sel: null }, changes: { top: 0, sel: null } }
+    const none = { mode: null, showIgnored: null, hintClosed: false, files: { top: 0, sel: null }, changes: { top: 0, sel: null } }
     for (const raw of [undefined, null, 'x', 7, [], {}]) expect(parsePanelUi(raw)).toEqual(none)
     expect(parsePanelUi({ mode: 'changes', showIgnored: true, hintClosed: true, files: { top: 240.4, sel: 'src/a.ts' }, changes: { top: 48, sel: 'b.ts' } })).toEqual({ mode: 'changes', showIgnored: true, hintClosed: true, files: { top: 240, sel: 'src/a.ts' }, changes: { top: 48, sel: 'b.ts' } })
     expect(parsePanelUi({ mode: 'tree', showIgnored: 'yes', files: { top: -5, sel: '' }, changes: { top: Number.NaN, sel: 3 }, tab: 'changes', scrollTop: 240 })).toEqual(none)
+  })
+
+  it('U-FT-34 · ignored files are listed by default (the files.showIgnored setting); a choice made in a session, on or off, is that session’s, and one never made follows the setting', async () => {
+    const m = await newModel()
+    expect(NO_UI.showIgnored).toBeNull()
+    expect(m.showIgnored).toBe(true)
+    m.ui = { ...NO_UI, showIgnored: false }
+    expect(m.showIgnored).toBe(false)
+    m.ui = { ...NO_UI, showIgnored: true }
+    expect(m.showIgnored).toBe(true)
+    // the setting turned off: a session that never chose follows it, one that chose keeps its choice
+    values['files.showIgnored'] = false
+    m.ui = NO_UI
+    expect(m.showIgnored).toBe(false)
+    m.ui = { ...NO_UI, showIgnored: true }
+    expect(m.showIgnored).toBe(true)
+    values['files.showIgnored'] = true
+    // an off choice is kept as one, not read as none
+    expect(parsePanelUi({ showIgnored: false }).showIgnored).toBe(false)
+    expect(parsePanelUi({}).showIgnored).toBeNull()
+  })
+
+  it('U-FT-35 · the files.compactFolders setting decides whether a folder holding one folder is one row', async () => {
+    const data = tree({ '': [d('packages')], packages: [d('app')], 'packages/app': [f('a.ts')] })
+    const open = new Set(['packages', 'packages/app'])
+    expect(flattenTree(data, open, { compact: true, showIgnored: true }).map((r) => r.path)).toEqual(['packages/app', 'packages/app/a.ts'])
+    expect(flattenTree(data, open, { compact: false, showIgnored: true }).map((r) => r.path)).toEqual(['packages', 'packages/app', 'packages/app/a.ts'])
+    const m = await newModel()
+    expect(m.compact).toBe(true)
+    values['files.compactFolders'] = false
+    expect(m.compact).toBe(false)
+    values['files.compactFolders'] = true
   })
 })

@@ -44,7 +44,8 @@ export interface SessionTarget {
 /** What is kept in the database per session. */
 export interface PersistedFiles {
   expanded: string[]
-  scope: DiffScope
+  /** The scope the user chose in this session; absent: none chosen, the `files.changesScope` setting decides. */
+  scope?: DiffScope
   ui: FilesUi
   /** Kea set `core.fsmonitor` in this worktree's config, so Kea may unset it. */
   fsmonitor?: boolean
@@ -53,6 +54,8 @@ export interface PersistedFiles {
 }
 
 export interface SessionDeps {
+  /** The `files.changesScope` setting: the scope of a session whose user has not chosen one. */
+  defaultScope?: () => DiffScope
   log: Logger | undefined
   /** Null: nothing is watched (core runs on a stand-in watch service); the session refreshes only when asked. */
   watcher: Watcher | null
@@ -158,6 +161,8 @@ export class SessionFiles {
   readonly scheduler: StatusScheduler
   snapshot: Snapshot | null = null
   scope: DiffScope
+  /** The user picked a scope in this session (it is kept); otherwise the setting decides. */
+  private scopeChosen: boolean
   /** Too many changes; refreshed only when asked. */
   private manual = false
   private slow = false
@@ -198,7 +203,8 @@ export class SessionFiles {
     this.id = id
     this.target = target
     this.d = deps
-    this.scope = persisted?.scope ?? 'branch'
+    this.scopeChosen = persisted?.scope !== undefined
+    this.scope = persisted?.scope ?? deps.defaultScope?.() ?? 'branch'
     this.ui = persisted?.ui ?? {}
     this.fsmonitorSet = persisted?.fsmonitor === true
     this.fsmonitorPrior = persisted?.fsmonitorPrior ?? {}
@@ -222,7 +228,7 @@ export class SessionFiles {
   }
 
   persisted(): PersistedFiles {
-    return { expanded: [...this.expanded], scope: this.scope, ui: this.ui, ...(this.fsmonitorSet ? { fsmonitor: true, ...(Object.keys(this.fsmonitorPrior).length ? { fsmonitorPrior: { ...this.fsmonitorPrior } } : {}) } : {}) }
+    return { expanded: [...this.expanded], ...(this.scopeChosen ? { scope: this.scope } : {}), ui: this.ui, ...(this.fsmonitorSet ? { fsmonitor: true, ...(Object.keys(this.fsmonitorPrior).length ? { fsmonitorPrior: { ...this.fsmonitorPrior } } : {}) } : {}) }
   }
 
   private persist(): void {
@@ -1080,9 +1086,23 @@ export class SessionFiles {
   }
 
   setScope(scope: DiffScope): void {
-    if (scope === this.scope) return
-    this.scope = scope
+    const first = !this.scopeChosen
+    this.scopeChosen = true
+    if (scope === this.scope) {
+      if (first) this.persist()
+      return
+    }
+    this.switchScope(scope)
     this.persist()
+  }
+
+  /** The setting changed: a session whose user has not chosen a scope follows it (nothing is kept as its choice). */
+  followDefaultScope(scope: DiffScope): void {
+    if (!this.scopeChosen && scope !== this.scope) this.switchScope(scope)
+  }
+
+  private switchScope(scope: DiffScope): void {
+    this.scope = scope
     // the rows of the other scope are not this one's: gone until the status has run
     if (this.snapshot) this.snapshot = { head: { ...this.snapshot.head, scope, base: null, state: 'loading', totals: { files: 0, added: 0, removed: 0 } }, entries: new Map(), oid: this.snapshot.oid }
     this.statusAbort?.abort()

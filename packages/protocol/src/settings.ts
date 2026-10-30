@@ -43,7 +43,6 @@ export const SESSION_ORDER = ['stable', 'attention'] as const
 export const CURSOR_STYLES = ['block', 'bar', 'underline'] as const
 export const CLIPBOARD_WRITE = ['focused', 'always', 'never'] as const
 export const CHANGES_SCOPE = ['branch', 'uncommitted'] as const
-export const ICON_THEMES = ['minimal', 'material'] as const
 /**
  * `auto` is the first terminal app found, in the catalog's order (`app/core/src/editor/catalog.ts`): macOS's
  * apps, then the ones only Linux has. One settings file serves both systems, so the setting takes either
@@ -106,10 +105,9 @@ export const SETTINGS: readonly SettingDef[] = [
   { key: 'notifications.dockBadge', schema: z.boolean(), default: true, label: protocolOs.words.badge, section: 'Notifications', control: 'toggle' },
   { key: 'notifications.onlyWhenUnfocused', schema: z.boolean(), default: true, label: 'Only when Kea is not focused', section: 'Notifications', control: 'toggle' },
 
-  { key: 'files.showIgnored', schema: z.boolean(), default: false, label: 'Show ignored files', section: 'Files', control: 'toggle' },
+  { key: 'files.showIgnored', schema: z.boolean(), default: true, label: 'Show ignored files', section: 'Files', control: 'toggle' },
   { key: 'files.compactFolders', schema: z.boolean(), default: true, label: 'Compact folders', section: 'Files', control: 'toggle' },
   { key: 'files.changesScope', schema: z.enum(CHANGES_SCOPE), default: 'branch', label: 'Changes scope', section: 'Files', control: 'select', options: sel(CHANGES_SCOPE, { branch: 'Branch (since it branched)', uncommitted: 'Uncommitted' }) },
-  { key: 'files.iconTheme', schema: z.enum(ICON_THEMES), default: 'minimal', label: 'File icons', section: 'Files', control: 'select', options: sel(ICON_THEMES, { minimal: 'Minimal', material: 'Material' }) },
 
   { key: 'updates.check', schema: z.boolean(), default: true, label: 'Check for updates automatically', help: 'Kea asks GitHub for the newest release now and then. It sends no identifier and no cookie.', section: 'Updates', control: 'toggle' },
 ]

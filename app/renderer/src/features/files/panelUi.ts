@@ -15,14 +15,15 @@ export interface ListUi {
 export interface PanelUi {
   /** Files or Changes, as last shown for this session; null: never chosen, the window's current one stays. */
   mode: PanelMode | null
-  showIgnored: boolean
+  /** Ignored files shown in this session; null: never chosen here, the `files.showIgnored` setting decides. */
+  showIgnored: boolean | null
   /** The fsmonitor hint was closed for this session: it is offered once. */
   hintClosed: boolean
   files: ListUi
   changes: ListUi
 }
 
-export const NO_UI: PanelUi = { mode: null, showIgnored: false, hintClosed: false, files: { top: 0, sel: null }, changes: { top: 0, sel: null } }
+export const NO_UI: PanelUi = { mode: null, showIgnored: null, hintClosed: false, files: { top: 0, sel: null }, changes: { top: 0, sel: null } }
 
 function listUi(raw: unknown): ListUi {
   const o = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>
@@ -32,5 +33,5 @@ function listUi(raw: unknown): ListUi {
 /** What core kept, read field by field: anything missing or wrong takes its default. */
 export function parsePanelUi(raw: unknown): PanelUi {
   const o = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>
-  return { mode: o.mode === 'files' || o.mode === 'changes' ? o.mode : null, showIgnored: o.showIgnored === true, hintClosed: o.hintClosed === true, files: listUi(o.files), changes: listUi(o.changes) }
+  return { mode: o.mode === 'files' || o.mode === 'changes' ? o.mode : null, showIgnored: typeof o.showIgnored === 'boolean' ? o.showIgnored : null, hintClosed: o.hintClosed === true, files: listUi(o.files), changes: listUi(o.changes) }
 }

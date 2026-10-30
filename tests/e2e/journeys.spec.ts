@@ -227,6 +227,8 @@ const coreFiles = async (kea: Kea): Promise<CoreFiles> => ((await kea.debug<KitR
 test('E-FT-8 · the file tree’s journey, by clicks and keys only: a fake agent changes, adds, deletes and renames files, and the tree’s letters, the folders’ dots, the Changes list, the header’s diff stat and the diff opened from the list all follow; its work is committed and Branch still lists it while Uncommitted is empty; a `pnpm install` then writes two thousand files under the ignored node_modules: the tree gains the lockfile’s row and no other, core lists no folder more and holds exactly two entries more, and the next edit still reaches the open diff', async ({ run, launch }) => {
   test.setTimeout(180_000)
   claudeByDefault(run)
+  // the tree starts from hiding ignored files, as this journey counts its rows
+  fs.writeFileSync(path.join(run.home, 'settings.json'), `${JSON.stringify({ general: { defaultAgent: 'claude' }, files: { showIgnored: false } }, null, 2)}\n`)
   const repo = demoRepo(run)
   commitFiles(repo.root, { 'docs/guide.md': GUIDE })
   const kea = await launch()

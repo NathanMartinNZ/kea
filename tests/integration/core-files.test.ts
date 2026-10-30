@@ -753,6 +753,35 @@ describe('the file tree in core', () => {
     await until('the index of the hidden session to go', gone)
     expect(t.files.counts.finderPaths).toBe(0)
   })
+  it('I-FT-33 · a session whose user has not chosen a Changes scope follows the files.changesScope setting, also while it is on screen; a scope the user chose stays, and is the one `files.open` answers', async () => {
+    const r = repo()
+    const other = linkedWorktree(r.root, 'second')
+    t = await startFiles({ watcher: false })
+    let setting: 'branch' | 'uncommitted' = 'uncommitted'
+    const follow = t.files.followScopeSetting(() => setting)
+    t.session('s1', r.root)
+    t.session('s2', other)
+    t.show('s1')
+    t.show('s2', 1)
+    await t.ready('s1')
+    await t.ready('s2')
+    expect(t.head('s1')?.scope).toBe('uncommitted')
+    expect(t.files.scope('s1')).toBe('uncommitted')
+    // s2's user picks a scope: it is kept whatever the setting says
+    await t.call('files.setScope', { sessionId: 's2', scope: 'branch' })
+    setting = 'branch'
+    follow()
+    await t.idle('s1')
+    expect(t.head('s1')?.scope).toBe('branch')
+    expect(await t.call('files.open', { sessionId: 's1' })).toMatchObject({ scope: 'branch' })
+    setting = 'uncommitted'
+    follow()
+    await t.idle('s1')
+    expect(t.head('s1')?.scope).toBe('uncommitted')
+    expect(t.head('s2')?.scope).toBe('branch')
+    expect(await t.call('files.open', { sessionId: 's2' })).toMatchObject({ scope: 'branch' })
+  })
+
   it('I-FT-20 · the panel’s state saved for a session the window has just left is kept (its scroll position at the moment of the switch), and comes back with `files.open` when the session is shown again; for a session nothing is held for, the save answers that it was not kept', async () => {
     const a = repo('a')
     const b = repo('b')

@@ -20,9 +20,10 @@ import { changesOrder, gitEntry, gitHead, L, treeDir, treeHead, type DiffScope, 
 import { nextFrame } from '../../lib/frameStore.ts'
 import { call } from '../../lib/rpc.ts'
 import { followSessionStore } from '../sessions/visible.ts'
+import { settings } from '../settings/store.ts'
 import { ancestors, classOf, Rollup, type StatusClass } from './rollup.ts'
 import { NO_UI, parsePanelUi, type PanelMode, type PanelUi } from './panelUi.ts'
-import { compactChild, flattenTree, type FlatRow } from './rows.ts'
+import { childPath, compactChild, flattenTree, type FlatRow } from './rows.ts'
 
 const EMPTY_TREE: ReadonlyMap<string, TreeRow> = new Map()
 const EMPTY_GIT: ReadonlyMap<string, GitRow> = new Map()
@@ -76,6 +77,8 @@ export class FilesModel {
   private wanted: string | null = null
   private snapshots = 0
   private offs: (() => void)[] = [] // bounded: the two stores followed (`tree:`, `git:`), emptied on a switch
+  /** Redraws the tree when `files.showIgnored` or `files.compactFolders` changes; one, released on a switch. */
+  private settingsOff: (() => void) | null = null
   private saveTimer: ReturnType<typeof setTimeout> | null = null
   private queued = false
   // bounded: the panel's bridge to rune state, and the resource report (one each)
@@ -90,6 +93,8 @@ export class FilesModel {
     if (id === this.sessionId) return
     this.flushSave()
     for (const off of this.offs.splice(0)) off()
+    this.settingsOff?.()
+    this.settingsOff = null
     this.sessionId = id
     this.opened = false
     this.ui = NO_UI
@@ -111,6 +116,15 @@ export class FilesModel {
         followSessionStore<TreeRow>('tree', id, (data, changed) => this.onTree(id, data, changed)),
         followSessionStore<GitRow>('git', id, (data, changed) => this.onGit(id, data, changed)),
       )
+      // the two settings the rows depend on apply to the tree on screen at once
+      let seen = [settings.get<boolean>('files.showIgnored'), this.compact]
+      this.settingsOff = settings.subscribe(() => {
+        const now = [settings.get<boolean>('files.showIgnored'), this.compact]
+        if (now[0] === seen[0] && now[1] === seen[1]) return
+        seen = now
+        this.stale()
+        this.emit()
+      })
       this.open(id)
     }
     // at once, not at the next frame: no row of the session left behind stays on screen
@@ -192,11 +206,21 @@ export class FilesModel {
     return this.treeHead?.git !== false
   }
 
+  /** Ignored files are listed: this session's choice, else the `files.showIgnored` setting. */
+  get showIgnored(): boolean {
+    return this.ui.showIgnored ?? settings.get<boolean>('files.showIgnored')
+  }
+
+  /** A folder holding one folder is one row: the `files.compactFolders` setting. */
+  get compact(): boolean {
+    return settings.get<boolean>('files.compactFolders')
+  }
+
   /** The tree, top to bottom. Empty until `files.open` has answered. */
   get rows(): readonly FlatRow[] {
     if (this.rowsCache) return this.rowsCache
     if (!this.opened) return NO_ROWS
-    const rows = flattenTree(this.tree, this.expanded, { compact: true, showIgnored: this.ui.showIgnored, pending: this.pending })
+    const rows = flattenTree(this.tree, this.expanded, { compact: this.compact, showIgnored: this.showIgnored, pending: this.pending })
     this.rowsCache = rows
     this.indexCache = null
     this.labelsCache = null
@@ -323,12 +347,18 @@ export class FilesModel {
   private followChains(): void {
     const id = this.sessionId
     if (id === null || this.chase.size === 0) return
-    const o = { compact: true, showIgnored: this.ui.showIgnored }
+    // without compact folders a click opens one folder, whatever it holds
+    if (!this.compact) {
+      this.chase.clear()
+      return
+    }
+    const o = { compact: this.compact, showIgnored: this.showIgnored }
     for (const dir of [...this.chase]) {
       if (!treeDir(this.tree, dir)) continue // not here yet
       this.chase.delete(dir)
       const next = compactChild(this.tree, dir, o)
-      if (next === null || this.expanded.has(next)) continue
+      // an ignored folder (a package's `node_modules`) is opened by the user, never followed into
+      if (next === null || this.expanded.has(next) || treeDir(this.tree, dir)?.entries.some((e) => e.ignored && childPath(dir, e.name) === next)) continue
       this.expanded.add(next)
       this.chase.add(next)
       this.ask(id, next)
@@ -474,7 +504,7 @@ export class FilesModel {
 
   toggleIgnored(): void {
     if (this.sessionId === null) return
-    this.ui = { ...this.ui, showIgnored: !this.ui.showIgnored }
+    this.ui = { ...this.ui, showIgnored: !this.showIgnored }
     this.stale()
     this.emitNow()
     this.saveSoon()
@@ -512,7 +542,7 @@ export class FilesModel {
     const id = this.sessionId
     if (id === null || !this.opened) return
     const { mode, showIgnored, hintClosed, files, changes } = this.ui
-    void call('files.saveUi', { sessionId: id, ui: { ...(mode ? { mode } : {}), ...(showIgnored ? { showIgnored } : {}), ...(hintClosed ? { hintClosed } : {}), files, changes } }).catch(() => undefined)
+    void call('files.saveUi', { sessionId: id, ui: { ...(mode ? { mode } : {}), ...(showIgnored !== null ? { showIgnored } : {}), ...(hintClosed ? { hintClosed } : {}), files, changes } }).catch(() => undefined)
   }
 
   // ── change notification ───────────────────────────────────────────────────────────────────────
