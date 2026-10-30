@@ -1,7 +1,7 @@
 {
   "name": "kea",
   "private": true,
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Run many coding-agent CLI sessions side by side.",
   "license": "MIT",
   "author": "The Kea contributors",
