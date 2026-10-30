@@ -236,9 +236,12 @@ kbd {
   display: none;
 }
 
+/* a stacking context of its own: xterm's layers (its scrollbar is at z-index 11) stay under whatever Kea draws over the
+   terminal, such as a sheet */
 .kea-terminal {
   width: 100%;
   height: 100%;
+  isolation: isolate;
 }
 
 /* scrollbar: an overlay slider, --size-scrollbar wide, at the right edge, inside xterm's default track */

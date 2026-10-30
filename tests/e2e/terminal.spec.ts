@@ -291,3 +291,31 @@ test('E-TERM-10 · untrusted output: OSC 52 from a background terminal never rea
   expect((await recorded()).__keaClipboard, 'clipboard writes').toEqual([])
   await kea.assertUnfocused()
 })
+
+test('E-TERM-22 · a sheet over a terminal whose output scrolls: Settings is drawn above all of it, the terminal’s scrollbar included, while the scrollbar shows', async ({ launch }) => {
+  const kea = await launch()
+  const page = await kea.page()
+  await kea.waitScreen('the first shell prompt', (s) => s.includes(PROMPT))
+  // fast enough that the output scrolls all the time, which keeps the terminal's scrollbar shown
+  await kea.enter(counterCommand(60))
+  await kea.waitScreen('counter output', (s) => counterNumbers(s).length >= 2)
+  await page.evaluate(() => (window as unknown as { __keaProbe: { run(id: string): boolean } }).__keaProbe.run('app.settings'))
+  await expect(page.locator('.settings-sheet')).toBeVisible()
+
+  // what is on top at the middle of the terminal's scrollbar, sampled while the scrollbar is shown
+  const topAtBar = () =>
+    page.evaluate(() => {
+      const bar = document.querySelector('.terminal-host.shown .xterm-scrollbar.xterm-vertical')
+      if (!bar?.classList.contains('xterm-visible')) return null
+      const r = bar.getBoundingClientRect()
+      const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
+      return top?.closest('.settings-sheet') ? 'the sheet' : top?.closest('.xterm') ? 'the terminal' : (top?.className ?? 'nothing')
+    })
+  const seen: string[] = []
+  await until('the scrollbar shown five times under the sheet', async () => {
+    const top = await topAtBar()
+    if (top !== null) seen.push(top)
+    return seen.length >= 5 || undefined
+  })
+  expect(new Set(seen), 'the sheet on top every time').toEqual(new Set(['the sheet']))
+})
