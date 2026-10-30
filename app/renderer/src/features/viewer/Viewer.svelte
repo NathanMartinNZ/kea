@@ -18,7 +18,6 @@ unless a bar of the viewer uses them (`bars.ts`). The viewer adds the `Markdown 
   import { protocolOs } from '@kea/protocol'
   import { terminalFontStack } from '@kea/terminal'
   import './viewer.css'
-  import { shortcut } from '../commands/bindings.svelte.ts'
   import { scopedBinding } from '../commands/keys.ts'
   import { commands } from '../commands/registry.ts'
   import { LETTER_NAMES } from '../files/changes.ts'
@@ -187,7 +186,7 @@ unless a bar of the viewer uses them (`bars.ts`). The viewer adds the `Markdown 
         <button aria-pressed={ui.layout === 'split'} data-command="viewer.toggleDiffLayout" onmousedown={keepFocus} onclick={() => ui.layout !== 'split' && ctl.toggleLayout()}>Split</button>
       </div>
     {/if}
-    <button class="viewer-open" data-command="viewer.openInEditor" onmousedown={keepFocus} onclick={() => openTabInEditor(ctl)}>Open in editor{#if shortcut('viewer.openInEditor')}<kbd>{shortcut('viewer.openInEditor')}</kbd>{/if}</button>
+    <button class="viewer-open" data-command="viewer.openInEditor" onmousedown={keepFocus} onclick={() => openTabInEditor(ctl)}>Open in editor</button>
   </div>
   {#if ui.notices.length > 0}
     <p class="viewer-notice" role="status">{ui.notices.join(' · ')}</p>

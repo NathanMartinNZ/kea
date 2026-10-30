@@ -12,8 +12,8 @@
 Kea is a desktop app for macOS (Apple silicon) and Linux that runs coding-agent CLIs side by side: Claude Code and
 Command Code today. Each session gets its own git worktree and branch, a real terminal running the agent's own CLI, a
 live file tree with the session's changes, and a dev server one click away. The sidebar shows which sessions are
-working, which are waiting for you and which have finished. Sessions keep running when Kea quits, crashes or is
-updated.
+working, which are waiting for you and which have finished. Quitting Kea stops every session's terminals, so nothing is left running;
+they keep running through an update or a crash.
 
 Kea has no account, no server and no telemetry. It runs the agent CLIs you already use, signed in as you.
 
@@ -68,7 +68,7 @@ The command installs `Kea.app` in `/Applications`, using `sudo` only if you cann
 itself: once a day it checks for a newer version and downloads it, then the sidebar and the app menu offer Restart to
 Update, which restarts Kea on the new version with every session still running. Kea › Check for Updates… checks now.
 Where Kea cannot replace its own app (a folder you cannot write to), Settings › About says why and gives the install
-command: quit Kea completely (`⌥⌘Q`; its sessions keep running) and run it again. Settings, sessions and terminals
+command: quit Kea completely (`⌥⌘Q`; this stops its sessions) and run it again. Settings, sessions and terminals
 carry over.
 
 Kea's macOS builds are signed with the project's own certificate, not an Apple Developer ID, and are not notarised.
@@ -128,7 +128,7 @@ curl -fsSL https://github.com/NathanMartinNZ/kea/releases/latest/download/instal
 
 Add `--user` for a home install. This removes the app, on macOS with its update caches, and on Linux the package with
 Kea's repository and key. It leaves `~/.kea`: the sessions' worktrees, which may hold uncommitted work, their scrollback and your settings.
-Terminals still running keep running after Kea is gone.
+Terminals still running after a crash keep running after Kea is gone; a normal quit has already stopped them.
 
 <details>
 <summary>Remove everything, including sessions and settings</summary>
@@ -159,8 +159,8 @@ Terminals still running keep running after Kea is gone.
    worktree in your editor.
 
 By default `⌘Q` closes the window and keeps Kea in the menu bar, so notifications and the count of sessions that need
-you keep working; `⌥⌘Q` quits completely. On Linux, `Ctrl+Shift+Q` closes the window and Kea keeps running in the
-background where the desktop has a tray. Sessions keep running either way.
+you keep working; `⌥⌘Q` quits completely and stops every terminal. On Linux, `Ctrl+Shift+Q` closes the window and Kea
+stays in the tray where the desktop has one; without a tray it stops every terminal and quits.
 
 ### Keyboard shortcuts
 
@@ -239,15 +239,15 @@ Electron's window state is in `~/Library/Application Support/Kea` on macOS and `
   asks GitHub for the newest release's list of files: one request, with no identifier and no cookie. Settings › About
   turns it off, and Kea shows a line in the sidebar before its first check. No telemetry, no crash reports. The agents
   and your dev servers use the network as they would in a terminal.
-- **Stop a session because the app went away.** After a quit, a crash or an update the terminals keep running; a
-  session ends when you stop, archive or delete it.
+- **Stop a session because the app went away.** Quitting Kea stops every terminal. After a crash or an update they keep
+  running and the new Kea reattaches to them.
 
 ## How it works
 
 Kea is an Electron app. Its main process owns windows and menus, `core` owns sessions, git, files and settings, and
 `ptyhost` connects the window to the terminals. Each terminal runs inside its own `kea-helper`, a small Rust process
-that holds the PTY and its scrollback. It is detached from Kea, so it outlives a quit or a crash, and a new Kea finds
-the running helpers and reattaches. The repository map is in [CONTRIBUTING.md](CONTRIBUTING.md#finding-your-way-around).
+that holds the PTY and its scrollback. It is detached from Kea, so it outlives a crash or an update, and a new Kea finds
+the running helpers and reattaches. Quitting Kea stops them. The repository map is in [CONTRIBUTING.md](CONTRIBUTING.md#finding-your-way-around).
 
 ## Build from source
 

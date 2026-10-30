@@ -52,7 +52,7 @@ export function linuxLines(f: LinuxFacts): PlatformLine[] {
       : line(
           'holderDetach',
           'Terminals',
-          `each in a session of its own, as no systemd user manager answers: they outlive Kea quitting or crashing, but may end if your desktop stops Kea.${service}`,
+          `each in a session of its own, as no systemd user manager answers: they outlive a crash of Kea, but may end if your desktop stops Kea.${service}`,
           'Log in to a desktop session that runs a systemd user manager, so each terminal gets a scope of its own.',
         ),
   )
@@ -491,9 +491,9 @@ export function desktopLines(o: { desktop: string | null; display: DisplayServer
   lines.push(terminalRendererLine(o.webgl2, GPU_DRIVER_FIX))
   lines.push(
     o.trayHost === true
-      ? line('trayHost', 'Background', 'a tray icon in the desktop’s panel: Kea can keep running in the background')
+      ? line('trayHost', 'Background', 'a tray icon in the desktop’s panel: Kea can stay in the tray with its terminals running')
       : o.trayHost === false
-        ? line('trayHost', 'Background', 'no tray on this desktop: quitting Kea or closing its last window quits it, and sessions keep running in their terminals', 'Install your desktop’s AppIndicator support (on GNOME, the AppIndicator extension) to keep Kea running in the background with a tray icon.')
+        ? line('trayHost', 'Background', 'no tray on this desktop: quitting Kea or closing its last window stops every terminal and quits', 'Install your desktop’s AppIndicator support (on GNOME, the AppIndicator extension) to let Kea stay in the tray.')
         : line('trayHost', 'Background', 'not known: the session bus has not answered'),
   )
   if (o.notifications === false) lines.push(line('notifications', 'Notifications', 'no notification service on the session bus: Kea cannot notify you', 'Log in to a desktop session, whose notification service Kea posts to.'))

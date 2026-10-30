@@ -2,11 +2,11 @@
 // answered. Pure (Electron's template objects, plain files), so it is unit-tested without Electron; main.ts owns the
 // Tray, the Dock icon and the windows.
 //
-// `⌘Q` (`app.closeToMenuBar`): with no session kept running Kea quits as any app does; otherwise "On quit"
-// (`general.onQuit`) decides: stay in the menu bar (the default), quit completely (holders run on) or stop all
-// sessions and quit. The first time it would go to the menu bar, and a window is there to show it in, the sheet asks
-// instead (Keep in Menu Bar, Quit Completely, Stop All and Quit); once answered it is not shown again, and a
-// non-destructive answer becomes the setting.
+// `⌘Q` (`app.closeToMenuBar`): with no terminal running Kea quits as any app does; otherwise "On quit"
+// (`general.onQuit`) decides: stay in the menu bar (the default) or stop everything and quit. The first time it would
+// go to the menu bar, and a window is there to show it in, the sheet asks instead (Keep in Menu Bar, Stop All and
+// Quit); once answered it is not shown again, and Keep in Menu Bar becomes the setting. A quit never leaves a
+// terminal running; only the menu bar keeps them, because Kea itself is still running.
 
 import fs from 'node:fs'
 import path from 'node:path'
@@ -14,10 +14,10 @@ import type { MenuItemConstructorOptions } from 'electron'
 import { atomicWriteSync } from '@kea/kit'
 import { commandById, ON_QUIT, type MenuBarState, type SessionGlyph } from '@kea/protocol'
 
-/** What `⌘Q` leads to: one of the "On quit" choices, or the first-quit sheet. */
-export type QuitAction = (typeof ON_QUIT)[number] | 'sheet'
+/** What `⌘Q` leads to: one of the "On quit" choices, a plain quit (nothing runs), or the first-quit sheet. */
+export type QuitAction = (typeof ON_QUIT)[number] | 'quit' | 'sheet'
 
-/** A choice the first-quit sheet answers with (its three buttons). */
+/** A choice the first-quit sheet answers with (its two buttons). */
 export type QuitChoice = (typeof ON_QUIT)[number]
 
 export function isQuitChoice(v: unknown): v is QuitChoice {
@@ -28,7 +28,7 @@ export function isQuitChoice(v: unknown): v is QuitChoice {
  * The first-quit sheet's answer becomes the "On quit" setting when it is non-destructive (Keep in Menu Bar, Quit
  * Completely), so the next `⌘Q` does what was chosen; Stop All and Quit applies once (null: the setting stays).
  */
-export function rememberedOnQuit(c: QuitChoice): 'menuBar' | 'quit' | null {
+export function rememberedOnQuit(c: QuitChoice): 'menuBar' | null {
   return c === 'stopAll' ? null : c
 }
 
@@ -40,11 +40,11 @@ export function rememberedOnQuit(c: QuitChoice): 'menuBar' | 'quit' | null {
  * sheet unseen, so the next `⌘Q` asks again instead of doing what was not chosen.
  */
 export class QuitSheetAnswer {
-  private readonly o: { post: (onQuit: 'menuBar' | 'quit') => boolean; markSeen: () => void }
+  private readonly o: { post: (onQuit: 'menuBar') => boolean; markSeen: () => void }
   /** A remembered choice core has not taken yet. */
-  private pending: 'menuBar' | 'quit' | null = null
+  private pending: 'menuBar' | null = null
 
-  constructor(o: { post: (onQuit: 'menuBar' | 'quit') => boolean; markSeen: () => void }) {
+  constructor(o: { post: (onQuit: 'menuBar') => boolean; markSeen: () => void }) {
     this.o = o
   }
 
@@ -72,16 +72,16 @@ export class QuitSheetAnswer {
 
 /**
  * What `⌘Q` does. `state`: core's last menu-bar state (null before core has sent one: nothing is known to run, so Kea
- * quits; holders run on either way). `canAsk`: a window whose renderer can show the sheet. `background`: Kea can run
- * with no window and be opened again (on Linux only while a tray host is there); without it "keep running" quits, as
- * the setting's default then does, and the sheet offers only the other two.
+ * quits as it is). `canAsk`: a window whose renderer can show the sheet. `background`: Kea can run with no window and
+ * be opened again (on Linux only while a tray host is there); without it "stay in the background" stops everything
+ * and quits, as the setting's default then does, and the sheet offers only that.
  */
 export function quitAction(o: { state: MenuBarState | null; sheetSeen: boolean; canAsk: boolean; background?: boolean }): QuitAction {
   const s = o.state
-  if (!s || s.live === 0) return 'quit'
+  if (!s || s.running === 0) return 'quit'
   if (s.onQuit !== 'menuBar') return s.onQuit
   if (!o.sheetSeen && o.canAsk) return 'sheet'
-  return o.background === false ? 'quit' : 'menuBar'
+  return o.background === false ? 'stopAll' : 'menuBar'
 }
 
 /**
@@ -133,12 +133,13 @@ export function trayTemplate(s: MenuBarState | null, act: { openKea(): void; sho
 
 /**
  * What closing the last window does. macOS keeps Kea as it is (in the Dock, `stay`). Linux has no Dock: Kea goes to the
- * background while sessions run and a tray host is there to open it again from, and quits otherwise; sessions keep
- * running in their holders either way.
+ * background while terminals run and a tray host is there to open it again from, and quits otherwise, stopping every
+ * terminal first.
  */
-export function lastWindowAction(o: { lastWindow: 'stay' | 'backgroundOrQuit'; background: boolean; live: number }): 'stay' | 'background' | 'quit' {
+export function lastWindowAction(o: { lastWindow: 'stay' | 'backgroundOrQuit'; background: boolean; running: number }): 'stay' | 'background' | 'stopAll' | 'quit' {
   if (o.lastWindow === 'stay') return 'stay'
-  return o.background && o.live > 0 ? 'background' : 'quit'
+  if (o.running === 0) return 'quit'
+  return o.background ? 'background' : 'stopAll'
 }
 
 /**

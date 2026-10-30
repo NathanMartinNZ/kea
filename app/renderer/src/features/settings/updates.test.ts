@@ -20,7 +20,7 @@ describe('the update state in the window', () => {
     expect(aboutUpdate(at({ phase: { k: 'current', version: '1.0.2' } }))).toMatchObject({ line: 'Kea 1.0.2 is the newest version.', action: 'check', notes: null })
     expect(aboutUpdate(at({ mode: 'updater', phase: { k: 'downloading', version: '1.0.3', percent: 40 } }))).toMatchObject({ line: 'Downloading Kea 1.0.3… 40 %', action: null, notes: '1.0.3' })
     expect(aboutUpdate(at({ mode: 'updater', phase: { k: 'ready', version: '1.0.3' } }))).toMatchObject({ line: 'Kea 1.0.3 is ready. Kea restarts; sessions keep running.', action: 'restartUpdate' })
-    expect(aboutUpdate(at({ phase: { k: 'available', version: '1.0.3' } }))).toEqual({ line: `Kea 1.0.3 is out. Quit Kea completely (sessions keep running), then run \`${SH}\`.`, action: 'copy', notes: '1.0.3', command: SH })
+    expect(aboutUpdate(at({ phase: { k: 'available', version: '1.0.3' } }))).toEqual({ line: `Kea 1.0.3 is out. Quit Kea completely (this stops its sessions), then run \`${SH}\`.`, action: 'copy', notes: '1.0.3', command: SH })
     expect(aboutUpdate(at({ mode: 'packageManager', auto: false, command: 'sudo apt update && sudo apt install --only-upgrade kea-app', phase: { k: 'available', version: '1.0.3' } })).line).toBe('Kea 1.0.3 is out. Your system’s updates install it, or run `sudo apt update && sudo apt install --only-upgrade kea-app`.')
     expect(aboutUpdate(at({ command: `${SH} -s -- --no-repo`, phase: { k: 'available', version: '1.0.3' } })).line).toBe(`Kea 1.0.3 is out. Run \`${SH} -s -- --no-repo\`.`)
     expect(aboutUpdate(at({ phase: { k: 'upgraded', version: '1.0.3' } }))).toMatchObject({ line: 'Kea was updated to 1.0.3. Restart Kea to use it; sessions keep running.', action: 'restartKea' })

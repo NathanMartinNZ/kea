@@ -211,6 +211,7 @@ watchMenuBar({
   sessions: core.sessions.store,
   // the attention set and the account conditions, the badge switch, the agents' names
   conditions: core.status.conditions.store,
+  terminals: core.terminals.store,
   agentName: (agent) => core.agents.store.get(agent)?.displayName ?? agent,
   badge: () => core.settings.values.get('notifications.dockBadge'),
   onQuit: () => core.settings.values.get('general.onQuit'),

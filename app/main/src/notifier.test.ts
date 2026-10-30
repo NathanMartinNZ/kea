@@ -6,7 +6,7 @@ import { Notifier, RecordingSurfaces } from './notifier.ts'
 afterEach(() => vi.useRealTimers())
 
 const post = (tag: string, o: Partial<Extract<NotificationOp, { op: 'post' }>> = {}): NotificationOp => ({ op: 'post', tag, sessionId: tag.slice(2), title: `t ${tag}`, subtitle: 'kea', body: 'b', sound: false, ...o })
-const state = (count: number, badge = true): MenuBarState => ({ live: 1, onQuit: 'menuBar', count, sessions: [], badge })
+const state = (count: number, badge = true): MenuBarState => ({ live: 1, running: 1, onQuit: 'menuBar', count, sessions: [], badge })
 
 function harness() {
   vi.useFakeTimers()

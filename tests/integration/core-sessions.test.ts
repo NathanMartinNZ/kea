@@ -730,4 +730,16 @@ describe('Stop All and Quit', () => {
     await until('their holders gone', () => ptys.every((id) => !holderAlive(s.h.home, id)))
     expect(s.c.core.sessions.resourceCounts.perSession, 'no stop left in progress').toBe(0)
   })
+  it('I-SES-19 · a quit stops what a session-by-session stop misses: a shell tab outside any session, and nothing starts afterwards', async () => {
+    const s = await sessions()
+    const t = s.c.core.terminals
+    const shell = (await s.call<{ ptyId: string }>('terminal.openShell', { cols: 80, rows: 24 })).ptyId
+    expect(t.record(shell)?.state).toBe('running')
+
+    await s.c.core.sessions.stopEverything()
+    expect(t.record(shell)?.state, 'the global shell tab is stopped').not.toBe('running')
+    await until('its holder gone', () => !holderAlive(s.h.home, shell))
+    await expect(s.call('terminal.openShell', { cols: 80, rows: 24 }), 'no terminal starts while Kea quits').rejects.toThrow()
+  })
+
 })

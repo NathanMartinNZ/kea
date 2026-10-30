@@ -89,7 +89,7 @@ function commandLine(s: UpdateState): string {
   const cmd = s.command ?? ''
   if (s.mode === 'packageManager') return `Your system’s updates install it, or run \`${cmd}\`.`
   if (cmd.includes('--no-repo')) return `Run \`${cmd}\`.`
-  return `Quit Kea completely (sessions keep running), then run \`${cmd}\`.`
+  return `Quit Kea completely (this stops its sessions), then run \`${cmd}\`.`
 }
 
 export function aboutUpdate(s: UpdateState): AboutUpdate {
@@ -112,7 +112,7 @@ export function aboutUpdate(s: UpdateState): AboutUpdate {
     case 'upgraded':
       return { line: `Kea was updated${p.version ? ` to ${p.version}` : ''}. Restart Kea to use it; sessions keep running.`, action: 'restartKea', notes: p.version, command: null }
     case 'removed':
-      return none('Kea’s files were removed while it ran. Quit Kea; sessions keep running.')
+      return none('Kea’s files were removed while it ran. Quit Kea and open it again.')
     case 'didNotInstall':
       return { line: `Kea ${p.version} did not install. Install it with the command instead.`, action: s.command ? 'copy' : null, notes: p.version, command: s.command }
     case 'failed':

@@ -148,12 +148,6 @@
   color: var(--text-1);
 }
 
-.viewer-header .viewer-open kbd {
-  margin-left: var(--space-1);
-  color: var(--text-3);
-  font: inherit;
-}
-
 /* notices: one line of --text-3 under the header, never a banner */
 .viewer-notice {
   flex: none;

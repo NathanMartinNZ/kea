@@ -354,7 +354,7 @@ ipcMain.on('kea:mainCommand', (e, id: unknown) => {
   if (!fromOurWindow(e)) return
   if (id === 'app.openKea') openKea()
   else if (id === 'app.closeToMenuBar') closeToMenuBar()
-  else if (id === 'app.quit') app.quit()
+  else if (id === 'app.quit') userQuit()
   else if (id === 'app.checkUpdates') checkUpdatesCommand()
 })
 
@@ -584,7 +584,7 @@ function rebuildMenu(): void {
       const target = menuWindow()
       if (target && !target.isDestroyed()) target.webContents.send('kea:command', { id, ...(args !== undefined ? { args } : {}) })
     },
-    main: { openKea: () => openKea(), closeToMenuBar: () => closeToMenuBar(), quit: () => app.quit(), checkUpdates: () => checkUpdatesCommand(), reload: () => menuWindow()?.webContents.reload() },
+    main: { openKea: () => openKea(), closeToMenuBar: () => closeToMenuBar(), quit: () => userQuit(), checkUpdates: () => checkUpdatesCommand(), reload: () => menuWindow()?.webContents.reload() },
     updateTitle: updates.title,
   })
   menuNow = template
@@ -703,6 +703,8 @@ let pendingShow: string | null = null
 /** Settings › About to show once the window being made has its renderer (Check for Updates… with no window). */
 let pendingAbout = false
 let stoppingAll = false
+/** A second quit request came while every terminal was being stopped: Kea quits without waiting. */
+let forcedQuit = false
 /**
  * The Dock icon's show and hide: a hide that Electron ignores, just after a show, is made again later (menuBar.ts).
  */
@@ -742,14 +744,24 @@ function closeToMenuBar(): void {
   // On Linux Kea can run in the background only while a tray host is there to reopen it from
   const canBackground = background.canRunInBackground
   const action = quitAction({ state: menuBarState, sheetSeen: quitSheetSeen(app.getPath('userData')), canAsk, background: canBackground })
-  log.info('quit asked', { action, live: menuBarState?.live ?? null, background: canBackground })
-  if (action === 'sheet') w!.webContents.send('kea:quitSheet', { live: menuBarState?.live ?? 0, background: canBackground })
+  log.info('quit asked', { action, running: menuBarState?.running ?? null, background: canBackground })
+  if (action === 'sheet') w!.webContents.send('kea:quitSheet', { live: menuBarState?.running ?? 0, background: canBackground })
   else runQuitChoice(action)
 }
 
-function runQuitChoice(c: QuitChoice): void {
+function runQuitChoice(c: QuitChoice | 'quit'): void {
   if (c === 'menuBar') enterMenuBar()
   else if (c === 'stopAll') void stopAllAndQuit()
+  else app.quit()
+}
+
+/**
+ * Every quit the user asks for (Quit Kea Completely, the palette, the last window closing with nowhere to keep Kea):
+ * with a terminal running they are all stopped first, so nothing is left running. An update's or a relaunch's quit
+ * calls `app.quit()` itself and leaves them running for the new Kea to adopt.
+ */
+function userQuit(): void {
+  if ((menuBarState?.running ?? 0) > 0) void stopAllAndQuit()
   else app.quit()
 }
 
@@ -772,12 +784,17 @@ ipcMain.on('kea:quitChoice', (e, choice: unknown) => {
 
 /** Stop All and Quit: core stops every session (at most L.quitStopAllTimeoutMs), then a full quit. */
 async function stopAllAndQuit(): Promise<void> {
-  if (stoppingAll) return
+  if (stoppingAll) {
+    // a second request while the first waits: quit now
+    forcedQuit = true
+    app.quit()
+    return
+  }
   stoppingAll = true
-  await ready('core')
-    ?.stopAll(L.quitStopAllTimeoutMs)
-    .catch(() => undefined)
-  app.quit()
+  const core = ready('core')
+  if (!core) log.warn('quit without stopping: core is away, so terminals keep running')
+  await core?.stopAll(L.quitStopAllTimeoutMs).catch((e: unknown) => log.warn('stop all did not finish before the quit', { error: String(e) }))
+  if (!forcedQuit) app.quit()
 }
 
 /**
@@ -804,7 +821,7 @@ function leaveMenuBar(): void {
 }
 
 /** The item's actions: Open Kea, a session, Quit Kea Completely (the tray's menu, its `click` never comes on Linux). */
-const trayActions = { openKea: () => openKea({}, 'tray'), showSession: (id: string) => openKea({ sessionId: id }, 'tray'), quit: () => app.quit(), restart: () => updates.restart() }
+const trayActions = { openKea: () => openKea({}, 'tray'), showSession: (id: string) => openKea({ sessionId: id }, 'tray'), quit: () => userQuit(), restart: () => updates.restart() }
 /** The tray's restart item while an update waits for a restart (Restart to Update, Restart Kea); null otherwise. */
 const trayRestart = (): string | null => (updates.title === 'Check for Updates…' ? null : updates.title)
 
@@ -1322,15 +1339,16 @@ app.on('before-quit', (e) => {
 })
 
 // On macOS the window closing never quits Kea; it stays in the Dock and reopens on activate. On Linux, with no Dock,
-// Kea goes to the background while sessions run and a tray host is there to reopen it from, and quits otherwise (its
-// sessions keep running in their holders)
+// Kea goes to the background while terminals run and a tray host is there to reopen it from, and stops every terminal
+// and quits otherwise
 app.on('window-all-closed', () => {
   rebuildMenu()
   if (quitting || background.background || !isAvailable(mainOs.background)) return
-  const action = lastWindowAction({ lastWindow: mainOs.background.lastWindow, background: background.canRunInBackground, live: menuBarState?.live ?? 0 })
+  const action = lastWindowAction({ lastWindow: mainOs.background.lastWindow, background: background.canRunInBackground, running: menuBarState?.running ?? 0 })
   if (action === 'stay') return
   log.info('last window closed', { action })
   if (action === 'background') enterMenuBar()
+  else if (action === 'stopAll') void stopAllAndQuit()
   else app.quit()
 })
 

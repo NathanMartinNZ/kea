@@ -366,6 +366,7 @@ export class Terminals {
    * the PTY does not fail the launch: the next ptyhost is asked (`listedAfterSpawn`, U-PTY-74).
    */
   async launch(req: LaunchRequest): Promise<{ ptyId: string }> {
+    if (this.stoppingAll) throw new RpcError('unavailable', 'Kea is quitting and stopping every terminal')
     const env = { ...terminalEnv(await this.opts.env(), this.opts.version), ...req.env }
     for (const k of req.unsetEnv ?? []) delete env[k]
     const spec = spawnSpec(req.command, env, req.cwd)
@@ -536,6 +537,27 @@ export class Terminals {
     if (this.attached.has(ptyId) || this.unreachable.has(ptyId)) return this.stop(ptyId, 'terminate', L.shellCloseGraceMs)
     // nothing Kea knows accounts for it (it turned up since the last reconciliation): by pid, identity confirmed first
     return this.killUnreachable(ptyId)
+  }
+
+  /** Set once Kea is stopping every terminal to quit: no terminal starts after it. */
+  private stoppingAll = false
+
+  /** A quit is about to stop every terminal: none starts from now on. */
+  refuseLaunches(): void {
+    this.stoppingAll = true
+  }
+
+  /**
+   * Stop every running terminal of every session and of the shell tabs, for a quit that leaves nothing running: each
+   * is terminated (SIGTERM to its tree, SIGKILL after `graceMs`), shells included, since a hangup leaves `nohup` and
+   * disowned jobs. No terminal starts meanwhile. Resolves with the
+   * PTYs that are still running afterwards.
+   */
+  async stopAllForQuit(graceMs: number): Promise<string[]> {
+    this.stoppingAll = true
+    const running = this.records.list().filter((r) => r.state === 'running')
+    await Promise.all(running.map((r) => this.stop(r.ptyId, 'terminate', graceMs).catch((e: unknown) => this.opts.log.warn('terminal not stopped (quit)', { ptyId: r.ptyId, error: String(e) }))))
+    return this.records.list().filter((r) => r.state === 'running').map((r) => r.ptyId)
   }
 
   /** The recorded PTYs of a session, in tab order. */

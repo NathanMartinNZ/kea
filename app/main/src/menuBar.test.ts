@@ -6,22 +6,24 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { isMainToChild, L, type MenuBarState } from '@kea/protocol'
 import { BackgroundTray, DockIcon, isQuitChoice, lastWindowAction, markQuitSheetSeen, MenuBarItemRemoval, QuitSheetAnswer, quitAction, quitSheetSeen, rememberedOnQuit, trayTemplate, trayTitle } from './menuBar.ts'
 
-const state = (o: Partial<MenuBarState> = {}): MenuBarState => ({ live: 2, onQuit: 'menuBar', count: 0, sessions: [], badge: true, ...o })
+const state = (o: Partial<MenuBarState> = {}): MenuBarState => ({ live: 2, running: 2, onQuit: 'menuBar', count: 0, sessions: [], badge: true, ...o })
 const dirs: string[] = []
 afterEach(() => {
   for (const d of dirs.splice(0)) fs.rmSync(d, { recursive: true, force: true })
 })
 
 describe('⌘Q and the menu-bar item', () => {
-  it('U-SES-6 · ⌘Q: with nothing kept running Kea quits; otherwise "On quit" decides, and the first time it would stay in the menu bar the sheet asks, once, when a window can show it', () => {
+  it('U-SES-6 · ⌘Q: with no terminal running Kea quits; otherwise "On quit" decides, and the first time it would stay in the menu bar the sheet asks, once, when a window can show it', () => {
     expect(quitAction({ state: null, sheetSeen: false, canAsk: true }), 'nothing known from core yet').toBe('quit')
-    expect(quitAction({ state: state({ live: 0 }), sheetSeen: false, canAsk: true })).toBe('quit')
+    expect(quitAction({ state: state({ live: 0, running: 0 }), sheetSeen: false, canAsk: true })).toBe('quit')
+    expect(quitAction({ state: state({ live: 0, running: 1 }), sheetSeen: true, canAsk: true }), 'a server running with no agent live still keeps Kea in the menu bar, never a plain quit').toBe('menuBar')
+    expect(quitAction({ state: state({ live: 0, running: 1, onQuit: 'stopAll' }), sheetSeen: true, canAsk: true }), 'and stop-all stops it').toBe('stopAll')
     expect(quitAction({ state: state(), sheetSeen: false, canAsk: true })).toBe('sheet')
     expect(quitAction({ state: state(), sheetSeen: true, canAsk: true })).toBe('menuBar')
     expect(quitAction({ state: state(), sheetSeen: false, canAsk: false }), 'no window to show the sheet in').toBe('menuBar')
-    expect(quitAction({ state: state({ onQuit: 'quit' }), sheetSeen: false, canAsk: true })).toBe('quit')
     expect(quitAction({ state: state({ onQuit: 'stopAll' }), sheetSeen: false, canAsk: true })).toBe('stopAll')
-    expect(['menuBar', 'quit', 'stopAll'].every(isQuitChoice)).toBe(true)
+    expect(['menuBar', 'stopAll'].every(isQuitChoice)).toBe(true)
+    expect(isQuitChoice('quit'), 'a quit that leaves terminals running is not a choice').toBe(false)
     expect([undefined, 'sheet', 'Quit', 1].some(isQuitChoice)).toBe(false)
     // answered once, kept beside the window state
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kea-menubar-'))
@@ -60,16 +62,15 @@ describe('⌘Q and the menu-bar item', () => {
     expect(trayTemplate(state(), act).map((m) => m.id), 'nobody needs you: no list, no separator').toEqual(['app.openKea', 'app.quit'])
   })
 
-  it('U-SES-9 · the first-quit sheet’s answer becomes "On quit" when it is non-destructive: Keep in Menu Bar → menuBar, Quit Completely → quit, so the next ⌘Q does what was chosen; Stop All and Quit applies once and leaves the setting as it was', () => {
+  it('U-SES-9 · the first-quit sheet’s answer becomes "On quit" when it is non-destructive: Keep in Menu Bar → menuBar, so the next ⌘Q does what was chosen; Stop All and Quit applies once and leaves the setting as it was', () => {
     expect(rememberedOnQuit('menuBar')).toBe('menuBar')
-    expect(rememberedOnQuit('quit')).toBe('quit')
     expect(rememberedOnQuit('stopAll'), 'one click never makes every later ⌘Q stop every agent').toBeNull()
     // what main tells core (core writes settings.json; its menu-bar state then carries the new setting)
-    expect(isMainToChild({ k: 'onQuit', onQuit: 'quit' })).toBe(true)
+    expect(isMainToChild({ k: 'onQuit', onQuit: 'quit' }), 'no answer leaves terminals running').toBe(false)
     expect(isMainToChild({ k: 'onQuit', onQuit: 'menuBar' })).toBe(true)
     expect([{ k: 'onQuit', onQuit: 'stopAll' }, { k: 'onQuit' }, { k: 'onQuit', onQuit: 'Quit' }].some(isMainToChild), 'Stop All is never remembered from the sheet').toBe(false)
     // the next ⌘Q: the sheet is not shown again, and the remembered setting decides
-    expect(quitAction({ state: state({ onQuit: 'quit' }), sheetSeen: true, canAsk: true })).toBe('quit')
+    expect(quitAction({ state: state({ onQuit: 'stopAll' }), sheetSeen: true, canAsk: true })).toBe('stopAll')
     expect(quitAction({ state: state({ onQuit: 'menuBar' }), sheetSeen: true, canAsk: true })).toBe('menuBar')
   })
 
@@ -78,20 +79,20 @@ describe('⌘Q and the menu-bar item', () => {
     const posted: string[] = []
     let seen = 0
     const answer = new QuitSheetAnswer({ post: (onQuit) => (coreUp ? (posted.push(onQuit), true) : false), markSeen: () => seen++ })
-    answer.answer('quit')
+    answer.answer('menuBar')
     expect({ posted, seen }, 'core away: nothing saved, so not seen yet (a quit now asks again next time)').toEqual({ posted: [], seen: 0 })
     coreUp = true
     answer.coreReady()
-    expect({ posted, seen }, 'core back: the choice is handed over, then the sheet counts as seen').toEqual({ posted: ['quit'], seen: 1 })
+    expect({ posted, seen }, 'core back: the choice is handed over, then the sheet counts as seen').toEqual({ posted: ['menuBar'], seen: 1 })
     answer.coreReady()
-    expect({ posted, seen }, 'once').toEqual({ posted: ['quit'], seen: 1 })
+    expect({ posted, seen }, 'once').toEqual({ posted: ['menuBar'], seen: 1 })
     // with core ready: at once
     answer.answer('menuBar')
-    expect({ posted, seen }).toEqual({ posted: ['quit', 'menuBar'], seen: 2 })
+    expect({ posted, seen }).toEqual({ posted: ['menuBar', 'menuBar'], seen: 2 })
     // Stop All and Quit is never remembered: seen at once, even with core away
     coreUp = false
     answer.answer('stopAll')
-    expect({ posted, seen }).toEqual({ posted: ['quit', 'menuBar'], seen: 3 })
+    expect({ posted, seen }).toEqual({ posted: ['menuBar', 'menuBar'], seen: 3 })
   })
 
   it('U-SES-10 · the Dock icon after a quick second ⌘Q: Electron ignores a hide within a second of a show, so a hide sooner than L.dockRehideAfterShowMs after the last show is made again once that has passed, unless Kea was reopened meanwhile; a later hide needs nothing more', () => {
@@ -213,22 +214,22 @@ describe('⌘Q and the menu-bar item', () => {
 })
 
 describe('the tray on Linux', () => {
-  // With a tray host, menu-bar mode works as on macOS. Without one "keep running" quits (the first-quit sheet still
+  // With a tray host, menu-bar mode works as on macOS. Without one "stay in the background" stops everything and quits (the first-quit sheet still
   // asks once, without its Keep option: QuitSheet.svelte) and closing the last window quits. A tray made before a host
   // comes never shows, so the tray is made when one comes, destroying the one made before. Nothing waits on the tray's
   // `click`: its menu is the way in, and main never listens for the click.
   it('U-PLT-9 · the tray rule: a host → menu-bar mode; none → quit, last window quits; a host that comes later gets the tray then; no click', () => {
     // ⌘Q (Ctrl+Shift+Q): with a host as on macOS; without one the sheet once, then quit
     expect(quitAction({ state: state(), sheetSeen: true, canAsk: true, background: true })).toBe('menuBar')
-    expect(quitAction({ state: state(), sheetSeen: true, canAsk: true, background: false })).toBe('quit')
+    expect(quitAction({ state: state(), sheetSeen: true, canAsk: true, background: false }), 'no tray: quitting stops everything').toBe('stopAll')
     expect(quitAction({ state: state(), sheetSeen: false, canAsk: true, background: false })).toBe('sheet')
-    expect(quitAction({ state: state(), sheetSeen: false, canAsk: false, background: false })).toBe('quit')
+    expect(quitAction({ state: state(), sheetSeen: false, canAsk: false, background: false })).toBe('stopAll')
     expect(quitAction({ state: state({ onQuit: 'stopAll' }), sheetSeen: true, canAsk: true, background: false })).toBe('stopAll')
     // the last window: macOS stays; Linux goes to the background with a host and live sessions, and quits otherwise
-    expect(lastWindowAction({ lastWindow: 'stay', background: false, live: 3 })).toBe('stay')
-    expect(lastWindowAction({ lastWindow: 'backgroundOrQuit', background: true, live: 3 })).toBe('background')
-    expect(lastWindowAction({ lastWindow: 'backgroundOrQuit', background: false, live: 3 })).toBe('quit')
-    expect(lastWindowAction({ lastWindow: 'backgroundOrQuit', background: true, live: 0 })).toBe('quit')
+    expect(lastWindowAction({ lastWindow: 'stay', background: false, running: 3 })).toBe('stay')
+    expect(lastWindowAction({ lastWindow: 'backgroundOrQuit', background: true, running: 3 })).toBe('background')
+    expect(lastWindowAction({ lastWindow: 'backgroundOrQuit', background: false, running: 3 }), 'no host: every terminal is stopped, servers included').toBe('stopAll')
+    expect(lastWindowAction({ lastWindow: 'backgroundOrQuit', background: true, running: 0 })).toBe('quit')
 
     // the tray: made when Kea is in the background with a host there, or when a host comes; one made before goes
     const made: { n: number; destroyed: boolean; destroy(): void }[] = []

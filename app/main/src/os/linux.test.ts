@@ -127,7 +127,7 @@ describe('the window on Linux', () => {
     expect(ids('Go')).toEqual(GO_COMMANDS)
     // File: the Project commands, the App ones but Help's, then Close Kea and Quit Kea Completely
     expect(ids('File').slice(-2)).toEqual(['app.closeToMenuBar', 'app.quit'])
-    expect(sub(menu('File')).find((i) => i.id === 'app.closeToMenuBar')).toMatchObject({ label: 'Close Kea (sessions keep running)', accelerator: 'Ctrl+Shift+Q' })
+    expect(sub(menu('File')).find((i) => i.id === 'app.closeToMenuBar')).toMatchObject({ label: 'Close Kea', accelerator: 'Ctrl+Shift+Q' })
     expect(ids('File')).not.toContain('app.shortcuts')
     expect(ids('Help')).toEqual(['help:app.shortcuts', 'help:app.copyDiagnostics'])
     expect(ids('File'), 'Open Kea only with no window').not.toContain('app.openKea')
@@ -178,7 +178,7 @@ describe('the window on Linux', () => {
     // Select All keeps the field's Ctrl+A: in a terminal that key is the shell's, and the window runs the command instead
     expect(menu('Edit').find((n) => n.id === 'terminal.selectAll')?.shortcut).toBe('Ctrl+A')
     expect(menu('Window').map((n) => n.id)).toEqual(['window.minimize', 'window.maximize', 'window.fullScreen'])
-    expect(menu('File').find((n) => n.id === 'app.closeToMenuBar')).toMatchObject({ label: 'Close Kea (sessions keep running)', shortcut: 'Ctrl+Shift+Q' })
+    expect(menu('File').find((n) => n.id === 'app.closeToMenuBar')).toMatchObject({ label: 'Close Kea', shortcut: 'Ctrl+Shift+Q' })
     // a command the renderer has not reported is there, disabled
     expect(menu('Go').find((n) => n.id === 'session.next')).toMatchObject({ enabled: false })
     // View's own submenus drill further; separators are lines, never picked

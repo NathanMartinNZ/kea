@@ -169,7 +169,7 @@ export const COMMANDS: readonly CommandDef[] = [
   { id: 'app.openReports', title: 'Open Reports Folder', category: 'App', other: 'Settings › Advanced' },
   { id: 'app.shortcuts', title: 'Keyboard Shortcuts', category: 'App' },
   { id: 'app.openKea', title: 'Open Kea', category: 'App', surfaces: ['menu-bar item'] },
-  { id: 'app.closeToMenuBar', title: 'Close to Menu Bar (sessions keep running)', linuxTitle: 'Close Kea (sessions keep running)', category: 'App', keys: ['⌘Q'], linuxKeys: ['Ctrl+Shift+Q'] },
+  { id: 'app.closeToMenuBar', title: 'Close to Menu Bar', linuxTitle: 'Close Kea', category: 'App', keys: ['⌘Q'], linuxKeys: ['Ctrl+Shift+Q'] },
   { id: 'app.quit', title: 'Quit Kea Completely', category: 'App', keys: ['⌥⌘Q'], linuxKeys: ['Ctrl+Shift+Alt+Q'], surfaces: ['menu-bar item'] },
 ]
 

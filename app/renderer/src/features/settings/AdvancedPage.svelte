@@ -90,7 +90,7 @@ it again (no timer runs behind the sheet).
       <span class="settings-label" id="holders-label">Running background processes</span>
       <button class="link-button" onclick={() => void load()}>Refresh</button>
     </div>
-    <span class="settings-help">Every terminal Kea keeps running, as found on disk: agents, dev servers, setup scripts and shells keep running when Kea quits.</span>
+    <span class="settings-help">Every terminal Kea keeps running, as found on disk: agents, dev servers, setup scripts and shells. Quitting Kea stops them; after a crash they are still here.</span>
     {#if holders === null}
       <span class="settings-help">Reading…</span>
     {:else if holders.length === 0}

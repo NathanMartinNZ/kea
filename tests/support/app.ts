@@ -902,20 +902,24 @@ export class Kea {
   }
 
   /**
-   * Quit Kea completely from the menu (`app.quit`, ⌥⌘Q): main asks core and ptyhost to shut down, waits for
-   * them, then exits. Resolves with main's exit status once it has exited.
+   * Quit Kea the way an update's restart does, leaving every terminal running (`app.quit()` itself, so a survival test
+   * can look at what outlives Kea); with `{ stopAll: true }` the user's Quit Kea Completely (`app.quit` in the menu,
+   * ⌥⌘Q), which stops every terminal first. Main asks core and ptyhost to shut down, waits for them, then exits.
+   * Resolves with main's exit status once it has exited.
    */
-  async quitFromMenu(): Promise<{ code: number | null; signal: NodeJS.Signals | null }> {
+  async quitFromMenu(o: { stopAll?: boolean } = {}): Promise<{ code: number | null; signal: NodeJS.Signals | null }> {
     const proc = this.app.process()
     const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
       if (proc.exitCode !== null || proc.signalCode !== null) resolve({ code: proc.exitCode, signal: proc.signalCode })
       else proc.once('exit', (code, signal) => resolve({ code, signal }))
     })
-    await this.app.evaluate(({ Menu }) => {
-      const item = Menu.getApplicationMenu()?.getMenuItemById('app.quit')
-      if (!item) throw new Error('no app.quit menu item')
-      ;(item as unknown as { click(): void }).click()
-    })
+    if (o.stopAll) {
+      await this.app.evaluate(({ Menu }) => {
+        const item = Menu.getApplicationMenu()?.getMenuItemById('app.quit')
+        if (!item) throw new Error('no app.quit menu item')
+        ;(item as unknown as { click(): void }).click()
+      })
+    } else await this.app.evaluate(({ app }) => app.quit())
     this.closed = true
     await this.cdp?.close().catch(() => undefined)
     this.cdp = null

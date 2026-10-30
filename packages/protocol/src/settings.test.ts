@@ -26,6 +26,12 @@ const claude: AgentSettingsExtension = {
 }
 
 describe('settings schema', () => {
+  it('U-SET-12 · a stored "On quit" of quit, from when Kea could leave sessions running, now stops them', () => {
+    const { values, notices } = parseSettings({ general: { onQuit: 'quit' } }, [claude])
+    expect(values.get('general.onQuit')).toBe('stopAll')
+    expect(notices).toEqual([])
+  })
+
   it('U-SET-1 · defaults apply when the file is empty', () => {
     const { values, notices } = parseSettings({}, [claude])
     expect(notices).toEqual([])

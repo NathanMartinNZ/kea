@@ -17,6 +17,7 @@ import {
   type Lifecycle,
   type MenuBarSession,
   type MenuBarState,
+  type PtyInfo,
   type SessionView,
 } from '@kea/protocol'
 
@@ -87,20 +88,27 @@ export function needsYou(views: Iterable<SessionView>, conditions: Iterable<Acco
   return { count: sessions.length, sessions }
 }
 
-/** The sessions `⌘Q` keeps running rather than quits under: an agent live, or a session being created. */
+/** The sessions with an agent live or being created: what the menu-bar item and the Dock badge count. */
 export function keptRunning(views: Iterable<SessionView>): number {
   let n = 0
   for (const v of views) if (v.lifecycle === 'live' || v.lifecycle === 'creating') n++
   return n
 }
 
+/** The terminals still running, of any session and of the shell tabs: what a quit has to stop. */
+export function runningTerminals(terminals: Iterable<Pick<PtyInfo, 'state'>>): number {
+  let n = 0
+  for (const t of terminals) if (t.state === 'running') n++
+  return n
+}
+
 export function menuBarState(
   views: Iterable<SessionView>,
   onQuit: MenuBarState['onQuit'],
-  o: { conditions?: Iterable<AccountCondition>; agentName?: (agent: string) => string; badge?: boolean } = {},
+  o: { conditions?: Iterable<AccountCondition>; agentName?: (agent: string) => string; badge?: boolean; terminals?: Iterable<Pick<PtyInfo, 'state'>> } = {},
 ): MenuBarState {
   const list = [...views]
-  return { live: keptRunning(list), onQuit, ...needsYou(list, o.conditions ?? [], o.agentName), badge: o.badge ?? true }
+  return { live: keptRunning(list), running: runningTerminals(o.terminals ?? []), onQuit, ...needsYou(list, o.conditions ?? [], o.agentName), badge: o.badge ?? true }
 }
 
 /**
@@ -111,6 +119,8 @@ export function watchMenuBar(o: {
   sessions: KeyedStore<SessionView>
   /** Account conditions: one line and one count each. */
   conditions?: KeyedStore<AccountCondition>
+  /** The `terminals` store: a terminal starting or ending changes `running`. */
+  terminals?: KeyedStore<PtyInfo>
   agentName?(agent: string): string
   onQuit(): MenuBarState['onQuit']
   /** `notifications.dockBadge`; default on. */
@@ -124,6 +134,7 @@ export function watchMenuBar(o: {
     timer = null
     const s = menuBarState(o.sessions.values(), o.onQuit(), {
       ...(o.conditions ? { conditions: o.conditions.values() } : {}),
+      ...(o.terminals ? { terminals: o.terminals.values() } : {}),
       ...(o.agentName ? { agentName: (a: string) => o.agentName!(a) } : {}),
       badge: o.badge ? o.badge() : true,
     })
@@ -139,12 +150,14 @@ export function watchMenuBar(o: {
   }
   const offStore = o.sessions.onDelta(schedule)
   const offConditions = o.conditions?.onDelta(schedule) ?? (() => undefined)
+  const offTerminals = o.terminals?.onDelta(schedule) ?? (() => undefined)
   const offSettings = o.onSettings(schedule)
   flush()
   return {
     dispose() {
       offStore()
       offConditions()
+      offTerminals()
       offSettings()
       if (timer) clearTimeout(timer)
       timer = null

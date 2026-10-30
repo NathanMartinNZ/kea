@@ -1772,13 +1772,16 @@ export class Sessions {
   }
 
   /** Stop every PTY of the session: the agent as Stop ends it, shells as closed tabs, scripts ended. */
-  private async stopAll(id: string): Promise<void> {
+  private async stopAll(id: string, forQuit = false): Promise<void> {
     const recs = this.o.terminals.sessionRecords(id).filter((r) => r.state === 'running')
     if (recs.some((r) => r.kind === 'agent')) this.stopping.add(id)
     const row = this.row(id)
     await Promise.all(
       recs.map((r) =>
-        r.kind === 'agent' ? this.stopAgent(row, r.ptyId) : this.o.terminals.stop(r.ptyId, r.kind === 'shell' ? 'hangup' : 'terminate', r.kind === 'shell' ? L.shellCloseGraceMs : L.stopGraceMs),
+        // a quit terminates shells (and the `shell` pseudo-agent) too: a hangup leaves a `nohup` or disowned job running
+        r.kind === 'agent' && !(forQuit && row.agent === SHELL_AGENT)
+          ? this.stopAgent(row, r.ptyId)
+          : this.o.terminals.stop(r.ptyId, r.kind === 'shell' && !forQuit ? 'hangup' : 'terminate', r.kind === 'shell' && !forQuit ? L.shellCloseGraceMs : L.stopGraceMs),
       ),
     )
     const left = this.o.terminals.sessionRecords(id).filter((r) => r.state === 'running')
@@ -1827,13 +1830,17 @@ export class Sessions {
 
   /**
    * Stop All and Quit ("On quit: stop all sessions"): every session with a running PTY has them all stopped as archive
-   * stops them (agents as Stop does, so live sessions end `detached`, `stopped`). Sessions still being created are left
-   * as they are: their creation offers Retry at the next launch.
+   * stops them (agents as Stop does, so live sessions end `detached`, `stopped`; shells are terminated, not hung up).
+   * A session being created has its setup script stopped, and its creation offers Retry at the next launch. The shell
+   * tabs outside any session are stopped too, and no terminal starts meanwhile.
    */
   async stopEverything(): Promise<void> {
+    this.o.terminals.refuseLaunches()
     const ids = this.db.all<{ id: string }>(`SELECT id FROM sessions WHERE lifecycle IN ('live', 'detached')`).map((r) => r.id)
     const running = ids.filter((id) => this.o.terminals.sessionRecords(id).some((r) => r.state === 'running'))
-    await Promise.all(running.map((id) => this.queued(id, () => this.stopAll(id)).catch((e) => this.log.warn('session not stopped (Stop All and Quit)', { sessionId: id, error: String(e) }))))
+    await Promise.all(running.map((id) => this.queued(id, () => this.stopAll(id, true)).catch((e) => this.log.warn('session not stopped (Stop All and Quit)', { sessionId: id, error: String(e) }))))
+    // what is left: a session being created (its setup script), an archived or failed one, the shell tabs outside any session
+    await this.o.terminals.stopAllForQuit(L.stopGraceMs)
   }
 
   // ── launch-time work ────────────────────────────────────────────────────────────────────────────

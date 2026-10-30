@@ -264,7 +264,7 @@ describe('the Linux column', () => {
     expect(systemTitle(at('session.reveal'), linux)).toBe('Reveal Worktree in File Manager')
     expect(systemTitle(at('project.reveal'), linux)).toBe('Reveal in File Manager')
     expect(systemTitle(at('files.reveal'), linux)).toBe('Reveal in File Manager')
-    expect(systemTitle(at('app.closeToMenuBar'), linux)).toBe('Close Kea (sessions keep running)')
+    expect(systemTitle(at('app.closeToMenuBar'), linux)).toBe('Close Kea')
     for (const c of COMMANDS) {
       expect(systemTitle(c, darwin), c.id).toBe(c.title)
       expect(systemTitle(c, linux), c.id).not.toMatch(/Finder|Menu Bar/)

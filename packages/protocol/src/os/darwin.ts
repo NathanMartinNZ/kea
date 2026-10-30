@@ -53,7 +53,7 @@ export const darwin: ProtocolOs = {
     hiddenSettings: ['terminal.screenReader', 'terminal.ctrlCopyPaste'],
     terminalApps: ['ghostty', 'iterm', 'warp', 'kitty', 'wezterm', 'alacritty', 'terminal'],
   },
-  words: { fileManager: 'Finder', title: (def) => def.title, badge: 'Badge count', onQuitHelp: 'What ⌘Q does while sessions run.', stayRunning: 'Stay in the menu bar', machine: 'this Mac' },
+  words: { fileManager: 'Finder', title: (def) => def.title, badge: 'Badge count', onQuitHelp: 'What ⌘Q does while terminals run.', stayRunning: 'Stay in the menu bar', machine: 'this Mac' },
   keys: {
     // the modifiers in macOS's order (⌃ ⌥ ⇧ ⌘), then the key
     label: (c: Chord) => `${c.ctrl ? '⌃' : ''}${c.alt ? '⌥' : ''}${c.shift ? '⇧' : ''}${c.cmd ? '⌘' : ''}${KEY_GLYPHS[c.key] ?? c.key.toUpperCase()}`,

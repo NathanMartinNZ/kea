@@ -38,9 +38,9 @@ granted is the sanitised clipboard write. The preload (`app/preload`) is the win
 - While a core that had been ready is gone, every window is told (`kea:coreAway`) and shows a "Reconnecting…" bar if
   core stays away long enough (`CoreAvailability`).
 - A full quit asks each child to shut down, waits up to `L.supervisorShutdownGraceMs`, then stops supervising
-  (`shutdownChildren`). The terminal holders keep running.
-- Closing the last window does not quit Kea on macOS. On Linux, Kea goes to the background while sessions run and a
-  tray host is there to reopen it from, and quits otherwise; sessions keep running in their holders either way.
+  (`shutdownChildren`). That shutdown leaves the terminal holders alone: a quit the user asks for stops every terminal first (`stopAllAndQuit`), while an update's or a relaunch's quit leaves them for the new Kea to adopt.
+- Closing the last window does not quit Kea on macOS. On Linux, Kea goes to the background while terminals run and a
+  tray host is there to reopen it from, and stops every terminal and quits otherwise.
 - An unresponsive renderer is crashed and its window reloaded; every terminal reattaches from ptyhost's snapshots.
 - Before every respawn of core or ptyhost the Supervisor asks main (`beforeRespawn`), which refuses once Kea's files
   were replaced or removed under the running Kea (`updates/upgrade.ts`). A refused respawn restarts the whole of Kea
@@ -67,7 +67,7 @@ it.
 | `home.ts`, `switches.ts` | The home directory for this build; the command-line switches a packaged build refuses |
 | `utility.ts`, `lifecycle.ts` | A supervised utility process; core availability, the RPC port handout and the full-quit shutdown, kept free of Electron |
 | `menu.ts` | The menu bar (macOS) or the window's menu (Linux), generated from the command table. Shortcuts are shown but not registered: the renderer's key router runs them. Main runs only the commands that must work with no window |
-| `menuBar.ts`, `trayIcon.ts` | What `⌘Q` does (quit, stop all and quit, or keep running in the menu bar, with the first-quit sheet), the menu-bar item or tray and its menu, and the Dock icon's show and hide; the item's icon, drawn from the Kea mark |
+| `menuBar.ts`, `trayIcon.ts` | What `⌘Q` does (quit, stop all and quit, or stay in the menu bar, with the first-quit sheet), the menu-bar item or tray and its menu, and the Dock icon's show and hide; the item's icon, drawn from the Kea mark |
 | `notifier.ts` | Notifications and the badge: core's policy decides what to post or withdraw, main shows it, one notification per tag |
 | `native.ts` | The folder picker, Reveal, and the window's saved bounds |
 | `handoff.ts` | On Wayland a minimized window cannot be brought back, so Kea makes a new one in its place; the old window's composer drafts are handed to the new one. A restart Kea makes itself carries them the same way, through a file |

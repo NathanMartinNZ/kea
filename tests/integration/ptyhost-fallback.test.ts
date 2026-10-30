@@ -64,7 +64,7 @@ describe('holder fallback', () => {
   it('I-PTY-11 · detaching refused (policy, then a failing posix_spawn): the same helper runs non-detached and works; then no usable helper: a diagnostic banner, no crash', async () => {
     // 1. the detach policy says holders may not detach
     h = await ptyhostHarness({ detach: false })
-    expect(banners(h)).toEqual([{ m: 'pty.banner', a: { kind: 'notDetached', message: expect.stringMatching(/^Sessions won't survive quitting Kea — /) } }])
+    expect(banners(h)).toEqual([{ m: 'pty.banner', a: { kind: 'notDetached', message: expect.stringMatching(/^Sessions won't survive a crash or an update of Kea — /) } }])
     const a = await h.spawn({ argv: rawTty(childArgv('echo')) })
     expect(a.info().detached).toBe(false)
     await echoes(h, a.ptyId)

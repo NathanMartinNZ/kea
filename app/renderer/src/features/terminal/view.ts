@@ -171,6 +171,7 @@ export class TerminalView {
     this.ds.push(this.term.onBinary((d) => this.ch?.send({ k: 'inb', d: binary(d) })))
     this.ds.push(this.term.onScroll(() => this.updateScroll()))
     this.ds.push(this.term.onWriteParsed(() => this.updateScroll()))
+    this.ds.push(this.term.onWriteParsed(() => this.updateWheel()))
     this.ds.push({ dispose: onStreamsReset(() => void this.attach()) })
     this.ds.push({ dispose: prefs.subscribe(() => this.applyPrefs()) })
     this.ds.push(listen(this.el, 'paste', (e) => this.onPaste(e), true))
@@ -673,6 +674,13 @@ export class TerminalView {
   private copyOnSelect(): void {
     if (!prefs.get().copyOnSelect || !this.term.hasSelection()) return
     navigator.clipboard.writeText(this.term.getSelection()).catch((e: unknown) => console.warn('copy on select failed', e))
+  }
+
+  /** A program that captures the mouse or draws the alternate screen gets xterm's damped wheel steps: scale them up. */
+  private updateWheel(): void {
+    const captured = this.term.modes.mouseTrackingMode !== 'none' || this.term.buffer.active.type === 'alternate'
+    const sensitivity = captured ? L.terminalMouseWheelSensitivity : 1
+    if (this.term.options.scrollSensitivity !== sensitivity) this.term.options.scrollSensitivity = sensitivity
   }
 
   private updateScroll(): void {

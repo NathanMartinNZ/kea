@@ -163,6 +163,8 @@ pub const WORK_MIN_COLS: u64 = 40;
 pub const AGENT_FIRST_SHARE: f64 = 0.5;
 /// xterm's scrollbar track, which its fit leaves out of the columns: a pane's width in columns counts it (px)
 pub const TERMINAL_SCROLLBAR_PX: u64 = 14;
+/// xterm's wheel step while a program captures the mouse or draws the alternate screen: xterm scales small wheel deltas down there, so a wheel scrolls slower than in the shell's scrollback (ratio)
+pub const TERMINAL_MOUSE_WHEEL_SENSITIVITY: u64 = 2;
 /// a logical terminal line (its wrapped rows joined) is searched for file references up to this length (chars)
 pub const TERMINAL_LINK_LINE_MAX_CHARS: u64 = 2048;
 /// a printed path longer than this is not a file link (chars)

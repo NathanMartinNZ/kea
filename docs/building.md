@@ -22,7 +22,7 @@ pnpm dev        # build kea-helper (the Rust process every terminal runs in) and
 
 A development build keeps its data in `~/.kea-dev`, never in `~/.kea`, so it runs beside an installed Kea. Its
 window state is in `~/Library/Application Support/Kea-dev-…` on macOS and `~/.config/Kea-dev-…` on Linux. Ctrl-C
-stops it; its terminals keep running, as they would after quitting the installed app. Arguments after `pnpm dev` go
+stops it without stopping its terminals, as a crash would; quitting it from its menu stops them. Arguments after `pnpm dev` go
 to Kea, for example a throwaway home:
 
 ```sh
@@ -94,7 +94,7 @@ stops before changing anything and says why. In order, it:
 7. opens Kea again only if it was running with its window in front. A Kea that was in the menu bar or behind
    another app is left closed, so no window takes your keyboard, and the tool says so.
 
-Every terminal survives with its scrollback, whether it runs an agent in the middle of a turn, a dev server or a
+Every terminal survives an update with its scrollback, whether it runs an agent in the middle of a turn, a dev server or a
 shell: terminals run from their own copy of `kea-helper` in `~/.kea/bin`, never from the app, and the new Kea
 reattaches to them. Names, order and settings are kept, and macOS keeps the notification permission and privacy
 grants because the path and the signature are the same. While Kea is closed nothing posts notifications; a session

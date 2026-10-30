@@ -18,11 +18,11 @@ export type MenuBarSession = { id: string; title: string; reason: string; glyph:
 
 /**
  * What main needs from core for `⌘Q`, the menu-bar item and the Dock badge: how many sessions keep running (an agent
- * live, or a session being created), the "On quit" setting, the sessions that need you in attention order with their
+ * live, or a session being created), how many terminals run at all (`running`: any session's, and the shell tabs'), the "On quit" setting, the sessions that need you in attention order with their
  * count (an account condition counts once), and whether the count is shown as a badge (`notifications.dockBadge`: on
  * the Dock icon, and as the menu-bar item's title).
  */
-export type MenuBarState = { live: number; onQuit: (typeof ON_QUIT)[number]; count: number; sessions: MenuBarSession[]; badge: boolean }
+export type MenuBarState = { live: number; running: number; onQuit: (typeof ON_QUIT)[number]; count: number; sessions: MenuBarSession[]; badge: boolean }
 
 /**
  * A notification for main to post or withdraw: core's notification policy decides; main only shows it. `tag`: at most
@@ -56,7 +56,7 @@ export type MainToChild =
    * core: the first-quit sheet's non-destructive answer becomes the "On quit" setting. Not answered: a
    * `shutdown` after it waits for the write (main's shutdown grace bounds it).
    */
-  | { k: 'onQuit'; onQuit: 'menuBar' | 'quit' }
+  | { k: 'onQuit'; onQuit: 'menuBar' }
   /** core: whether a Kea window has keyboard focus ("Only when Kea is not focused" reads it); sent on each change. */
   | { k: 'focus'; focused: boolean }
   /**
@@ -114,7 +114,7 @@ export function isMainToChild(m: unknown): m is MainToChild {
     case 'focus':
       return typeof r.focused === 'boolean'
     case 'onQuit':
-      return r.onQuit === 'menuBar' || r.onQuit === 'quit'
+      return r.onQuit === 'menuBar'
     case 'platform':
       return zPlatformReport.safeParse(r.report).success
   }
@@ -159,7 +159,7 @@ export function isNotificationOp(r: Record<string, unknown>): boolean {
 /** A menu-bar state as core sends it (main checks what crosses): counts, the setting, the list, the badge switch. */
 export function isMenuBarState(r: Record<string, unknown>): boolean {
   const count = (v: unknown) => Number.isSafeInteger(v) && (v as number) >= 0
-  if (!count(r.live) || !count(r.count) || !(ON_QUIT as readonly unknown[]).includes(r.onQuit) || !Array.isArray(r.sessions) || typeof r.badge !== 'boolean') return false
+  if (!count(r.live) || !count(r.running) || !count(r.count) || !(ON_QUIT as readonly unknown[]).includes(r.onQuit) || !Array.isArray(r.sessions) || typeof r.badge !== 'boolean') return false
   return r.sessions.every((x: unknown) => {
     const s = x as Record<string, unknown> | null
     return typeof s === 'object' && s !== null && typeof s.id === 'string' && typeof s.title === 'string' && typeof s.reason === 'string' && (SESSION_GLYPHS as readonly unknown[]).includes(s.glyph)

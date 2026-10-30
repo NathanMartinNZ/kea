@@ -36,7 +36,7 @@ const sel = <const V extends readonly string[]>(values: V, labels: Record<V[numb
   values.map((v) => ({ value: v, label: labels[v as V[number]] }))
 
 export const EDITORS = ['vscode', 'vscode-insiders', 'cursor', 'windsurf', 'zed'] as const
-export const ON_QUIT = ['menuBar', 'quit', 'stopAll'] as const
+export const ON_QUIT = ['menuBar', 'stopAll'] as const
 /** The terminal's screen-reader mode on Linux, which tells no change of an assistive technology. */
 export const SCREEN_READER = ['auto', 'on', 'off'] as const
 export const SESSION_ORDER = ['stable', 'attention'] as const
@@ -71,7 +71,8 @@ export const SETTINGS: readonly SettingDef[] = [
   { key: 'general.defaultEditor', schema: z.enum(EDITORS), default: 'vscode', label: 'Default editor', section: 'General', control: 'select', options: sel(EDITORS, { vscode: 'VS Code', 'vscode-insiders': 'VS Code Insiders', cursor: 'Cursor', windsurf: 'Windsurf', zed: 'Zed' }) },
   { key: 'general.terminalApp', schema: z.enum(TERMINAL_APPS), default: 'auto', label: 'Terminal app', help: '“Open in Terminal App” opens this one. Automatic: the first one installed, in this order.', section: 'General', control: 'select', options: sel(TERMINAL_APPS, { auto: 'Automatic', ghostty: 'Ghostty', iterm: 'iTerm', warp: 'Warp', kitty: 'kitty', wezterm: 'WezTerm', alacritty: 'Alacritty', terminal: 'Terminal', konsole: 'Konsole', ptyxis: 'Ptyxis', 'gnome-terminal': 'GNOME Terminal', 'x-terminal-emulator': 'The system’s terminal' }) },
   // the first choice and the help in this system's words: the menu bar on macOS, the background with a tray on Linux
-  { key: 'general.onQuit', schema: z.enum(ON_QUIT), default: 'menuBar', label: 'On quit', help: protocolOs.words.onQuitHelp, section: 'General', control: 'select', options: sel(ON_QUIT, { menuBar: protocolOs.words.stayRunning, quit: 'Quit completely (sessions keep running)', stopAll: 'Stop all sessions and quit' }) },
+  // a stored 'quit' (an earlier choice that left sessions running) now means stopping them
+  { key: 'general.onQuit', schema: z.preprocess((v) => (v === 'quit' ? 'stopAll' : v), z.enum(ON_QUIT)), default: 'menuBar', label: 'On quit', help: protocolOs.words.onQuitHelp, section: 'General', control: 'select', options: sel(ON_QUIT, { menuBar: protocolOs.words.stayRunning, stopAll: 'Stop all sessions and quit' }) },
   { key: 'general.autoCleanArchivedDays', schema: days, default: 14, label: 'Auto-clean archived sessions after (days)', help: '0 = never. Only clean, merged worktrees are removed.', section: 'General', control: 'number' },
   { key: 'general.deletedRetentionDays', schema: days.min(1), default: 14, label: 'Keep deleted sessions restorable for (days)', section: 'General', control: 'number' },
   { key: 'general.pruneArchivedBuildDirsDays', schema: days, default: 7, label: 'Remove build folders of archived sessions after (days)', help: '0 = never.', section: 'General', control: 'number' },

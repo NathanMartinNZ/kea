@@ -41,7 +41,7 @@ describe('main ⇄ core for the visible set', () => {
 
 describe('main ⇄ core for menu-bar mode', () => {
   it('U-SES-8 · main accepts core’s menu-bar state only when well formed (counts, an On quit choice, a list of sessions with their glyphs, the badge switch) and its stop-all answer by id', () => {
-    const ok = { k: 'menuBar', live: 2, onQuit: 'menuBar', count: 1, sessions: [{ id: 's1', title: 'Fix', reason: 'crashed', glyph: 'failed' }], badge: true }
+    const ok = { k: 'menuBar', live: 2, running: 2, onQuit: 'menuBar', count: 1, sessions: [{ id: 's1', title: 'Fix', reason: 'crashed', glyph: 'failed' }], badge: true }
     expect(isChildToMain(ok)).toBe(true)
     for (const bad of [
       { live: -1 },

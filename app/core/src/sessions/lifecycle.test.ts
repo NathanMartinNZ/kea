@@ -1,7 +1,7 @@
 import { allPairs, createFsm } from '@kea/kit'
 import { badgeCount, KeyedStore, L, LIFECYCLE, sessionGlyph, type AccountCondition, type AttentionItem, type MenuBarState, type SessionView } from '@kea/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { LIFECYCLE_EVENTS, LIFECYCLE_TABLE, needsYou, nextLifecycle, watchMenuBar } from './lifecycle.ts'
+import { LIFECYCLE_EVENTS, LIFECYCLE_TABLE, menuBarState, needsYou, nextLifecycle, runningTerminals, watchMenuBar } from './lifecycle.ts'
 
 /** Every edge of the session lifecycle, written out by hand rather than read from the table under test. */
 const EXPECTED: Record<string, string> = {
@@ -80,6 +80,7 @@ describe('what ⌘Q and the menu-bar item need', () => {
     expect(sent).toEqual([
       {
         live: 2,
+        running: 0,
         onQuit: 'menuBar',
         count: 2,
         sessions: [
@@ -96,7 +97,7 @@ describe('what ⌘Q and the menu-bar item need', () => {
     expect(sent).toHaveLength(1)
     vi.advanceTimersByTime(L.storeTickMs)
     expect(sent).toHaveLength(2)
-    expect(sent[1]).toEqual({ live: 1, onQuit: 'menuBar', count: 1, sessions: [{ id: 'e', title: 'title e', reason: 'lost', glyph: 'failed' }], badge: true })
+    expect(sent[1]).toEqual({ live: 1, running: 0, onQuit: 'menuBar', count: 1, sessions: [{ id: 'e', title: 'title e', reason: 'lost', glyph: 'failed' }], badge: true })
     // a change that changes nothing main sees (a title of a session it does not list) sends nothing
     store.set('d', view('d', { lifecycle: 'detached', endReason: 'stopped', title: 'renamed' }))
     vi.advanceTimersByTime(L.storeTickMs)
@@ -174,5 +175,14 @@ describe('the needs-you count and list', () => {
     expect(sent.at(-1)!.sessions[0]!.id, 'the oldest blocked first').toBe('work')
     w.dispose()
     expect(conditions.listenerCount).toBe(0)
+  })
+})
+
+describe('what a quit has to stop', () => {
+  it('U-SES-14 · terminals count as running whatever the session: a server left running after its agent ended counts, an exited terminal does not', () => {
+    expect(runningTerminals([{ state: 'running' }, { state: 'exited' }, { state: 'lost' }, { state: 'running' }])).toBe(2)
+    expect(runningTerminals([])).toBe(0)
+    const s = menuBarState([], 'menuBar', { terminals: [{ state: 'running' }] })
+    expect({ live: s.live, running: s.running }, 'no agent live, a terminal running').toEqual({ live: 0, running: 1 })
   })
 })

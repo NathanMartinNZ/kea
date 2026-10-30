@@ -244,6 +244,16 @@ kbd {
   isolation: isolate;
 }
 
+/* a program that captures the mouse keeps the text cursor (xterm switches to the arrow) and links keep the pointer */
+.kea-terminal .xterm.enable-mouse-events {
+  cursor: text;
+}
+
+.kea-terminal .xterm.enable-mouse-events.xterm-cursor-pointer,
+.kea-terminal .xterm.enable-mouse-events .xterm-cursor-pointer {
+  cursor: pointer;
+}
+
 /* scrollbar: an overlay slider, --size-scrollbar wide, at the right edge, inside xterm's default track */
 .kea-terminal .xterm-scrollbar.xterm-vertical > .xterm-slider {
   left: auto !important;

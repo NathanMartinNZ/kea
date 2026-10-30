@@ -164,6 +164,8 @@ export const L = {
   agentFirstShare: 0.5,
   /** xterm's scrollbar track, which its fit leaves out of the columns: a pane's width in columns counts it (px) */
   terminalScrollbarPx: 14,
+  /** xterm's wheel step while a program captures the mouse or draws the alternate screen: xterm scales small wheel deltas down there, so a wheel scrolls slower than in the shell's scrollback (ratio) */
+  terminalMouseWheelSensitivity: 2,
   /** a logical terminal line (its wrapped rows joined) is searched for file references up to this length (chars) */
   terminalLinkLineMaxChars: 2048,
   /** a printed path longer than this is not a file link (chars) */
@@ -819,6 +821,7 @@ export const LIMIT_META: Record<LimitName, { unit: string; why: string; whyLinux
   workMinCols: { unit: "cols", why: "the work pane's narrowest width beside the agent pane" },
   agentFirstShare: { unit: "ratio", why: "the agent pane's share of the main column until its divider is dragged" },
   terminalScrollbarPx: { unit: "px", why: "xterm's scrollbar track, which its fit leaves out of the columns: a pane's width in columns counts it" },
+  terminalMouseWheelSensitivity: { unit: "ratio", why: "xterm's wheel step while a program captures the mouse or draws the alternate screen: xterm scales small wheel deltas down there, so a wheel scrolls slower than in the shell's scrollback" },
   terminalLinkLineMaxChars: { unit: "chars", why: "a logical terminal line (its wrapped rows joined) is searched for file references up to this length" },
   terminalLinkPathMaxChars: { unit: "chars", why: "a printed path longer than this is not a file link" },
   terminalLinkCandidatesMax: { unit: "count", why: "file references checked per terminal line (one existence check in core for all of them)" },

@@ -359,7 +359,7 @@ describe('races and resources, sessions (app)', () => {
     const failure = main.getByRole('status').filter({ has: page.getByRole('button', { name: 'Retry' }) })
     await until(`session ${failed}: its creation error said`, async () => /EMFILE|too many open files/i.test((await failure.textContent()) ?? '') || undefined)
     expect(await failure.textContent(), 'a resource limit is no missing helper: no build or reinstall advice').not.toMatch(/helper:build|Reinstall Kea/)
-    // no banner: not "Terminals are unavailable", not "Sessions won't survive quitting Kea"
+    // no banner: not "Terminals are unavailable", not "Sessions won't survive a crash or an update of Kea"
     const strip = page.getByRole('region', { name: 'Banners' })
     const banners = async () => ((await strip.count()) > 0 ? ((await strip.textContent()) ?? '') : '')
     expect(await banners(), 'no banner for a resource limit').toBe('')

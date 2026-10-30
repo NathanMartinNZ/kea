@@ -80,7 +80,7 @@ export interface SystemWords {
   readonly badge: string
   /** `general.onQuit`'s help: the key that closes Kea while sessions run, by its default (`⌘Q`, `Ctrl+Shift+Q`). */
   readonly onQuitHelp: string
-  /** `general.onQuit`'s first choice: stay in the menu bar, or keep running in the background with the tray icon. */
+  /** `general.onQuit`'s first choice: stay in the menu bar, or in the tray. */
   readonly stayRunning: string
   /** The machine in a message (`No editor was found on this Mac`): `this Mac`, or `this computer` on Linux. */
   readonly machine: string

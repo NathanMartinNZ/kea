@@ -48,7 +48,7 @@ export type Sheet =
   | { kind: 'restoreDeleted'; projectId: string }
   /** "View log": the session's log (`creation.log`); for one just deleted, the log its delete returned. */
   | { kind: 'log'; sessionId: string; title: string; log?: { text: string; truncated: boolean } }
-  /** The first `⌘Q` with sessions running; `live` is how many keep running. */
+  /** The first `⌘Q` with terminals running; `live` is how many run. */
   | { kind: 'quit'; live: number; background: boolean }
   /** Keyboard Shortcuts (`app.shortcuts`): every command and its key now (`features/commands`). */
   | { kind: 'shortcuts' }

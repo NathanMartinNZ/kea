@@ -92,7 +92,7 @@ describe('holder backend: the non-detached fallback', () => {
     expect(b.detaching).toBe(false)
     expect(await b.launch(request(h, 'bbbbbbbbbb'))).toMatchObject({ detached: false })
     expect(detached).toHaveBeenCalledTimes(1)
-    expect(notes).toEqual([{ m: 'pty.banner', a: { kind: 'notDetached', message: expect.stringMatching(/^Sessions won't survive quitting Kea — .*Operation not permitted/) } }])
+    expect(notes).toEqual([{ m: 'pty.banner', a: { kind: 'notDetached', message: expect.stringMatching(/^Sessions won't survive a crash or an update of Kea — .*Operation not permitted/) } }])
     expect(b.heldCount).toBe(2)
   })
 

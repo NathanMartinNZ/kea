@@ -27,7 +27,7 @@ export interface MenuBarProbe {
   item: boolean
   title: string | null
   dock: boolean | null
-  state: { live: number; onQuit: string; count: number; sessions: { id: string; title: string; reason: string; glyph: string }[]; badge: boolean } | null
+  state: { live: number; running: number; onQuit: string; count: number; sessions: { id: string; title: string; reason: string; glyph: string }[]; badge: boolean } | null
   sheetSeen: boolean
 }
 

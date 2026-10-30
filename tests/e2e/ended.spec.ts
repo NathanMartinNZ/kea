@@ -28,7 +28,9 @@ function exitOf(kea: Kea): Promise<{ code: number | null; signal: NodeJS.Signals
 
 /** "On quit" in the run's settings.json: `general.onQuit`, or null when absent (the default). */
 function onQuitSetting(run: KeaRun): string | null {
-  const settings = JSON.parse(fs.readFileSync(path.join(run.home, 'settings.json'), 'utf8')) as { general?: { onQuit?: string } }
+  const file = path.join(run.home, 'settings.json')
+  if (!fs.existsSync(file)) return null
+  const settings = JSON.parse(fs.readFileSync(file, 'utf8')) as { general?: { onQuit?: string } }
   return settings.general?.onQuit ?? null
 }
 
@@ -100,7 +102,7 @@ function fifoIn(dir: string, name: string): string {
   return f
 }
 
-test('E-SES-5 · first ⌘Q with a live session: the sheet (Keep in Menu Bar the default) → Quit Completely, which becomes "On quit"; relaunch; later ⌥⌘Q and relaunch; then ⌘Q quits completely without asking: the sheet comes only that first time; after each relaunch the session is live and reattached with what it printed meanwhile, its status as before', async ({ run, launch }) => {
+test('E-SES-5 · first ⌘Q with a terminal running: the sheet (Keep in Menu Bar the default) → Stop All and Quit stops the agent’s terminal and Kea quits; on relaunch the session is detached, stopped, and ⌘Q with nothing running quits without asking', async ({ run, launch }) => {
   test.skip(NO_MENU_BAR !== null, skipNote(NO_MENU_BAR ?? ''))
   const kea = await launch()
   const page = await kea.page()
@@ -109,54 +111,60 @@ test('E-SES-5 · first ⌘Q with a live session: the sheet (Keep in Menu Bar the
   const id = await startSession(kea, 'quit around me')
   await waitLive(kea, id)
   const agent = await agentTerminal(kea, id)
-  const fifo = fifoIn(run.home, 'meanwhile')
-  // the agent prints each line that reaches the FIFO, whether Kea runs or not
-  await kea.enter(`while read l < ${fifo}; do echo "got-$l"; done`)
-  const before = (await rowState(page, id))!
-  await menuBarState(kea, 'one session kept running', (s) => s.live === 1)
+  await menuBarState(kea, 'a terminal is running', (s) => s.live === 1 && s.running >= 1)
 
   // the first ⌘Q: the sheet
   await pressQuit(kea)
   const sheet = quitSheet(page)
   await expect(sheet, 'the first-quit sheet').toBeVisible({ timeout: STEP_MS })
-  await expect(sheet).toContainText('1 session keeps running')
+  await expect(sheet).toContainText('terminal')
   await expect(sheet.getByRole('button', { name: 'Keep in Menu Bar' }), 'the default').toHaveAttribute('data-default', 'true')
-  await expect(sheet.getByRole('button', { name: 'Stop All and Quit' })).toBeVisible()
+  await expect(sheet.getByRole('button', { name: 'Quit Completely' }), 'no answer leaves terminals running').toHaveCount(0)
   const exited = exitOf(kea)
-  await sheet.getByRole('button', { name: 'Quit Completely' }).click()
+  await sheet.getByRole('button', { name: 'Stop All and Quit' }).click()
   expect(await exited, 'Kea quits cleanly').toEqual({ code: 0, signal: null })
   await kea.gone()
-  expect(onQuitSetting(run), 'Quit Completely became "On quit", written before Kea quit').toBe('quit')
-  expect(run.holderAlive(run.holder(agent)), 'the agent runs on').toBe(true)
-  await writeFifo(fifo, 'one\n')
-  await until('the agent printed while Kea was not running', () => run.ring(agent).text.includes('got-one') || undefined)
+  expect(onQuitSetting(run), 'Stop All and Quit is applied once and never remembered').toBeNull()
+  await until('the agent’s terminal is stopped', () => !run.holderAlive(run.holder(agent)) || undefined)
 
-  const reattached = async (k: Kea, line: string) => {
-    await waitRow(k, id, 'live after the relaunch, its status as before', (r) => r.lifecycle === 'live' && r.status === before.status)
-    expect(await agentTerminal(k, id), 'the same agent, reattached').toBe(agent)
-    await k.waitScreen(`what it printed meanwhile (${line})`, (s) => s.includes(line))
-  }
+  // relaunch: the session is detached and stopped, nothing runs, and ⌘Q asks nothing
   const second = await launch()
-  await reattached(second, 'got-one')
-
-  // later: ⌥⌘Q (Quit Kea Completely) asks nothing
-  expect(await second.quitFromMenu(), 'Kea quits cleanly').toEqual({ code: 0, signal: null })
+  await waitRow(second, id, 'detached after the quit', (r) => r.lifecycle === 'detached')
+  await menuBarState(second, 'nothing runs', (s) => s.running === 0)
+  const exited2 = exitOf(second)
+  await pressQuit(second)
+  expect(await exited2, 'Kea quits cleanly, asking nothing').toEqual({ code: 0, signal: null })
   await second.gone()
-  await writeFifo(fifo, 'two\n')
-  await until('the agent printed while Kea was not running', () => run.ring(agent).text.includes('got-two') || undefined)
-  const third = await launch()
-  await reattached(third, 'got-two')
-
-  // and ⌘Q no longer asks: the sheet was answered once, and its answer is "On quit" now, so ⌘Q quits completely
-  const m = await menuBarState(third, 'one session kept running, "On quit" as answered', (s) => s.live === 1 && s.onQuit === 'quit')
-  expect(m.sheetSeen, 'the sheet’s answer is remembered').toBe(true)
-  await third.assertUnfocused()
-  const exited3 = exitOf(third)
-  await pressQuit(third)
-  expect(await exited3, 'Kea quits cleanly, asking nothing').toEqual({ code: 0, signal: null })
-  await third.gone()
-  expect(run.holderAlive(run.holder(agent)), 'the agent runs on').toBe(true)
 })
+
+test('E-SES-14 · Quit Kea Completely stops every terminal, a job the shell started with nohup included, and nothing of the session is left running', async ({ run, launch }) => {
+  const kea = await launch()
+  const repo = demoRepo(run)
+  await addProject(kea, repo.root)
+  const id = await startSession(kea, 'quit stops all')
+  await waitLive(kea, id)
+  const agent = await agentTerminal(kea, id)
+  await kea.echo('shell-ready')
+  // an odd duration names the job in pgrep
+  const marker = 'sleep 99713'
+  await kea.enter(`nohup ${marker} >/dev/null 2>&1 &`)
+  await until('the job runs', () => pgrep(marker) || undefined)
+
+  expect(await kea.quitFromMenu({ stopAll: true }), 'Kea quits cleanly').toEqual({ code: 0, signal: null })
+  await kea.gone()
+  await until('the job is gone', () => !pgrep(marker) || undefined)
+  expect(run.holderAlive(run.holder(agent)), 'the terminal’s holder is gone').toBe(false)
+})
+
+/** Is a process whose command line has `marker` running? */
+function pgrep(marker: string): boolean {
+  try {
+    execFileSync('pgrep', ['-f', marker], { stdio: 'ignore' })
+    return true
+  } catch {
+    return false
+  }
+}
 
 test('E-SES-6 · the agent exits while Kea is closed: on relaunch the session is detached, its last screen dimmed under the overlay (Session ended · Resume ↵ · Restart ⌘↵); ↵ in the terminal resumes it through the agent’s resume path and the new agent takes the agent pane, with no tab of its own', async ({ run, launch }) => {
   const kea = await launch()

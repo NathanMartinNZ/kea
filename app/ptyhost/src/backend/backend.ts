@@ -162,7 +162,7 @@ export class HolderBackend {
     if (this.notDetachedBecause !== null) return
     this.notDetachedBecause = because
     this.deps.log.warn('holders run non-detached', { because })
-    this.deps.notify({ m: 'pty.banner', a: { kind: 'notDetached', message: `Sessions won't survive quitting Kea — terminals run as Kea's own processes because ${because}.` } })
+    this.deps.notify({ m: 'pty.banner', a: { kind: 'notDetached', message: `Sessions won't survive a crash or an update of Kea — terminals run as Kea's own processes because ${because}.` } })
   }
 
   /** A holder detached into a session of its own, not a systemd scope; one banner per ptyhost. */

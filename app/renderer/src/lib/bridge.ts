@@ -367,7 +367,7 @@ export function pathForFile(file: File): string {
 }
 
 /**
- * Main asks for the first-quit sheet, with how many sessions keep running and whether Kea can keep running in
+ * Main asks for the first-quit sheet, with how many terminals run and whether Kea can keep running in
  * the background (on Linux only while a tray host is there). Returns an unsubscribe function.
  */
 export function onQuitSheet(cb: (live: number, background: boolean) => void): () => void {
@@ -375,8 +375,8 @@ export function onQuitSheet(cb: (live: number, background: boolean) => void): ()
   return () => quitSheetListeners.delete(cb)
 }
 
-/** The first-quit sheet's answer: stay in the menu bar, quit completely, or stop all sessions and quit. */
-export function quitChoice(choice: 'menuBar' | 'quit' | 'stopAll'): void {
+/** The first-quit sheet's answer: stay in the menu bar, or stop every terminal and quit. */
+export function quitChoice(choice: 'menuBar' | 'stopAll'): void {
   window.kea.quitChoice(choice)
 }
 
