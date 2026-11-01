@@ -247,7 +247,7 @@ describe('the split', () => {
   })
 
   it('U-LAYOUT-6 · the sidebar\'s minimum is the header\'s parts; a drag, a step and a stored width reach it and no lower; wider stored widths stay', () => {
-    // the traffic lights less the cluster's own inset, the header's gap, the New Session button with its insets, the border
+    // the traffic lights less the cluster's own inset, the header's gap, the Add Project button with its insets, the border
     const lights = SIZE_PX['traffic-lights'] - SPACE_PX[1]
     const plus = SPACE_PX[1] + SIZE_PX.row + SPACE_PX[1]
     expect(SIZE_PX['sidebar-min']).toBe(lights + SPACE_PX[0] + plus + SIZE_PX.hairline)

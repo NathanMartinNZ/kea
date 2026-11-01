@@ -13,7 +13,6 @@ is a `separator` "Resize sidebar" / "Resize file panel" with its width as its va
   import { protocolOs } from '@kea/protocol'
   import { Icon, Tooltip } from '@kea/ui'
   import { pathForFile } from '../lib/bridge.ts'
-  import { External } from '../lib/reactive.svelte.ts'
   import { commandTip, named } from '../features/commands/bindings.svelte.ts'
   import { registerAppCommands } from '../features/commands/commands.ts'
   import { commands } from '../features/commands/registry.ts'
@@ -75,8 +74,6 @@ is a `separator` "Resize sidebar" / "Resize file panel" with its width as its va
   const activeFile = $derived(fileTabsState.shown !== null && fileTabsState.shown.sessionId === panelSession ? fileTabsState.shown : null)
   /** `Changes n`: the panel reports the count of the session it shows. */
   let changes = $state<number | null>(null)
-  /** The sidebar header's `+`: New Session in the project in context; absent until a project exists. */
-  const anyProject = new External(projects.subscribeList, () => projects.size > 0)
 
   $effect(() =>
     untrack(() => {
@@ -147,11 +144,10 @@ is a `separator` "Resize sidebar" / "Resize file panel" with its width as its va
         <div class="header-cluster"><WindowMenuButton /></div>
       {/if}
       <span class="header-spacer"></span>
-      {#if anyProject.current}
-        <div class="header-cluster">
-          <button class="quiet-button icon" aria-label={named('session.new')} data-command="session.new" onmousedown={keepFocus} onclick={() => commands.run('session.new')}><Icon name="plus" /></button>
-        </div>
-      {/if}
+      <!-- the + adds a project (`project.add`, ⌘O); a project row's own + starts a session in that project -->
+      <div class="header-cluster">
+        <button class="quiet-button icon" aria-label={named('project.add', 'Add Project')} data-command="project.add" data-tip="Add Project" onmousedown={keepFocus} onclick={() => commands.run('project.add')}><Icon name="plus" /></button>
+      </div>
     </div>
     <Sidebar />
     <div class="sidebar-footer">

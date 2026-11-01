@@ -51,7 +51,7 @@ export const DEFAULT_LAYOUT: Layout = { sidebarWidth: RANGE.sidebar.default, tre
 
 /**
  * The sidebar's minimum where the window controls take `overlayLeft` px at the left of the title bar: the controls,
- * then the header's two buttons (the menu button and New Session), each in its cluster, with the header's gaps and the
+ * then the header's two buttons (the menu button and Add Project), each in its cluster, with the header's gaps and the
  * column's border; never below the token. 0 (controls on the right, or none): the token.
  */
 export function sidebarFloor(overlayLeft: number): number {

@@ -202,7 +202,7 @@ describe('worktree and Disk view leaks (app)', () => {
       // before the baseline, and goes when the pointer moves onto the terminal (`renderer.tooltips` is judged at every
       // checkpoint: none on screen)
       await showKept()
-      await page.locator('button[data-command="session.new"]:visible').first().hover()
+      await page.locator('.sidebar-header button[data-command="project.add"]').hover()
       await page.locator('.kea-tooltip kbd').waitFor({ timeout: STEP_MS })
       const term = await page.locator('.terminal-host.shown').boundingBox()
       if (!term) throw new Error('no terminal on screen')

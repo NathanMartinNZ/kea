@@ -495,11 +495,11 @@ test('E-KB-2 · keyboard details: the app’s shortcuts act from the sidebar, th
   await until('the Agent tab on screen', async () => (await kea.shown()) === agent || undefined)
 
   // ── a tooltip names the command and its key ──
-  const plus = page.getByRole('complementary', { name: 'Sidebar' }).getByRole('button', { name: `New Session (${sysLabel('⌘N')})` })
+  const plus = page.getByRole('complementary', { name: 'Sidebar' }).getByRole('button', { name: `Add Project (${sysLabel('⌘O')})`, exact: true })
   await plus.hover()
   await expect(tooltip(page)).toBeVisible()
-  await expect(tooltip(page).locator('span')).toHaveText('New Session')
-  await expect(tooltip(page).locator('kbd')).toHaveText(sysLabel('⌘N'))
+  await expect(tooltip(page).locator('span')).toHaveText('Add Project')
+  await expect(tooltip(page).locator('kbd')).toHaveText(sysLabel('⌘O'))
   // it never takes the pointer, and it goes when the pointer does
   expect(await tooltip(page).evaluate((e) => getComputedStyle(e).pointerEvents)).toBe('none')
   await page.locator('.terminal-host.shown').hover()

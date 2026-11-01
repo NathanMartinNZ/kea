@@ -148,10 +148,12 @@ Terminals still running after a crash keep running after Kea is gone; a normal q
 
 ## Getting started
 
-1. **Add a project:** `⌘O`, or drop a folder on the window. In a git repository each session gets a worktree and a
-   branch of its own unless you turn Worktree off in the composer; a plain folder runs its sessions in place.
-2. **Start a session:** `⌘N`, describe the task, change the agent, model or permission mode if the defaults do not
-   suit, then `⌘↵`. `⌥⌘↵` starts it in the background and keeps the composer open for the next task.
+1. **Add a project:** `⌘O`, the `+` at the top of the sidebar, or drop a folder on the window. In a git repository
+   each session gets a worktree and a branch of its own unless you turn Worktree off in the composer; a plain folder
+   runs its sessions in place.
+2. **Start a session:** `⌘N` (or the `+` that appears when you point at a project), describe the task, change the
+   agent, model or permission mode if the defaults do not suit, then `⌘↵`. `⌥⌘↵` starts it in the background and keeps
+   the composer open for the next task.
 3. **Work with it:** the agent's own CLI runs on the right, beside a pane for your shells and files: `⌘T` opens a shell
    in the same folder, a file from Files or Changes opens there too, and `⌘[` / `⌘]` move between the two (on Linux
    `Ctrl+Shift+Page Up` / `Page Down`). In a narrow window, or with View ▸ Show Agent as a Tab, the agent is the first

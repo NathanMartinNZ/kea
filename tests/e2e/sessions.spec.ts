@@ -16,7 +16,7 @@ import { skipNote } from '../support/skip.ts'
 import { loseWebglContext, startGlWatch, stopGlWatch } from '../support/app-render.ts'
 import { addProject, agentTerminal, demoRepo, menuCommands, paneSession, projectRow, rowState, selectSession, sessionIds, sessionMenu, sessionRow, startSession, tabKinds, tabOf, waitForeground, waitLive, waitRow } from '../support/app-sessions.ts'
 import { expect, test } from './fixtures.ts'
-import { sysKey, TERMINAL_TEXT_KEYS } from '../support/keys.ts'
+import { sysKey, sysLabel, TERMINAL_TEXT_KEYS } from '../support/keys.ts'
 
 const gitIn = (dir: string, ...args: string[]) => execFileSync('git', ['-C', dir, ...args], { env: fixtureGitEnv(), stdio: ['ignore', 'pipe', 'pipe'] }).toString()
 
@@ -664,14 +664,17 @@ function treeFiles(dir: string): Record<string, string> {
   return out
 }
 
-test('E-LAYOUT-1 · the sidebar dragged to its minimum: the header keeps New Session whole beside the window buttons and it still opens the composer; nothing scrolls sideways; rows draw glyph and title only and their tooltips say the rest; a double-click brings the sidebar back to its width', async ({ run, launch }) => {
+test('E-LAYOUT-1 · the sidebar dragged to its minimum: the header\'s Add Project is there before any project, stays whole beside the window buttons and still adds a project; nothing scrolls sideways; rows draw glyph and title only and their tooltips say the rest; a double-click brings the sidebar back to its width', async ({ run, launch }) => {
   const kea = await launch()
   const page = await kea.page()
-  await addProject(kea, demoRepo(run).root)
-  const [id] = await sessionsLive(kea, ['a session whose title is long enough to be cut short in a narrow sidebar'])
   const aside = page.getByRole('complementary', { name: 'Sidebar' })
   const divider = page.getByRole('separator', { name: 'Resize sidebar' })
-  const plus = aside.locator('.sidebar-header button[data-command="session.new"]')
+  // by its command: in the empty state a loose name match would also find the empty state's own Add project button
+  const plus = aside.locator('.sidebar-header button[data-command="project.add"]')
+  await expect(plus).toBeVisible({ timeout: STEP_MS })
+  await expect(plus).toHaveAccessibleName(`Add Project (${sysLabel('⌘O')})`)
+  await addProject(kea, demoRepo(run).root)
+  const [id] = await sessionsLive(kea, ['a session whose title is long enough to be cut short in a narrow sidebar'])
   // the size tokens as the window has them
   const size = (name: string) => page.evaluate((n) => parseFloat(getComputedStyle(document.documentElement).getPropertyValue(`--size-${n}`)), name)
   const [min, hairline, lights, wide] = await Promise.all(['sidebar-min', 'hairline', 'traffic-lights', 'sidebar'].map(size))
@@ -689,7 +692,7 @@ test('E-LAYOUT-1 · the sidebar dragged to its minimum: the header keeps New Ses
   expect(Number(await divider.getAttribute('aria-valuemin'))).toBe(sidebarFloor)
   expect(Number(await divider.getAttribute('aria-valuenow'))).toBe(sidebarFloor)
 
-  // New Session is whole inside the column, right of where the window's buttons are, and still works
+  // Add Project is whole inside the column, right of where the window's buttons are, and still works
   const side = (await aside.boundingBox())!
   const button = (await plus.boundingBox())!
   expect(button.x + button.width).toBeLessThanOrEqual(side.x + side.width - hairline!)
@@ -715,8 +718,31 @@ test('E-LAYOUT-1 · the sidebar dragged to its minimum: the header keeps New Ses
   await row.hover()
   await expect(row.locator('.sb-actions')).toBeHidden()
 
+  // a pick cancelled adds nothing: the click and the count of picks in flight in one task show the pick was asked
+  // for, the count back at 0 shows main answered (nothing queued: cancelled), so the next queued folder cannot race it
+  const picks = () => page.evaluate(() => (window as unknown as { __keaPerf: { resources(): Record<string, number> } }).__keaPerf.resources()['renderer.folderPicks'])
+  const projectRows = page.locator('[role=treeitem][aria-level="1"]')
+  const projectsBefore = await projectRows.count()
+  const asked = await page.evaluate(() => {
+    document.querySelector<HTMLButtonElement>('.sidebar-header button[data-command="project.add"]')!.click()
+    return (window as unknown as { __keaPerf: { resources(): Record<string, number> } }).__keaPerf.resources()['renderer.folderPicks']
+  })
+  expect(asked, 'the click asked main for a folder').toBe(1)
+  await until('main answered the pick', async () => ((await picks()) === 0 ? true : undefined))
+  await expect(projectRows).toHaveCount(projectsBefore)
+  // the composer the background start kept open is still the demo project's
+  const composer = page.getByRole('region', { name: 'New session' })
+  await expect(composer.getByRole('button', { name: 'Project: demo' })).toBeVisible()
+  await expect(page.locator('.toast')).toHaveCount(0)
+
+  // a folder picked becomes a project, and its composer opens on it
+  const other = demoRepo(run, 'other').root
+  await kea.app.evaluate((_e, p) => (globalThis as unknown as { __keaTest: { queueFolder(p: string): void } }).__keaTest.queueFolder(p), other)
   await plus.click()
-  await expect(page.getByRole('region', { name: 'New session' })).toBeVisible()
+  await expect(projectRow(page, 'other')).toBeVisible({ timeout: STEP_MS })
+  await expect(composer).toBeVisible({ timeout: STEP_MS })
+  await expect(composer.getByRole('button', { name: 'Project: other' })).toBeVisible({ timeout: STEP_MS })
+  await expect(page.locator('.toast')).toHaveCount(0)
 
   // a double-click resets the width, and the rows draw their meta again
   await divider.dblclick()
