@@ -126,7 +126,7 @@ test('E-ST-1 · attention loop: a background session’s agent asks for permissi
   await kea.assertUnfocused()
 })
 
-test('E-ST-2 · finish while away: a turn finishes in a session not on screen: the white unread dot and no notification for a turn under L.notifyMinTurnMs; selected while the window is not focused it stays unread; viewed with the window focused for L.viewedDwellMs, it is read', async ({ run, launch }) => {
+test('E-ST-2 · finish while away: a turn finishes in a session not on screen: the unread dot in the session’s colour and no notification for a turn under L.notifyMinTurnMs; selected while the window is not focused it stays unread; viewed with the window focused for L.viewedDwellMs, it is read', async ({ run, launch }) => {
   claudeByDefault(run)
   const kea = await launch()
   const page = await kea.page()
@@ -156,8 +156,10 @@ test('E-ST-2 · finish while away: a turn finishes in a session not on screen: t
   await fakeAgentTerminal(kea, front.id)
 
   await waitRow(kea, away.id, 'unread', (r) => r.status === 'unread')
-  const dot = await glyphOf(page, away.id, '--text-1')
-  expect([dot.kind, dot.color], 'the white dot').toEqual(['unread', dot.token])
+  const tone = await sessionRow(page, away.id).locator('.kea-glyph').evaluate((g) => (g as SVGElement).style.getPropertyValue('--glyph-tone'))
+  expect(tone, 'the session’s colour').toMatch(/^var\(--session-\d+\)$/)
+  const dot = await glyphOf(page, away.id, tone.slice('var('.length, -1))
+  expect([dot.kind, dot.color], 'the dot in the session’s colour').toEqual(['unread', dot.token])
   // nothing for the short turn: a later post from the same session is its first (notices reach main in order)
   await ask.open()
   await waitRow(kea, away.id, 'blocked', (r) => r.status === 'needsYou')

@@ -835,6 +835,8 @@ test('E-FT-11 · a row dragged onto a folder and onto the Files bar moves there;
   await waitTree(kea, 'docs is open', (rows) => rows.some((r) => r.path === 'docs/a.md'))
   await treeRow(page, 'docs/a.md').dragTo(filesBar(page))
   await until('moved to the top', () => (there(worktree, 'a.md') && !there(worktree, 'docs/a.md')) || undefined)
+  // the next drag is aimed at a row: the tree first shows the move, which shifts the rows below it
+  await waitTree(kea, 'a.md listed at the top', (rows) => rows.some((r) => r.path === 'a.md' && r.level === 1) && !rows.some((r) => r.path === 'docs/a.md'))
 
   // with the copy modifier (⌥ on macOS, Ctrl on Linux): a copy, the source stays
   const copyKey = protocolOs.keys.dragCopy({ altKey: true, ctrlKey: false }) ? 'Alt' : 'Control'
@@ -843,6 +845,7 @@ test('E-FT-11 · a row dragged onto a folder and onto the Files bar moves there;
   await page.keyboard.up(copyKey)
   await until('copied into docs', () => (there(worktree, 'docs/package.json') && there(worktree, 'package.json')) || undefined)
   expect(fs.readFileSync(path.join(worktree, 'docs/package.json'), 'utf8')).toBe(fs.readFileSync(path.join(worktree, 'package.json'), 'utf8'))
+  await waitTree(kea, 'the copy listed in docs', (rows) => rows.some((r) => r.path === 'docs/package.json'))
   // a copy into its own folder is named as a copy
   await page.keyboard.down(copyKey)
   await treeRow(page, 'a.md').dragTo(filesBar(page))
