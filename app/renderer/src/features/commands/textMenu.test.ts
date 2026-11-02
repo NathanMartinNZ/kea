@@ -9,7 +9,7 @@ const at = (o: Partial<TextTarget>): TextTarget => ({ kind: 'field', editable: t
 const rows = (t: TextTarget, os: 'darwin' | 'linux' = 'darwin') => textMenuItems(t, os, os === 'darwin' ? darwin.keys : linux.keys).map((i) => [i.label, i.shortcut, i.disabled ? i.reason : null])
 
 describe('the text menu', () => {
-  it('U-KB-19 · a field offers Cut, Copy, Paste and Select All with its own keys; a document Copy and Select All; other text Copy while something is selected', () => {
+  it('U-KB-19 · a field and an editable document offer Cut, Copy, Paste and Select All with a field’s keys; a read-only document Copy and Select All; other text Copy while something is selected', () => {
     expect(rows(at({}))).toEqual([
       ['Cut', '⌘X', null],
       ['Copy', '⌘C', null],
@@ -28,6 +28,14 @@ describe('the text menu', () => {
       ['Select All', '⌘A', null],
     ])
     expect(rows(at({ kind: 'document', editable: false, hasSelection: false }))[0]).toEqual(['Copy', '⌘C', 'Nothing is selected'])
+    // a document that can be edited offers what a field does
+    expect(rows(at({ kind: 'document' }), 'linux')).toEqual([
+      ['Cut', 'Ctrl+X', null],
+      ['Copy', 'Ctrl+C', null],
+      ['Paste', 'Ctrl+V', null],
+      ['Select All', 'Ctrl+A', null],
+    ])
+    expect(rows(at({ kind: 'document', hasSelection: false })).map((r) => r[2])).toEqual(['Nothing is selected', 'Nothing is selected', null, null])
     // other text: Copy while something is selected, else no menu at all
     expect(rows(at({ kind: 'text', editable: false }), 'linux')).toEqual([['Copy', 'Ctrl+C', null]])
     expect(rows(at({ kind: 'text', editable: false, hasSelection: false }))).toEqual([])

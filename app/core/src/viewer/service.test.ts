@@ -7,7 +7,10 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { StubGitFacts } from '../files/facts.ts'
 import { VisibleSet } from '../platform/visible.ts'
 import { StubWatchService } from '../platform/watch/stub.ts'
-import { ViewerService } from './service.ts'
+import type { FsModule } from '../files/fsImpl.ts'
+import { versionOf } from './read.ts'
+import { SaveJournal } from './save.ts'
+import { ViewerService, type ViewerSaves } from './service.ts'
 
 /** A clock the test moves: timers run when time reaches them. */
 class ManualClock implements Clock {
@@ -61,7 +64,7 @@ afterAll(() => {
   fs.rmSync(tmp, { recursive: true, force: true })
 })
 
-function setup() {
+function setup(saves?: ViewerSaves) {
   const visible = new VisibleSet()
   const watch = new StubWatchService()
   const git = new StubGitFacts()
@@ -80,6 +83,7 @@ function setup() {
       return Promise.resolve({ ok: true, message: null })
     },
     clock,
+    ...(saves ? { saves } : {}),
   })
   const h = service.handlers()
   const windowOne = {}
@@ -115,7 +119,7 @@ describe('the viewer service', () => {
     visible.set(windowTwo, null)
     // a link out of A is not read through A
     expect(await read({ sessionId: 'A', path: 'escape.ts' }, ctx(windowOne))).toMatchObject({ kind: 'outside', text: null })
-    expect(service.resourceCounts).toEqual({ follows: 0, waiters: 0, timers: 0, reads: 0 })
+    expect(service.resourceCounts).toEqual({ follows: 0, waiters: 0, timers: 0, reads: 0, saves: 0, journal: 0 })
 
     // ── following ──
     const first = follow({ sessionId: 'A', path: 'a.ts', seen: 0 }, ctx(windowOne)) as Promise<FollowResult>
@@ -196,7 +200,7 @@ describe('the viewer service', () => {
     visible.drop(windowTwo)
     expect(await two).toMatchObject({ ended: true })
     expect(watch.size).toBe(0)
-    expect(service.resourceCounts).toEqual({ follows: 0, waiters: 0, timers: 0, reads: 0 })
+    expect(service.resourceCounts).toEqual({ follows: 0, waiters: 0, timers: 0, reads: 0, saves: 0, journal: 0 })
 
     // unfollow, and a timer left by a throttled answer goes with its follow
     const last = follow({ sessionId: 'B', path: 'b.ts', seen: 0 }, ctx(windowOne)) as Promise<FollowResult>
@@ -225,5 +229,44 @@ describe('the viewer service', () => {
     expect(await end).toMatchObject({ ended: true })
     expect(watch.size).toBe(0)
     expect(await follow({ sessionId: 'A', path: 'a.ts', seen: 0 }, ctx(windowOne))).toMatchObject({ ended: true })
+  })
+
+  it('U-FV-27 · the viewer’s row of the resource report counts the save journal’s new files: a save’s while it is in flight, and what the journal held at launch until the sweep', async () => {
+    const home = path.join(tmp, 'journal-home')
+    fs.mkdirSync(home)
+    const journalFile = path.join(home, 'save-journal.json')
+    fs.writeFileSync(journalFile, JSON.stringify([{ file: path.join(cwdA, '.kea-save-0b6d3f1e-2f3a-4c5d-8e9f-0a1b2c3d4e5f'), dev: '1', ino: '1' }]))
+    const journal = new SaveJournal({ file: journalFile, log: noopLogger, fs, uid: process.getuid?.() ?? -1 })
+    let during: Record<string, number> | null = null
+    const fsSeen = {
+      ...fs,
+      promises: {
+        ...fs.promises,
+        rename: (from: fs.PathLike, to: fs.PathLike) => {
+          during = { ...service.resourceCounts }
+          return fs.promises.rename(from, to)
+        },
+      },
+    } as FsModule
+    const { service, visible, h, windowOne, ctx } = setup({ journal, slot: () => () => undefined, saved: () => undefined, fs: fsSeen })
+    expect(service.resourceCounts).toMatchObject({ journal: 1, saves: 0 })
+    await journal.sweep()
+    expect(service.resourceCounts).toMatchObject({ journal: 0 })
+
+    visible.set(windowOne, 'A')
+    fs.writeFileSync(path.join(cwdA, 'saved.ts'), 'before\n')
+    const r = await h['viewer.save']!({ sessionId: 'A', path: 'saved.ts', text: 'after\n', base: versionOf(Buffer.from('before\n')), eol: 'lf' }, ctx(windowOne))
+    expect(r).toMatchObject({ kind: 'saved' })
+    expect(during).toMatchObject({ journal: 1, saves: 1 })
+    expect(service.resourceCounts).toMatchObject({ journal: 0, saves: 0 })
+    service.dispose()
+  })
+
+  it('U-FV-27 · a core that has no saving refuses every save as io with no words, as any failure without an errno is, and writes nothing', async () => {
+    const { service, visible, h, windowOne, ctx } = setup()
+    visible.set(windowOne, 'A')
+    expect(await h['viewer.save']!({ sessionId: 'A', path: 'a.ts', text: 'x\n', base: versionOf(Buffer.from('in a\n')), eol: 'lf' }, ctx(windowOne))).toEqual({ kind: 'refused', reason: 'io' })
+    expect(fs.readFileSync(path.join(cwdA, 'a.ts'), 'utf8')).toBe('in a\n')
+    service.dispose()
   })
 })

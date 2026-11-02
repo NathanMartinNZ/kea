@@ -4,16 +4,20 @@
 //
 // What the viewer asks of core (`viewerApi`), each for the session the asking window shows and a path inside its
 // working directory (core resolves it there and checks its real path stays inside):
-//   viewer.read      the file as bytes with what core found out about it
+//   viewer.read      the file as bytes with what core found out about it; for a file the user may edit, also its
+//                    version and whether a save could write it
 //   viewer.diff      the two sides of the session's change to it
 //   viewer.changes   its changed line ranges, for the gutter
 //   viewer.follow    wait until it, or the session's git state, changes
-// File contents cross as bytes and are decoded in the window; core keeps nothing after sending them.
+//   viewer.save      write the user's text back to it, only over the version it was read as
+// File contents cross as bytes and are decoded in the window; a save's text crosses as a string and core encodes it as
+// the file is encoded. Core keeps nothing after sending or writing them.
 //
 // Local images reach the window through `kea-file://`, served by main: `keaFileUrl` / `keaFilePath`.
 
 import { z } from 'zod'
 import { zDiffScope, zWorktreePath, GIT_CODES } from './files.ts'
+import { L } from './generated/limits.ts'
 import { defineApi } from './rpc.ts'
 import { zSessionId } from './terminal.ts'
 
@@ -97,6 +101,23 @@ export const zImageInfo = z.object({
 })
 export type ImageInfo = z.infer<typeof zImageInfo>
 
+/** A version of a file's contents: the SHA-256 of exactly its bytes, in lower-case hex. A save names the one it replaces. */
+export const zVersion = z.string().regex(/^[0-9a-f]{64}$/)
+
+/**
+ * Whether a save could write a file, told with an editable read:
+ *   yes           it could
+ *   permission    the user may not write it
+ *   git           it is in a `.git` folder, by the path asked for or by where a link on it leads
+ *   hard-linked   it has other names, and a save would have to write it in place (another owner or group, or a folder
+ *                 the user may not write), which would change them too
+ */
+export const WRITABLE = ['yes', 'permission', 'git', 'hard-linked'] as const
+export type Writable = (typeof WRITABLE)[number]
+
+/** A file's permission bits (`mode & 0o7777`). */
+const zMode = z.number().int().min(0).max(0o7777)
+
 export const zFileRead = z.object({
   kind: z.enum(FILE_KINDS),
   /** Bytes on disk; 0 when there is no file. */
@@ -112,8 +133,28 @@ export const zFileRead = z.object({
   image: zImageInfo.nullable(),
   /** `viewer.openDefault` would open it: a regular file that is not executable and of no type that opening runs or installs. */
   openable: z.boolean(),
+  /**
+   * A read with `edit` of a text file: the SHA-256 of `text.bytes`, when the file is within L.viewerFullBytes or the
+   * read named a version (`ifNotVersion`). A larger file is never hashed.
+   */
+  version: zVersion.optional(),
+  /** A read with `edit` of a text file: whether a save could write it. */
+  writable: z.enum(WRITABLE).optional(),
+  /** A read with `edit` of a text file: its permission bits. */
+  mode: zMode.optional(),
 })
 export type FileRead = z.infer<typeof zFileRead>
+
+/**
+ * A read with `edit` whose file still hashes to `ifNotVersion`: no bytes are sent, only what may have changed without
+ * them, whether a save could write the file and its permission bits.
+ */
+export const zSameRead = z.object({ kind: z.literal('same'), writable: z.enum(WRITABLE), mode: zMode })
+export type SameRead = z.infer<typeof zSameRead>
+
+/** What `viewer.read` answers: `same` only to a read with `edit.ifNotVersion`. */
+export const zFileReadResult = z.union([zFileRead, zSameRead])
+export type FileReadResult = z.infer<typeof zFileReadResult>
 
 // ── diff ───────────────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -188,10 +229,71 @@ export type FollowResult = z.infer<typeof zFollowResult>
 
 const zViewerPath = z.object({ sessionId: zSessionId, path: zWorktreePath })
 
-/** Methods core serves to the renderer for the viewer. Each rejects (`not_visible`) for a session the asking window does not show. */
+// ── saving ─────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Why a save was not done; nothing was written.
+ *   busy           another change to the session's files is under way (a file operation, a discard or a save: one at
+ *                  a time)
+ *   permission     the user may not write the file
+ *   git            the file is in a `.git` folder, by the path or by where a link on it leads
+ *   hard-linked    the file has other names and could be written only in place, which would change them too
+ *   outside        the path leads out of the working directory
+ *   not-text       the file is no longer a regular file of text valid in its encoding
+ *   line-endings   the file's line endings, or the text's, are not the one the save is for
+ *   too-large      the text, encoded, is over L.viewerMaxBytes
+ *   no-folder      a file made again: its folder is not there
+ *   io             the file system refused; `detail` says how
+ */
+export const SAVE_REFUSALS = ['busy', 'permission', 'git', 'hard-linked', 'outside', 'not-text', 'line-endings', 'too-large', 'no-folder', 'io'] as const
+export type SaveRefusal = (typeof SAVE_REFUSALS)[number]
+
+export const zSaveArgs = zViewerPath.extend({
+  /**
+   * The whole text, its lines joined by `eol`. Core encodes it as the file is encoded (its byte-order mark kept); a
+   * string longer than L.viewerMaxBytes code units cannot encode within that many bytes in either encoding.
+   */
+  text: z.string().max(L.viewerMaxBytes),
+  /**
+   * The version the text was edited from: the file is written only while it still hashes to it. Null for a file that is
+   * made again (`create`) and whose version the viewer no longer knows: a file found there is then a change.
+   */
+  base: zVersion.nullable(),
+  /** The text's line ending; the file's must be the same. */
+  eol: z.enum(LINE_ENDINGS),
+  /** The file is gone: make it again, with these, where nothing is. */
+  create: z.object({ encoding: z.enum(TEXT_ENCODINGS), bom: z.boolean(), mode: zMode }).optional(),
+})
+export type SaveArgs = z.infer<typeof zSaveArgs>
+
+/**
+ * How a save ended:
+ *   saved     the file holds the text: `version` and `size` are its bytes now (nothing is written when it held them
+ *             already)
+ *   changed   the file is not `base` any more, and nothing was written: `current` is what it holds, null when that is not
+ *             text the viewer reads (gone over L.viewerMaxBytes, binary, not a regular file)
+ *   missing   the file is gone (a save with `create` makes it again)
+ *   refused   not written, for `reason`
+ */
+export const zSaveResult = z.union([
+  z.object({ kind: z.literal('saved'), version: zVersion, size: z.number().int().min(0) }),
+  z.object({ kind: z.literal('changed'), current: zTextBytes.extend({ version: zVersion }).nullable() }),
+  z.object({ kind: z.literal('missing') }),
+  z.object({ kind: z.literal('refused'), reason: z.enum(SAVE_REFUSALS), detail: z.string().max(L.viewerSaveDetailMaxChars).optional() }),
+])
+export type SaveResult = z.infer<typeof zSaveResult>
+
+/**
+ * Methods core serves to the renderer for the viewer: reads, and the one write, `viewer.save`. Each rejects
+ * (`not_visible`) for a session the asking window does not show.
+ */
 export const viewerApi = defineApi({
-  /** `source`: read an image type as text (the SVG `Source` toggle). */
-  'viewer.read': { args: zViewerPath.extend({ source: z.boolean().optional() }), result: zFileRead },
+  /**
+   * `source`: read an image type as text (the SVG `Source` toggle). `edit`: a file tab's read, which the user may edit:
+   * a text read adds `version`, `writable` and `mode`, and a file that still hashes to `ifNotVersion` answers `same`
+   * with `writable` and `mode` alone.
+   */
+  'viewer.read': { args: zViewerPath.extend({ source: z.boolean().optional(), edit: z.object({ ifNotVersion: zVersion.optional() }).optional() }), result: zFileReadResult },
   'viewer.diff': { args: zViewerPath, result: zDiffRead },
   'viewer.changes': { args: zViewerPath, result: zLineChanges },
   /**
@@ -204,6 +306,8 @@ export const viewerApi = defineApi({
   'viewer.unfollow': { args: z.object({}), result: z.object({ ok: z.boolean() }) },
   /** "Open with default app": hand a regular, non-executable file of a type that is only shown to the system. `message`: why not. */
   'viewer.openDefault': { args: zViewerPath, result: z.object({ ok: z.boolean(), message: z.string().nullable() }) },
+  /** Write `text` to the file, only while it still hashes to `base`; one of the session's file operations. */
+  'viewer.save': { args: zSaveArgs, result: zSaveResult },
 })
 
 // ── kea-file:// ────────────────────────────────────────────────────────────────────────────────────────────────────

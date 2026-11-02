@@ -1,6 +1,7 @@
 <!--
-A session row of the sidebar: status glyph, title and one trailing meta, by priority (a label, "teardown failed",
-"missing", the dev server dot, else the time since its last activity); hover shows Archive in the meta's place, or Retry
+A session row of the sidebar: status glyph, title and one trailing meta, by priority (a label, "unsaved" while files of
+it have unsaved changes in this window, "teardown failed", "missing", the dev server dot, else the time since its last
+activity); hover shows Archive in the meta's place, or Retry
 teardown and View log after a failed teardown; a failed creation shows Retry and Discard. A compact sidebar draws the
 glyph and title only, and the tooltip says the rest (the session pane has the same buttons). Drag to reorder within its
 project. It follows its own store row.
@@ -17,6 +18,7 @@ project. It follows its own store row.
   import { relativeTime, rowLabel, rowTitle, type SidebarRow } from './model.ts'
   import { DRAG_SESSION, statusLabel } from './sidebar.ts'
   import { activeSessionId, selectSession, sessions, ui } from './state.svelte.ts'
+  import { unsavedView } from '../viewer/unsaved.svelte.ts'
 
   let { row, tabbable }: { row: Extract<SidebarRow, { kind: 'session' }>; tabbable: boolean } = $props()
   // a row's key names its session (Sidebar.svelte keys rows by it)
@@ -75,7 +77,7 @@ project. It follows its own store row.
     data-status={s.glyph}
     data-lifecycle={s.lifecycle}
     tabindex={tabbable ? 0 : -1}
-    data-tip={rowTitle(s, sidebarCompact() ? clock.current : undefined)}
+    data-tip={rowTitle(s, sidebarCompact() ? clock.current : undefined, unsavedView.sessions.has(s.id))}
     class="sb-row sb-session{selected ? ' selected' : ''}{loud ? ' loud' : ''}{over ? ' drop' : ''}"
     draggable={!row.archived}
     ondragstart={(e) => {
@@ -124,6 +126,8 @@ project. It follows its own store row.
       <span class={s.teardownFailed ? 'sb-meta-slot swap-on-hover' : canArchive ? 'sb-meta-slot hide-on-hover' : 'sb-meta-slot'}>
         {#if trailing}
           <span class="sb-meta sb-label">{trailing}</span>
+        {:else if unsavedView.sessions.has(s.id)}
+          <span class="sb-meta" data-unsaved>unsaved</span>
         {:else if s.teardownFailed}
           <span class="sb-meta">teardown failed</span>
         {:else if s.worktreeMissing}

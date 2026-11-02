@@ -587,6 +587,38 @@ pub const VIEWER_CHANGE_RANGES_MAX: u64 = 10000;
 pub const VIEWER_CHANGES_MAX_BYTES: u64 = 10485760;
 /// find counts matches up to this; beyond it the count reads as more (matches)
 pub const VIEWER_FIND_COUNT_MAX: u64 = 9999;
+/// typing and pasting in the file view cannot take a document past this; an editable file starts within the full-feature size (characters)
+pub const VIEWER_EDIT_MAX_CHARS: u64 = 2097152;
+/// multiple cursors in the file view; beyond this the ranges nearest the main one are kept (selection ranges)
+pub const VIEWER_CURSOR_MAX: u64 = 500;
+/// the words of a refused save that core sends with it (an errno's text) (characters)
+pub const VIEWER_SAVE_DETAIL_MAX_CHARS: u64 = 200;
+/// a save with no answer in this long is shown as not saved, with Try Again (ms)
+pub const VIEWER_SAVE_TIMEOUT_MS: u64 = 10000;
+/// saves in a row that may each meet the file changed again, each merged before the next is sent; past them the save fails (attempts)
+pub const VIEWER_SAVE_ATTEMPTS: u64 = 3;
+/// lines from the top of a file read to learn its indent unit (a tab, or the smallest run of spaces) (lines)
+pub const VIEWER_INDENT_SCAN_LINES: u64 = 1000;
+/// the widest indent unit a file's leading spaces can give; a wider smallest run is taken as this many (columns)
+pub const VIEWER_INDENT_MAX: u64 = 8;
+/// the permissions of a file Save makes again when the window no longer knows the ones it had: the owner reads and writes, everyone else reads (mode)
+pub const VIEWER_CREATE_MODE: u64 = 420;
+/// temp files of saves cut short that the save journal keeps from one launch to the sweep at the next; one more is dropped from it, its file left where it is (entries)
+pub const VIEWER_SAVE_JOURNAL_MAX: u64 = 256;
+/// places marked as changed on disk where the user edited, per document; beyond this the rest join the last mark (places)
+pub const VIEWER_MARKS_MAX: u64 = 100;
+/// spans of a document the user changed since its undo history began; beyond this the two nearest join (spans)
+pub const VIEWER_TOUCHED_MAX: u64 = 256;
+/// files with unsaved changes a window keeps; at this many, further files open read-only until some are saved or closed (documents)
+pub const VIEWER_UNSAVED_MAX: u64 = 16;
+/// the text, last saved text and undo history of a window's unsaved files together; at this size further files open read-only (bytes)
+pub const VIEWER_UNSAVED_BYTES: u64 = 33554432;
+/// one document's undo history; past this it is cleared and the notice says so (bytes)
+pub const VIEWER_HISTORY_MAX_BYTES: u64 = 4194304;
+/// what one undo step's change or stored selection range is counted as, beside the characters it holds (bytes)
+pub const VIEWER_HISTORY_ENTRY_BYTES: u64 = 64;
+/// a window asked to review its unsaved files says it has the request within this long; one that does not, with unsaved files, stops the quit or close (ms)
+pub const WINDOW_REVIEW_ACK_MS: u64 = 2000;
 /// NUL in the first bytes → binary (bytes)
 pub const BINARY_SNIFF_BYTES: u64 = 512;
 /// either diff side larger → not rendered (bytes)
@@ -645,8 +677,10 @@ pub const MENU_BAR_ITEM_REMOVE_MS: u64 = 250;
 pub const DBUS_MESSAGE_MAX_BYTES: u64 = 65536;
 /// a call to the session bus (Hello, AddMatch, NameHasOwner) unanswered this long ends the connection, so a stuck bus never holds a watched name's answer (a call through busctl answers in about 2 ms) (ms)
 pub const DBUS_CALL_TIMEOUT_MS: u64 = 2000;
-/// a minimized window rebuilt on Wayland is asked for its composer drafts first, and replaced without them when it has not answered in this long (it answers from memory at once) (ms)
+/// a minimized window rebuilt on Wayland is asked for its composer drafts, then for its unsaved files, and answers each from memory at once; one that has not answered in this long is replaced without its drafts, and one holding unsaved files it has not handed over is kept, not rebuilt (ms)
 pub const WINDOW_HANDOFF_TIMEOUT_MS: u64 = 1000;
+/// the window made on Wayland in place of a minimized one takes the unsaved files handed to it as its page starts, well under a second after it is made; one that has not taken them this long after it was made is closed, and the old window keeps them, so a page that never starts cannot hold a quit or a close for good (ms)
+pub const WINDOW_REBUILD_TAKE_MS: u64 = 10000;
 /// the most composer drafts (one per project) a rebuilt window hands the next, the latest kept; more projects with a draft than anyone keeps (count)
 pub const WINDOW_HANDOFF_DRAFTS_MAX: u64 = 200;
 /// a desktop entry is read whole on core's thread when editors and terminal apps are looked for (Linux); GNOME's own, with every translation, run to a few tens of KiB, and a bigger file at a user-writable entry's place is passed over as not there (bytes)

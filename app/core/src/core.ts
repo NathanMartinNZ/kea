@@ -25,6 +25,7 @@ import { Editors } from './editor/editors.ts'
 import type { EditorHost } from './editor/host.ts'
 import type { EditorLauncher } from './editor/open.ts'
 import type { GitFacts } from './files/facts.ts'
+import { sessionFs } from './files/fsImpl.ts'
 import { FilesService } from './files/service.ts'
 import { VisibleSet } from './platform/visible.ts'
 import { Diagnostics } from './resources/diagnostics.ts'
@@ -55,6 +56,8 @@ import { Terminals } from './terminal/terminals.ts'
 import { StatusEngine } from './status/engine.ts'
 import { NotificationPolicy } from './status/policy.ts'
 import { findGit, type GitProbePaths } from './worktrees/git.ts'
+import { userId } from './viewer/read.ts'
+import { SaveJournal } from './viewer/save.ts'
 import { ViewerService, type ViewerServiceOptions } from './viewer/service.ts'
 
 export interface CoreOptions {
@@ -536,6 +539,10 @@ export function createCore(o: CoreOptions): Core {
       ]
     : []
 
+  // the new files saves in the file view make are written down before they are made; what a save cut short left is
+  // removed once startup has settled (viewer/save.ts)
+  const saveJournal = new SaveJournal({ file: path.join(home, 'save-journal.json'), log, fs: sessionFs, uid: userId() })
+
   const started = rebuilt
     .then(async (r) => {
       if (r?.sessions) {
@@ -548,6 +555,7 @@ export function createCore(o: CoreOptions): Core {
     })
     .catch((e) => log.warn('startup project check failed', { error: String(e) }))
     .then(lookAtBackups)
+    .then(() => saveJournal.sweep())
   // One summary at most of what changed while Kea was closed, once startup has settled
   notifications.settleAfter(started)
 
@@ -583,9 +591,20 @@ export function createCore(o: CoreOptions): Core {
   })
   const toolFinished = status.toolFinished.event((id) => files.toolFinished(id))
 
-  // the viewer reads a visible session's files and follows the one each window has open. "Open with default app" runs
-  // the editor host's `open`: none without a host, and the harness's own under a test
-  const viewer = new ViewerService({ log, cwd: (id) => sessions.store.get(id)?.cwd ?? null, visible, watch, git, gitEnv, openTool: o.editorHost?.open ?? null, ...o.viewer })
+  // the viewer reads a visible session's files, follows the one each window has open and saves what the user edits
+  // there. "Open with default app" runs the editor host's `open`: none without a host, and the harness's own under a
+  // test. A save is one of the session's file operations: it takes the files service's slot for the session
+  const viewer = new ViewerService({
+    log,
+    cwd: (id) => sessions.store.get(id)?.cwd ?? null,
+    visible,
+    watch,
+    git,
+    gitEnv,
+    openTool: o.editorHost?.open ?? null,
+    saves: { journal: saveJournal, slot: (id) => files.takeSlot(id), saved: (id) => files.saved(id) },
+    ...o.viewer,
+  })
 
   // core's part of "Copy diagnostics". It reads states, ids and the processes' logs: never a title, a
   // prompt or a screen

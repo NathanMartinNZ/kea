@@ -588,6 +588,38 @@ export const L = {
   viewerChangesMaxBytes: 10485760,
   /** find counts matches up to this; beyond it the count reads as more (matches) */
   viewerFindCountMax: 9999,
+  /** typing and pasting in the file view cannot take a document past this; an editable file starts within the full-feature size (characters) */
+  viewerEditMaxChars: 2097152,
+  /** multiple cursors in the file view; beyond this the ranges nearest the main one are kept (selection ranges) */
+  viewerCursorMax: 500,
+  /** the words of a refused save that core sends with it (an errno's text) (characters) */
+  viewerSaveDetailMaxChars: 200,
+  /** a save with no answer in this long is shown as not saved, with Try Again (ms) */
+  viewerSaveTimeoutMs: 10000,
+  /** saves in a row that may each meet the file changed again, each merged before the next is sent; past them the save fails (attempts) */
+  viewerSaveAttempts: 3,
+  /** lines from the top of a file read to learn its indent unit (a tab, or the smallest run of spaces) (lines) */
+  viewerIndentScanLines: 1000,
+  /** the widest indent unit a file's leading spaces can give; a wider smallest run is taken as this many (columns) */
+  viewerIndentMax: 8,
+  /** the permissions of a file Save makes again when the window no longer knows the ones it had: the owner reads and writes, everyone else reads (mode) */
+  viewerCreateMode: 420,
+  /** temp files of saves cut short that the save journal keeps from one launch to the sweep at the next; one more is dropped from it, its file left where it is (entries) */
+  viewerSaveJournalMax: 256,
+  /** places marked as changed on disk where the user edited, per document; beyond this the rest join the last mark (places) */
+  viewerMarksMax: 100,
+  /** spans of a document the user changed since its undo history began; beyond this the two nearest join (spans) */
+  viewerTouchedMax: 256,
+  /** files with unsaved changes a window keeps; at this many, further files open read-only until some are saved or closed (documents) */
+  viewerUnsavedMax: 16,
+  /** the text, last saved text and undo history of a window's unsaved files together; at this size further files open read-only (bytes) */
+  viewerUnsavedBytes: 33554432,
+  /** one document's undo history; past this it is cleared and the notice says so (bytes) */
+  viewerHistoryMaxBytes: 4194304,
+  /** what one undo step's change or stored selection range is counted as, beside the characters it holds (bytes) */
+  viewerHistoryEntryBytes: 64,
+  /** a window asked to review its unsaved files says it has the request within this long; one that does not, with unsaved files, stops the quit or close (ms) */
+  windowReviewAckMs: 2000,
   /** NUL in the first bytes → binary (bytes) */
   binarySniffBytes: 512,
   /** either diff side larger → not rendered (bytes) */
@@ -646,8 +678,10 @@ export const L = {
   dbusMessageMaxBytes: 65536,
   /** a call to the session bus (Hello, AddMatch, NameHasOwner) unanswered this long ends the connection, so a stuck bus never holds a watched name's answer (a call through busctl answers in about 2 ms) (ms) */
   dbusCallTimeoutMs: 2000,
-  /** a minimized window rebuilt on Wayland is asked for its composer drafts first, and replaced without them when it has not answered in this long (it answers from memory at once) (ms) */
+  /** a minimized window rebuilt on Wayland is asked for its composer drafts, then for its unsaved files, and answers each from memory at once; one that has not answered in this long is replaced without its drafts, and one holding unsaved files it has not handed over is kept, not rebuilt (ms) */
   windowHandoffTimeoutMs: 1000,
+  /** the window made on Wayland in place of a minimized one takes the unsaved files handed to it as its page starts, well under a second after it is made; one that has not taken them this long after it was made is closed, and the old window keeps them, so a page that never starts cannot hold a quit or a close for good (ms) */
+  windowRebuildTakeMs: 10000,
   /** the most composer drafts (one per project) a rebuilt window hands the next, the latest kept; more projects with a draft than anyone keeps (count) */
   windowHandoffDraftsMax: 200,
   /** a desktop entry is read whole on core's thread when editors and terminal apps are looked for (Linux); GNOME's own, with every translation, run to a few tens of KiB, and a bigger file at a user-writable entry's place is passed over as not there (bytes) */
@@ -1033,6 +1067,22 @@ export const LIMIT_META: Record<LimitName, { unit: string; why: string; whyLinux
   viewerChangeRangesMax: { unit: "ranges", why: "changed line ranges kept for the gutter; a file with more shows no markers" },
   viewerChangesMaxBytes: { unit: "bytes", why: "`git diff -U0` output read for the gutter's hunk headers; beyond it no markers are shown" },
   viewerFindCountMax: { unit: "matches", why: "find counts matches up to this; beyond it the count reads as more" },
+  viewerEditMaxChars: { unit: "characters", why: "typing and pasting in the file view cannot take a document past this; an editable file starts within the full-feature size" },
+  viewerCursorMax: { unit: "selection ranges", why: "multiple cursors in the file view; beyond this the ranges nearest the main one are kept" },
+  viewerSaveDetailMaxChars: { unit: "characters", why: "the words of a refused save that core sends with it (an errno's text)" },
+  viewerSaveTimeoutMs: { unit: "ms", why: "a save with no answer in this long is shown as not saved, with Try Again" },
+  viewerSaveAttempts: { unit: "attempts", why: "saves in a row that may each meet the file changed again, each merged before the next is sent; past them the save fails" },
+  viewerIndentScanLines: { unit: "lines", why: "lines from the top of a file read to learn its indent unit (a tab, or the smallest run of spaces)" },
+  viewerIndentMax: { unit: "columns", why: "the widest indent unit a file's leading spaces can give; a wider smallest run is taken as this many" },
+  viewerCreateMode: { unit: "mode", why: "the permissions of a file Save makes again when the window no longer knows the ones it had: the owner reads and writes, everyone else reads" },
+  viewerSaveJournalMax: { unit: "entries", why: "temp files of saves cut short that the save journal keeps from one launch to the sweep at the next; one more is dropped from it, its file left where it is" },
+  viewerMarksMax: { unit: "places", why: "places marked as changed on disk where the user edited, per document; beyond this the rest join the last mark" },
+  viewerTouchedMax: { unit: "spans", why: "spans of a document the user changed since its undo history began; beyond this the two nearest join" },
+  viewerUnsavedMax: { unit: "documents", why: "files with unsaved changes a window keeps; at this many, further files open read-only until some are saved or closed" },
+  viewerUnsavedBytes: { unit: "bytes", why: "the text, last saved text and undo history of a window's unsaved files together; at this size further files open read-only" },
+  viewerHistoryMaxBytes: { unit: "bytes", why: "one document's undo history; past this it is cleared and the notice says so" },
+  viewerHistoryEntryBytes: { unit: "bytes", why: "what one undo step's change or stored selection range is counted as, beside the characters it holds" },
+  windowReviewAckMs: { unit: "ms", why: "a window asked to review its unsaved files says it has the request within this long; one that does not, with unsaved files, stops the quit or close" },
   binarySniffBytes: { unit: "bytes", why: "NUL in the first bytes → binary" },
   diffMaxBytes: { unit: "bytes", why: "either diff side larger → not rendered" },
   diffMaxLines: { unit: "lines", why: "either diff side longer → not rendered" },
@@ -1062,7 +1112,8 @@ export const LIMIT_META: Record<LimitName, { unit: string; why: string; whyLinux
   menuBarItemRemoveMs: { unit: "ms", why: "leaving the menu bar: the item's title is cleared and the item removed this long after, once the menu bar has drawn it without one (an item removed while its title shows leaves that title's drawing in main)" },
   dbusMessageMaxBytes: { unit: "bytes", why: "the largest message main's session-bus client reads (Linux: the tray host, notification service and idle monitor names); its replies and NameOwnerChanged signals are a few hundred bytes, and a bigger one ends the connection" },
   dbusCallTimeoutMs: { unit: "ms", why: "a call to the session bus (Hello, AddMatch, NameHasOwner) unanswered this long ends the connection, so a stuck bus never holds a watched name's answer (a call through busctl answers in about 2 ms)" },
-  windowHandoffTimeoutMs: { unit: "ms", why: "a minimized window rebuilt on Wayland is asked for its composer drafts first, and replaced without them when it has not answered in this long (it answers from memory at once)" },
+  windowHandoffTimeoutMs: { unit: "ms", why: "a minimized window rebuilt on Wayland is asked for its composer drafts, then for its unsaved files, and answers each from memory at once; one that has not answered in this long is replaced without its drafts, and one holding unsaved files it has not handed over is kept, not rebuilt" },
+  windowRebuildTakeMs: { unit: "ms", why: "the window made on Wayland in place of a minimized one takes the unsaved files handed to it as its page starts, well under a second after it is made; one that has not taken them this long after it was made is closed, and the old window keeps them, so a page that never starts cannot hold a quit or a close for good" },
   windowHandoffDraftsMax: { unit: "count", why: "the most composer drafts (one per project) a rebuilt window hands the next, the latest kept; more projects with a draft than anyone keeps" },
   desktopEntryMaxBytes: { unit: "bytes", why: "a desktop entry is read whole on core's thread when editors and terminal apps are looked for (Linux); GNOME's own, with every translation, run to a few tens of KiB, and a bigger file at a user-writable entry's place is passed over as not there" },
   iconSamples: { unit: "count", why: "samples per pixel side when an icon is drawn from its shapes (the mark at run time, the icon files): a pixel's alpha is the share of its samples inside" },

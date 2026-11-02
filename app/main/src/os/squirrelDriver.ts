@@ -178,8 +178,9 @@ export function driveUpdater(deps: { make(url: string): MacUpdaterLike; native: 
       updater.downloadUpdate().catch(() => {})
     },
     install() {
-      if (step !== 'ready') return
+      if (step !== 'ready') return false
       updater.quitAndInstall()
+      return true
     },
     dispose() {
       clear()

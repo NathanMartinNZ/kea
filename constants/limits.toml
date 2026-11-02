@@ -1492,6 +1492,86 @@ value = 9999
 unit = "matches"
 why = "find counts matches up to this; beyond it the count reads as more"
 
+[viewer_edit_max_chars]
+value = 2097152
+unit = "characters"
+why = "typing and pasting in the file view cannot take a document past this; an editable file starts within the full-feature size"
+
+[viewer_cursor_max]
+value = 500
+unit = "selection ranges"
+why = "multiple cursors in the file view; beyond this the ranges nearest the main one are kept"
+
+[viewer_save_detail_max_chars]
+value = 200
+unit = "characters"
+why = "the words of a refused save that core sends with it (an errno's text)"
+
+[viewer_save_timeout_ms]
+value = 10000
+unit = "ms"
+why = "a save with no answer in this long is shown as not saved, with Try Again"
+
+[viewer_save_attempts]
+value = 3
+unit = "attempts"
+why = "saves in a row that may each meet the file changed again, each merged before the next is sent; past them the save fails"
+
+[viewer_indent_scan_lines]
+value = 1000
+unit = "lines"
+why = "lines from the top of a file read to learn its indent unit (a tab, or the smallest run of spaces)"
+
+[viewer_indent_max]
+value = 8
+unit = "columns"
+why = "the widest indent unit a file's leading spaces can give; a wider smallest run is taken as this many"
+
+[viewer_create_mode]
+value = 0o644
+unit = "mode"
+why = "the permissions of a file Save makes again when the window no longer knows the ones it had: the owner reads and writes, everyone else reads"
+
+[viewer_save_journal_max]
+value = 256
+unit = "entries"
+why = "temp files of saves cut short that the save journal keeps from one launch to the sweep at the next; one more is dropped from it, its file left where it is"
+
+[viewer_marks_max]
+value = 100
+unit = "places"
+why = "places marked as changed on disk where the user edited, per document; beyond this the rest join the last mark"
+
+[viewer_touched_max]
+value = 256
+unit = "spans"
+why = "spans of a document the user changed since its undo history began; beyond this the two nearest join"
+
+[viewer_unsaved_max]
+value = 16
+unit = "documents"
+why = "files with unsaved changes a window keeps; at this many, further files open read-only until some are saved or closed"
+
+[viewer_unsaved_bytes]
+value = 33554432
+unit = "bytes"
+why = "the text, last saved text and undo history of a window's unsaved files together; at this size further files open read-only"
+
+[viewer_history_max_bytes]
+value = 4194304
+unit = "bytes"
+why = "one document's undo history; past this it is cleared and the notice says so"
+
+[viewer_history_entry_bytes]
+value = 64
+unit = "bytes"
+why = "what one undo step's change or stored selection range is counted as, beside the characters it holds"
+
+[window_review_ack_ms]
+value = 2000
+unit = "ms"
+why = "a window asked to review its unsaved files says it has the request within this long; one that does not, with unsaved files, stops the quit or close"
+
 [binary_sniff_bytes]
 value = 512
 unit = "bytes"
@@ -1648,7 +1728,12 @@ why = "a call to the session bus (Hello, AddMatch, NameHasOwner) unanswered this
 [window_handoff_timeout_ms]
 value = 1000
 unit = "ms"
-why = "a minimized window rebuilt on Wayland is asked for its composer drafts first, and replaced without them when it has not answered in this long (it answers from memory at once)"
+why = "a minimized window rebuilt on Wayland is asked for its composer drafts, then for its unsaved files, and answers each from memory at once; one that has not answered in this long is replaced without its drafts, and one holding unsaved files it has not handed over is kept, not rebuilt"
+
+[window_rebuild_take_ms]
+value = 10000
+unit = "ms"
+why = "the window made on Wayland in place of a minimized one takes the unsaved files handed to it as its page starts, well under a second after it is made; one that has not taken them this long after it was made is closed, and the old window keeps them, so a page that never starts cannot hold a quit or a close for good"
 
 [window_handoff_drafts_max]
 value = 200

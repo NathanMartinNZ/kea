@@ -400,6 +400,23 @@ export class FilesService implements GitFacts, Disposable {
     this.sessions.get(sessionId)?.refreshSoon(false)
   }
 
+  // ── saves in the file view ────────────────────────────────────────────────────────────────────
+
+  /**
+   * A save takes the session's file-operation slot (session.ts `takeSlot`): its release, or null while a file
+   * operation, a discard or another save holds it. A session nothing is held for runs no operation: a release with
+   * nothing to give back.
+   */
+  takeSlot(sessionId: string): (() => void) | null {
+    const s = this.sessions.get(sessionId)
+    return s ? s.takeSlot() : () => undefined
+  }
+
+  /** A save wrote one of the session's files (session.ts `saved`). */
+  saved(sessionId: string): void {
+    this.sessions.get(sessionId)?.saved()
+  }
+
   private scopeSetting: () => DiffScope = () => 'branch'
 
   /** The scope of a session whose user has not chosen one: the `files.changesScope` setting (core binds it). */

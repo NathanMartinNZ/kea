@@ -164,6 +164,8 @@ export type KeaProbe = {
   layout(): { agentBeside: boolean; agentWidth: number | null; cellWidth: number | null; sidebarWidth: number; drawn: { sidebar: number; tree: number }; sidebarFloor: number; split: { agent: number; work: number } | null }
   /** Change the layout as the View menu or a divider would, persisted. */
   setLayout(patch: { agentBeside?: boolean; agentWidth?: number | null; sidebarWidth?: number; treeWidth?: number; sidebarHidden?: boolean; treeHidden?: boolean }): void
+  /** Don't Save for every unsaved file, asking nothing, so closing or quitting reviews nothing. */
+  discardUnsaved(): void
 }
 declare const __keaProbe: KeaProbe
 type TestApi = {
@@ -866,9 +868,23 @@ export class Kea {
     await this.whenReady()
   }
 
+  /**
+   * Let every unsaved file go in every window, so a close or a quit asks nothing. A window that cannot answer (gone,
+   * reloading) is skipped.
+   */
+  private async discardUnsaved(): Promise<void> {
+    for (const page of this.app.windows()) {
+      await withDeadline(
+        'the window to let its unsaved files go',
+        page.evaluate(() => (typeof __keaProbe === 'undefined' ? undefined : __keaProbe.discardUnsaved())),
+      ).catch(() => undefined)
+    }
+  }
+
   /** Close the window as its close button does; resolves once its page is gone. Kea keeps running. */
   async closeWindow(): Promise<void> {
     const page = await this.page()
+    await this.discardUnsaved()
     const closed = page.waitForEvent('close', { timeout: STEP_MS })
     const n = await this.app.evaluate(({ BrowserWindow }) => {
       const ws = BrowserWindow.getAllWindows()
@@ -913,6 +929,7 @@ export class Kea {
       if (proc.exitCode !== null || proc.signalCode !== null) resolve({ code: proc.exitCode, signal: proc.signalCode })
       else proc.once('exit', (code, signal) => resolve({ code, signal }))
     })
+    await this.discardUnsaved()
     if (o.stopAll) {
       await this.app.evaluate(({ Menu }) => {
         const item = Menu.getApplicationMenu()?.getMenuItemById('app.quit')
@@ -1155,6 +1172,7 @@ export class Kea {
     this.cdp = null
     if (this.closed) return
     this.closed = true
+    await this.discardUnsaved()
     await this.app.close()
   }
 

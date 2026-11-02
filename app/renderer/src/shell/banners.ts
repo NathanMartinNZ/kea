@@ -1,4 +1,5 @@
-// What the banner strip says: the settings file's state from `settings.status` and core's `banners` store, as lines.
+// What the banner strip says: the settings file's state from `settings.status`, the window's own lines and core's
+// `banners` store, as lines.
 // Pure, so the wording is tested without a window.
 
 import type { Banner, SettingsStatus } from '@kea/protocol'
@@ -11,6 +12,13 @@ export interface BannerLine {
   fix: string | null
   /** The line offers "Open settings.json". */
   opensSettings: boolean
+  /** A button of the line's own (a window-local banner's). */
+  action?: { label: string; run(): void }
+}
+
+/** Main's watchdog skipped this window's reload because of its unsaved files: the window's own line. */
+export function lowMemoryBanner(run: () => void): BannerLine {
+  return { key: 'lowMemory', severity: 'warning', message: 'Kea is low on memory.', fix: 'Save or close the files with unsaved changes so this window can be reloaded.', opensSettings: false, action: { label: 'Save Your Files', run } }
 }
 
 /** The parse error with its line and column, or the values that fell back to their defaults. */
@@ -32,11 +40,11 @@ export function settingsBanner(st: SettingsStatus | null): BannerLine | null {
   return null
 }
 
-/** Every line, settings first, then core's banners: errors before warnings, older before newer. */
-export function bannerLines(st: SettingsStatus | null, list: readonly Banner[]): BannerLine[] {
+/** Every line, settings first, then the window's own, then core's banners: errors before warnings, older before newer. */
+export function bannerLines(st: SettingsStatus | null, list: readonly Banner[], local: readonly BannerLine[] = []): BannerLine[] {
   const s = settingsBanner(st)
   const rest = [...list]
     .sort((a, b) => (a.severity === b.severity ? a.at - b.at : a.severity === 'error' ? -1 : 1))
     .map((b): BannerLine => ({ key: b.kind, severity: b.severity, message: b.message, fix: b.fix, opensSettings: false }))
-  return [...(s ? [s] : []), ...rest]
+  return [...(s ? [s] : []), ...local, ...rest]
 }

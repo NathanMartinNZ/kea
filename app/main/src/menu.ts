@@ -39,7 +39,7 @@ export interface MenuInput {
   /** A renderer command was chosen. */
   send(id: string, args?: unknown): void
   /** Main's own commands, and the developer reload. */
-  main: { openKea(): void; closeToMenuBar(): void; quit(): void; checkUpdates(): void; reload(): void }
+  main: { openKea(): void; closeToMenuBar(): void; quit(): void; checkUpdates(): void; reload(): void; history(step: 'undo' | 'redo'): void }
   /** The update command's title now (main owns the update state): Check for Updates…, Restart to Update or Restart Kea. */
   updateTitle?: string
   /** The layout to use; this system's (`mainOs.menu`) when left out. Tests pass the other system's. */
@@ -108,8 +108,10 @@ export function menuTemplate(input: MenuInput): MenuItemConstructorOptions[] {
     closeToMenuBar: mainItem('app.closeToMenuBar', input),
     quit: mainItem('app.quit', input),
     edit: [
-      { role: 'undo' },
-      { role: 'redo' },
+      // Kea's own items, not the roles: a role reaches the page only while the browser's own undo has steps, and a file
+      // document's steps are CodeMirror's (the window runs them, or the browser's where the keyboard is elsewhere)
+      { id: 'edit:undo', label: 'Undo', enabled: input.hasWindow, accelerator: 'CommandOrControl+Z', click: () => input.main.history('undo') },
+      { id: 'edit:redo', label: 'Redo', enabled: input.hasWindow, accelerator: 'Shift+CommandOrControl+Z', click: () => input.main.history('redo') },
       { type: 'separator' },
       { role: 'cut' },
       { id: 'terminal.copy', role: 'copy', label: titleOf('terminal.copy', 'Copy', input.system) },
@@ -130,7 +132,7 @@ export function menuTemplate(input: MenuInput): MenuItemConstructorOptions[] {
 }
 
 /** A role item's title where the template names none (Electron's own, as its menus write them). */
-const ROLE_LABELS: Readonly<Record<string, string>> = { undo: 'Undo', redo: 'Redo', cut: 'Cut', copy: 'Copy', paste: 'Paste', selectAll: 'Select All', toggleDevTools: 'Toggle Developer Tools' }
+const ROLE_LABELS: Readonly<Record<string, string>> = { cut: 'Cut', copy: 'Copy', paste: 'Paste', selectAll: 'Select All', toggleDevTools: 'Toggle Developer Tools' }
 
 /** An item's id in the window's menu: its own, else its role's, else its place (`2/0`). */
 function nodeId(i: MenuItemConstructorOptions, place: string): string {

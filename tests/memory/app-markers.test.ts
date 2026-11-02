@@ -1,7 +1,7 @@
 // File contents and terminal output are dropped after use and never reach the database or the logs. Against the real
 // app (tests/support/app.ts): a marker printed in a shell tab, another in a TypeScript file opened in the viewer and
-// coloured by the highlight worker; the window is reloaded once in between, both are closed, then every place below is
-// searched.
+// coloured by the highlight worker, and a third typed key by key into an editable file and saved; the window is
+// reloaded once in between, all three are closed, then every place below is searched.
 //
 // Where a marker could stay, and how each place is searched:
 //   JavaScript strings   a heap snapshot of the window and the highlight worker (CDP), and of core and ptyhost (the
@@ -17,12 +17,14 @@
 //                        every tree that a node JavaScript holds belongs to, detached ones included (a closed tab's
 //                        frame kept alive by a listener is this kind of leak), in each of the window's worlds
 //   disk                 every file under the run's KEA_HOME, as bytes: `kea.db` with its WAL (the status journal is
-//                        a table in it) and `logs/` hold neither marker. The file's marker may be in the file alone;
-//                        the terminal's is in no file, since a closed shell tab's ring, checkpoint and state file go
-//                        with the tab
+//                        a table in it) and `logs/` hold no marker. The file's marker may be in the file alone, and
+//                        the saved one in the file it was saved to alone (not in `save-journal.json` nor in a save's
+//                        new file, none of which is left); the terminal's is in no file, since a closed shell tab's
+//                        ring, checkpoint and state file go with the tab
 //
 // Every search has a control, so finding nothing afterwards means something. While both are open, each marker is found
-// where Kea uses it (the view's and the mirror's cells; the editor's document and lines). A planted marker, made as a
+// where Kea uses it (the view's and the mirror's cells; the editor's document and lines); the saved marker, while its
+// tab is open, in the window's heap snapshot, and in its file once saved. A planted marker, made as a
 // string, as bytes and (where there is a document) as a detached DOM tree in each of the window's worlds and in the
 // worker, and as bytes in core and ptyhost (the hook's `scan` holds it while it searches), is found by every buffer and
 // DOM search and in the worker's snapshot. What Kea does keep is found at the end: the session's id in core's snapshot,
@@ -33,7 +35,8 @@
 // last checkpoint: the serialised screen is a string in ptyhost and the window, and must not outlive its use.
 //
 // No marker enters a searched process through the test itself: the terminal's is typed in two halves that only the
-// shell joins, the file's is written by this process, and every search takes markers as character codes. The DOM
+// shell joins, the file's is written by this process, the saved one reaches the window one key at a time (and core only
+// as the save Kea makes), and every search takes markers as character codes. The DOM
 // pass makes strings of the text nodes it reads, so it runs last, after the snapshots.
 //
 // The allowance: Shiki's Oniguruma engine copies each line it matches into one 10 000-byte scratch area of its
@@ -41,7 +44,8 @@
 // it the tails of longer lines before it, until another file is coloured or the worker ends (it outlives the tab, and
 // stops after L.highlightIdleMs with no file or diff tab visible). The test shows it (the last line's marker is found
 // there, and where it is after the close is printed) and allows it for that marker alone; `noteText` is written so that
-// the first line's marker cannot be left there.
+// the first line's marker cannot be left there, and the saved file is coloured before the note, every line of which is
+// longer than the line typed, so that the saved marker cannot be either.
 //
 // Not searched:
 //   · main: no snapshot hook; terminal and file bytes do not pass through it
@@ -67,7 +71,7 @@ import { RendererProbe } from '../support/app-leak.ts'
 import { addProject, agentTerminal, demoRepo, startSession, waitLive } from '../support/app-sessions.ts'
 import { fileTabs, openFile } from '../support/app-tabs.ts'
 import { closeViewer, sessionWorktree, tokenClasses, viewerRows, waitBody, waitViewer, writeFiles } from '../support/app-viewer.ts'
-import { sysKey } from '../support/keys.ts'
+import { sysKey, textKey } from '../support/keys.ts'
 
 const runs: KeaRun[] = []
 const sessions: CDPSession[] = []
@@ -294,7 +298,7 @@ function noteText(marker: string, last: string): string {
 }
 
 describe('markers after close (app)', () => {
-  it('L-MEM-4 · a marker printed in a shell tab and another in a TypeScript file opened in the viewer and coloured by the highlight worker, the window reloaded once in between; after the file tab and the shell tab are closed neither is in a heap snapshot or the binary memory of the window, the highlight worker, core or ptyhost, nor in the text of the window’s DOM, attached or detached, nor in the database or a log (and every one of those searches found a marker where one was: the open tab’s and file’s, or a planted one)', async () => {
+  it('L-MEM-4 · a marker printed in a shell tab, another in a TypeScript file opened in the viewer and coloured by the highlight worker, and a third typed into an editable file and saved, the window reloaded once in between; after the tabs are closed none is in a heap snapshot or the binary memory of the window, the highlight worker, core or ptyhost, nor in the text of the window’s DOM, attached or detached, nor in the database or a log, and the saved one is in its file alone, not in the save journal or a save’s new file (and every one of those searches found a marker where one was: the open tab’s and file’s, or a planted one)', async () => {
     const run = KeaRun.create()
     runs.push(run)
     const kea = await run.launch()
@@ -314,6 +318,10 @@ describe('markers after close (app)', () => {
     // … and one in the note's last line, which the worker's Oniguruma heap is allowed to keep (see the header)
     const LAST = `KEALAST${half()}${half()}`
     const NOTE = 'marker-note.ts'
+    // … and one typed into an editable file and saved: its tab is closed before the note is opened
+    const SAVED = `KEASAVED${half()}${half()}`
+    const TYPED = 'marker-typed.ts'
+    const afterClose = [TERM, FILE, SAVED] as const
 
     const id = await startSession(kea, TITLE)
     await waitLive(kea, id)
@@ -331,6 +339,29 @@ describe('markers after close (app)', () => {
     if ((await kea.shown()) !== shell) await kea.clickTab(shell)
     await until('the shell tab’s view attached again', async () => (await kea.views()).some((v) => v.ptyId === shell && v.attached) || undefined)
 
+    // the saved one's: typed key by key at the start of an editable TypeScript file of the worktree, saved with ⌘S, and
+    // its tab closed (Esc: it is clean). A heap snapshot while it is open is the control; its file holds it once saved
+    const renderer = await RendererProbe.open(kea, { classes: ['EditorView'] })
+    probes.push(renderer)
+    writeFiles(worktree, { [TYPED]: 'export const typed = 1\n' })
+    expect(await openFile(kea, { sessionId: id, path: TYPED, mode: 'file' }), `viewer.open ${TYPED}`).toBe(true)
+    await waitViewer(kea, `${TYPED} shown, editable and coloured`, (v) => v.ui.path === TYPED && v.ui.body.kind === 'text' && v.ui.editable && v.text !== null && v.text.tokenised >= v.text.lines - 1 && v.highlighter.pending === 0)
+    const keys = (await kea.page()).keyboard
+    await (await kea.page()).locator('.viewer .cm-content').focus()
+    await keys.press(textKey('Meta+ArrowUp'))
+    await keys.type(`// ${SAVED}`)
+    await keys.press('Enter')
+    await waitViewer(kea, `${TYPED} typed into`, (v) => v.ui.path === TYPED && v.ui.unsaved && v.text?.lines === 3)
+    await keys.press(sysKey('Meta+s'))
+    await waitViewer(kea, `${TYPED} saved and coloured`, (v) => v.ui.path === TYPED && !v.ui.unsaved && v.ui.editNotice === null && v.resources.viewerSaving === 0 && v.text !== null && v.text.tokenised >= v.text.lines - 1 && v.highlighter.pending === 0)
+    const typedFile = path.join(worktree, TYPED)
+    expect(inFile(typedFile, [SAVED]), 'control: the saved marker is in its file').toEqual([true])
+    const typedSnapshot = path.join(snapshots, 'renderer-typed.heapsnapshot')
+    await renderer.snapshot(typedSnapshot)
+    expect(inFile(typedSnapshot, [SAVED]), 'control: while its tab is open, the saved marker is in the window’s heap snapshot (the editor’s document)').toEqual([true])
+    await closeViewer(kea)
+    await until('the saved file’s tab closed', async () => (await fileTabs(kea)).length === 0 || undefined)
+
     // the file's: its first line, in a new file of the session's worktree, opened as every caller opens a file; a
     // `.ts` file, so its lines go to the highlight worker and come back as tokens
     const workers = await Workers.open(kea)
@@ -344,8 +375,6 @@ describe('markers after close (app)', () => {
     await until('the highlight worker attached to', () => workers.sessions.length === 1 || undefined)
     const worker = workers.sessions[0] as string
 
-    const renderer = await RendererProbe.open(kea, { classes: ['EditorView'] })
-    probes.push(renderer)
     const cdp = await (await kea.page()).context().newCDPSession(await kea.page())
     sessions.push(cdp)
     const page = toPage(cdp)
@@ -422,7 +451,7 @@ describe('markers after close (app)', () => {
     // ── search ──
     // snapshots first: nothing of the search has touched the processes yet
     // (with them, what must be found: the title in the database, the session's id in core; and the last line's marker)
-    const withTitle = [TERM, FILE, TITLE, id, LAST] as const
+    const withTitle = [TERM, FILE, TITLE, id, LAST, SAVED] as const
     const heap: Record<string, boolean[]> = {}
     const sizes: Record<string, number> = {}
     for (const proc of ['renderer', 'worker', 'core', 'ptyhost'] as const) {
@@ -433,11 +462,11 @@ describe('markers after close (app)', () => {
       heap[proc] = inFile(file, withTitle)
       sizes[proc] = fs.statSync(file).size
     }
-    const workerClosed = await scanWorld(workers.to(worker), [...markers, LAST])
-    const memory = { worker: { ...workerClosed, found: workerClosed.found.slice(0, 2) }, core: await scanChild(kea, 'core', markers), ptyhost: await scanChild(kea, 'ptyhost', markers) }
+    const workerClosed = await scanWorld(workers.to(worker), [...afterClose, LAST])
+    const memory = { worker: { ...workerClosed, found: workerClosed.found.slice(0, 3) }, core: await scanChild(kea, 'core', afterClose), ptyhost: await scanChild(kea, 'ptyhost', afterClose) }
     // the window last, and in it the DOM pass after the buffers: reading a text node makes a string of it
-    const closed = await scanWindow(markers)
-    const disk: Record<string, string[]> = { [TERM]: [], [FILE]: [], [TITLE]: [], [id]: [], [LAST]: [] }
+    const closed = await scanWindow(afterClose)
+    const disk: Record<string, string[]> = { [TERM]: [], [FILE]: [], [TITLE]: [], [id]: [], [LAST]: [], [SAVED]: [] }
     const files = filesUnder(run.home, snapshots)
     for (const f of files) {
       const has = inFile(f, withTitle)
@@ -449,7 +478,7 @@ describe('markers after close (app)', () => {
     const mb = (n: number) => (n / 2 ** 20).toFixed(1)
     const dom = Object.values(closed).map((w) => w.dom)
     console.info(
-      `L-MEM-4 · snapshots ${Object.entries(sizes).map(([k, v]) => `${k} ${mb(v)} MB`).join(', ')}; binary memory searched: ${Object.entries(memory).map(([k, v]) => `${k} ${v.buffers} buffers, ${mb(v.bytes)} MB`).join('; ')}; the window’s worlds: ${Object.entries(closed).map(([k, v]) => `${k} ${v.memory.buffers} buffers, ${mb(v.memory.bytes)} MB from ${v.memory.objects} objects, DOM ${v.dom.nodes} nodes held, ${v.dom.trees} trees (${v.dom.detached} detached), ${v.dom.chars} characters`).join('; ')}; ${files.length} files under KEA_HOME\n  while open: window snapshot [terminal, file, plant] ${JSON.stringify(open.rendererSnapshot)}, worker snapshot ${JSON.stringify(open.workerSnapshot)}, worker memory ${JSON.stringify(open.worker.found)}, core memory ${JSON.stringify(open.core.found)}, ptyhost memory ${JSON.stringify(open.ptyhost.found)}\n  the window while open: ${Object.entries(open.window).map(([k, v]) => `${k} memory ${JSON.stringify(v.memory.found)} DOM ${JSON.stringify(v.dom.found.map(inDom))}`).join('; ')}\n  after close: heap snapshots [terminal, file, title, session id, last line] ${JSON.stringify(heap)}; memory ${JSON.stringify({ worker: memory.worker.found, core: memory.core.found, ptyhost: memory.ptyhost.found })}; the window ${Object.entries(closed).map(([k, v]) => `${k} memory ${JSON.stringify(v.memory.found)} DOM ${JSON.stringify(v.dom.found)}`).join('; ')}\n  the allowance: the note’s last line in the worker’s WebAssembly memory after the close: ${JSON.stringify(workerClosed.found[2])}\n  on disk after close: terminal marker in ${JSON.stringify(disk[TERM])}, file marker in ${JSON.stringify(disk[FILE])}, the title in ${JSON.stringify(disk[TITLE])}`,
+      `L-MEM-4 · snapshots ${Object.entries(sizes).map(([k, v]) => `${k} ${mb(v)} MB`).join(', ')}; binary memory searched: ${Object.entries(memory).map(([k, v]) => `${k} ${v.buffers} buffers, ${mb(v.bytes)} MB`).join('; ')}; the window’s worlds: ${Object.entries(closed).map(([k, v]) => `${k} ${v.memory.buffers} buffers, ${mb(v.memory.bytes)} MB from ${v.memory.objects} objects, DOM ${v.dom.nodes} nodes held, ${v.dom.trees} trees (${v.dom.detached} detached), ${v.dom.chars} characters`).join('; ')}; ${files.length} files under KEA_HOME\n  while open: window snapshot [terminal, file, plant] ${JSON.stringify(open.rendererSnapshot)}, worker snapshot ${JSON.stringify(open.workerSnapshot)}, worker memory ${JSON.stringify(open.worker.found)}, core memory ${JSON.stringify(open.core.found)}, ptyhost memory ${JSON.stringify(open.ptyhost.found)}\n  the window while open: ${Object.entries(open.window).map(([k, v]) => `${k} memory ${JSON.stringify(v.memory.found)} DOM ${JSON.stringify(v.dom.found.map(inDom))}`).join('; ')}\n  after close: heap snapshots [terminal, file, title, session id, last line, saved] ${JSON.stringify(heap)}; memory ${JSON.stringify({ worker: memory.worker.found, core: memory.core.found, ptyhost: memory.ptyhost.found })}; the window ${Object.entries(closed).map(([k, v]) => `${k} memory ${JSON.stringify(v.memory.found)} DOM ${JSON.stringify(v.dom.found)}`).join('; ')}\n  the allowance: the note’s last line in the worker’s WebAssembly memory after the close: ${JSON.stringify(workerClosed.found[3])}\n  on disk after close: terminal marker in ${JSON.stringify(disk[TERM])}, file marker in ${JSON.stringify(disk[FILE])}, saved marker in ${JSON.stringify(disk[SAVED])}, the title in ${JSON.stringify(disk[TITLE])}`,
     )
 
     // the search looked at something: every snapshot is a real one, every process had buffers to look through, and
@@ -465,16 +494,16 @@ describe('markers after close (app)', () => {
     // the last line's marker is nowhere as a string either: its one allowed place is the worker's scratch area
     expect(Object.fromEntries(Object.entries(heap).map(([k, v]) => [k, v[4]])), 'heap snapshots holding the note’s last line').toEqual({ renderer: false, worker: false, core: false, ptyhost: false })
     // neither marker in a heap snapshot …
-    expect(Object.fromEntries(Object.entries(heap).map(([k, v]) => [k, v.slice(0, 2)])), 'heap snapshots holding [the terminal’s marker, the file’s]').toEqual({ renderer: [false, false], worker: [false, false], core: [false, false], ptyhost: [false, false] })
+    expect(Object.fromEntries(Object.entries(heap).map(([k, v]) => [k, [v[0], v[1], v[5]]])), 'heap snapshots holding [the terminal’s marker, the file’s, the saved one]').toEqual({ renderer: [false, false, false], worker: [false, false, false], core: [false, false, false], ptyhost: [false, false, false] })
     // … nor in binary memory …
     expect(
       { ...Object.fromEntries(Object.entries(closed).map(([k, v]) => [`window ${k}`, v.memory.found])), worker: memory.worker.found, core: memory.core.found, ptyhost: memory.ptyhost.found },
-      'binary memory holding [the terminal’s marker, the file’s]',
-    ).toEqual({ ...Object.fromEntries(Object.keys(closed).map((k) => [`window ${k}`, [[], []]])), worker: [[], []], core: [[], []], ptyhost: [[], []] })
+      'binary memory holding [the terminal’s marker, the file’s, the saved one]',
+    ).toEqual({ ...Object.fromEntries(Object.keys(closed).map((k) => [`window ${k}`, [[], [], []]])), worker: [[], [], []], core: [[], [], []], ptyhost: [[], [], []] })
     // … nor in the window's DOM, in the document or in a tree taken out of it …
-    expect(Object.fromEntries(Object.entries(closed).map(([k, v]) => [k, v.dom.found])), 'DOM text holding [the terminal’s marker, the file’s]').toEqual(Object.fromEntries(Object.keys(closed).map((k) => [k, [[], []]])))
+    expect(Object.fromEntries(Object.entries(closed).map(([k, v]) => [k, v.dom.found])), 'DOM text holding [the terminal’s marker, the file’s, the saved one]').toEqual(Object.fromEntries(Object.keys(closed).map((k) => [k, [[], [], []]])))
     // … nor in the database (its WAL and the status journal with it) or a log
-    expect({ terminal: kept(TERM), file: kept(FILE) }, 'the database and the logs').toEqual({ terminal: [], file: [] })
+    expect({ terminal: kept(TERM), file: kept(FILE), saved: kept(SAVED) }, 'the database and the logs').toEqual({ terminal: [], file: [], saved: [] })
     expect(files.some((f) => path.relative(run.home, f) === 'kea.db'), 'the database was among the files searched').toBe(true)
     expect(files.some((f) => path.relative(run.home, f).startsWith(`logs${path.sep}`)), 'the logs were among the files searched').toBe(true)
     // the terminal's marker is in no file: the closed tab's ring and last checkpoint, where output is kept while a
@@ -484,6 +513,14 @@ describe('markers after close (app)', () => {
     // the file's marker is where the test wrote it, and nowhere else
     const note = path.relative(run.home, path.join(fs.realpathSync(worktree), NOTE))
     expect(disk[FILE], 'files holding the file’s marker').toEqual(note.startsWith('..') ? [] : [note])
+    // the saved one is in the file it was saved to, and nowhere else: not in the save journal, which is empty, and no
+    // new file of a save is left beside it
+    const typed = path.relative(run.home, path.join(fs.realpathSync(worktree), TYPED))
+    expect(disk[SAVED], 'files holding the saved marker').toEqual(typed.startsWith('..') ? [] : [typed])
+    expect(inFile(typedFile, [SAVED]), 'the saved file holds it').toEqual([true])
+    const journal = path.join(run.home, 'save-journal.json')
+    expect(fs.existsSync(journal) ? JSON.parse(fs.readFileSync(journal, 'utf8')) : [], 'the save journal').toEqual([])
+    expect(fs.readdirSync(path.dirname(typedFile)).filter((f) => f.startsWith('.kea-save-')), 'new files of a save left beside the saved file').toEqual([])
     await kea.assertUnfocused()
   })
 })

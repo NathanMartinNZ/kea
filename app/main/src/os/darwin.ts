@@ -74,6 +74,7 @@ export const darwin: MainOs = {
     nativeTheme: null,
   },
   raise: { display: () => 'quartz', how: () => 'focus' },
+  edited: { set: (win, edited) => win.setDocumentEdited(edited) },
   menu: {
     // the app menu (about, Check for Updates…, Kea's own items, Open Kea with no window, Services, Hide, ⌘Q, ⌥⌘Q), Edit, the categories,
     // Developer, Window, Help; macOS puts its search field first in Help: it finds every item of the menu bar by title

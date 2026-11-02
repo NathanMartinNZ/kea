@@ -161,6 +161,33 @@
   text-overflow: ellipsis;
 }
 
+/* an editable document's line: its words in --text-2, its actions as links */
+.viewer-edit-notice {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--text-2);
+}
+
+.viewer-edit-notice > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.viewer-edit-notice button {
+  flex: none;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--info);
+  font: inherit;
+}
+
+.viewer-edit-notice button:hover {
+  text-decoration: underline;
+}
+
 /* ── body ── */
 
 .viewer-body {
@@ -338,6 +365,11 @@
   top: -3px;
 }
 
+/* places changed on disk where the user edited too (marks.ts): their lines --warn at --opacity-diff-line, over the active line's */
+.viewer .cm-editor .cm-line.kea-conflict {
+  background: color-mix(in srgb, var(--warn) calc(var(--opacity-diff-line) * 100%), transparent);
+}
+
 /* fold chevrons appear only while the gutter is hovered; a folded block's chevron stays */
 .viewer .cm-editor .cm-foldGutter .cm-gutterElement {
   width: 2ch;
@@ -368,7 +400,7 @@
   color: var(--text-2);
 }
 
-/* ── the bars (find, go to line) ── */
+/* ── the bars (find and replace, go to line) ── */
 
 .viewer .cm-editor .cm-panels {
   border: 0;
@@ -405,8 +437,21 @@
   border-color: var(--accent);
 }
 
-.viewer .cm-editor .kea-bar.none .kea-bar-input {
+.viewer .cm-editor .kea-bar.none .kea-bar-input:not(.kea-replace-input) {
   border-color: var(--danger);
+}
+
+/* what follows a field on its row: the count and the buttons */
+.viewer .cm-editor .kea-bar-tail {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+/* find with its Replace row: two rows, the replace field under the find field */
+.viewer .cm-editor .kea-find.replacing {
+  display: grid;
+  grid-template-columns: auto auto;
 }
 
 .viewer .cm-editor .kea-bar-count {

@@ -91,7 +91,7 @@ start_kea() { # $1: the run's number. Started once main logged its run's start a
 }
 runs_logged() { n=$(grep -c '"msg":"starting"' "$kh/logs/main.log" 2>/dev/null) || true; [ "${n:-0}" -ge "$1" ]; }
 main_pid() { pgrep -u "$user" -f "^/opt/Kea/kea-app --kea-home=$kh" | head -1; }
-quit_kea() { # $1: the run's number. A complete quit: SIGTERM to main, which Electron turns into app.quit()
+quit_kea() { # $1: the run's number. A complete quit: SIGTERM to main, which main turns into app.quit()
   pid=$(main_pid)
   if [ -z "$pid" ]; then
     pgrep -u "$user" -a . | head -20

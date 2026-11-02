@@ -165,6 +165,13 @@ p50 = 8
 p99 = 20
 unit = "ms"
 
+["P-FV-8"]
+metric = "typing in an editable file near the full-feature size: keydown → the character drawn; → its line recoloured"
+p50 = 8
+p99 = 20
+max_recoloured = 100
+unit = "ms"
+
 ["P-WT-1"]
 metric = "delete snapshot of a dirty worktree"
 max = 2000

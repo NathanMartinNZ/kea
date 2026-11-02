@@ -1,13 +1,14 @@
-// V-10 and V-14: the dialogs — the delete confirmation with its counts, the first-quit sheet, a toast — and the
-// menu-bar item's menu with sessions that need you, the first-quit sheet over them, and a session whose agent waits for
-// the trust question.
+// V-10 and V-14: the dialogs — the delete confirmation with its counts, a toast, the warning before unsaved changes
+// are lost, the first-quit sheet — and the menu-bar item's menu with sessions that need you, the first-quit sheet over
+// them, and a session whose agent waits for the trust question.
 
 import { expect, test } from '../../../tests/e2e/fixtures.ts'
 import { STEP_MS, until } from '../../../tests/support/app.ts'
 import { inMenuBar, menuBar, pressQuit, quitSheet } from '../../../tests/support/app-menubar.ts'
 import { commitFiles } from '../../../tests/support/app-server.ts'
 import { addProject, rowState, selectSession, sessionMenu, waitRow } from '../../../tests/support/app-sessions.ts'
-import { commitAll } from '../../../tests/support/app-viewer.ts'
+import { clickFile } from '../../../tests/support/app-files.ts'
+import { commitAll, waitBody } from '../../../tests/support/app-viewer.ts'
 import { L } from '../../../packages/protocol/src/index.ts'
 import { tinyRepo } from '../../repo-factory/src/index.ts'
 import { cwdOf, demoProject, frame, openKea, permission, question, session, status, write } from './scene.ts'
@@ -65,6 +66,22 @@ test('V-10 · dialogs', async ({ run, launch }) => {
   await expect(log).toContainText('teardown failed on purpose', { timeout: STEP_MS })
   await set.shot(kea, 'log', 'The session log the toast opens: a sheet that confirms nothing (Close is its one button)', 'Floating layers', { rect: { ...MAIN, height: 520 } })
   await page.keyboard.press('Escape')
+
+  // ── the warning before unsaved changes are lost: Save is the default, Don't Save --danger text ──
+  await selectSession(kea, fix)
+  write(wt, { 'src/auth/redirect.js': 'export const redirect = () => "/signin"\n' })
+  await clickFile(kea, 'src/auth/redirect.js')
+  await waitBody(kea, 'src/auth/redirect.js', 'text')
+  await page.locator('.viewer .cm-content').click()
+  await page.keyboard.press('End')
+  await page.keyboard.type(' // next')
+  await page.keyboard.press('Meta+w')
+  const warning = page.getByRole('alertdialog', { name: 'Do you want to save the changes you made to redirect.js?' })
+  await expect(warning).toBeVisible({ timeout: STEP_MS })
+  await page.mouse.move(1000, 700)
+  await set.shot(kea, 'unsaved', 'Closing a file with unsaved changes: one file at a time; Save is the default and rests on --surface-2, Don’t Save is --danger text, Cancel keeps it', 'Floating layers', { rect: SHEET })
+  await warning.getByRole('button', { name: 'Don’t Save' }).click()
+  await expect(warning).toHaveCount(0)
 
   // ── the first-quit sheet (once): one sentence and three buttons ──
   await selectSession(kea, fix)

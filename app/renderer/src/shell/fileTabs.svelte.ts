@@ -9,8 +9,9 @@ import { watch } from '../lib/reactive.svelte.ts'
 import { fileTabId, NO_FILE_TABS, type FileTabs } from './tabs.ts'
 
 class FileTabsState {
-  // bounded: one entry per session that has file tabs, each at most 1 preview + L.viewerPinnedTabsMax pinned with their
-  // small view state; pruned with the sessions list
+  // bounded: one entry per session that has file tabs, each at most 1 preview + L.viewerPinnedTabsMax pinned, plus the
+  // tabs the pinned cap keeps for their unsaved changes (at most L.viewerUnsavedMax + 1), with their small view state;
+  // pruned with the sessions list
   bySession = $state.raw<ReadonlyMap<string, FileTabs>>(new Map())
   /** The file or diff tab the main area shows now; null while it shows a terminal, or no session. */
   shown = $state.raw<{ sessionId: string; path: string; mode: ViewMode } | null>(null)
@@ -48,29 +49,31 @@ export function reportShownFile(sessionId: string, tab: { path: string; mode: Vi
   fileTabsState.shown = { sessionId, path: tab.path, mode: tab.mode }
 }
 
-// bounded: one entry per file tab moved since its pane last looked (at most the session's file tabs: pruned at each move)
+// bounded: one entry per file tab moved since its session's pane last looked at its tabs (at most the session's file
+// tabs: pruned at each move, and emptied for the session at each look)
 const moved = new Map<string, string>()
 const movedKey = (sessionId: string, id: string): string => `${sessionId}\0${id}`
 
 /**
  * A file or folder of `sessionId` moved or was renamed in the file tree: its file tabs (a folder's: every one at or
- * under it) show the entry at its new path, with their place and view state. A diff tab stays on the old path, which
- * then reads as deleted. The pane that shows a moved tab finds it again with `takeMovedTab`.
+ * under it) show the entry at its new path, with their place and view state. A tab left at a path a moved file takes
+ * (its own file is not there) closes. A diff tab stays on the old path, which then reads as deleted. The pane that
+ * shows a moved tab finds it again with `takeMovedTab`.
  */
 export function moveFileTabs(sessionId: string, from: string, to: string): void {
   const cur = fileTabsOf(sessionId)
-  const taken = new Set(cur.tabs.map((t) => t.id))
-  let changed = false
-  const tabs = cur.tabs.map((t) => {
-    if (t.mode !== 'file') return t
-    const path = movedPath(t.path, from, to)
-    const id = fileTabId(path)
-    if (path === t.path || taken.has(id)) return t
-    changed = true
-    moved.set(movedKey(sessionId, t.id), id)
-    return { ...t, id, path }
-  })
-  if (!changed) return
+  const going = cur.tabs.filter((t) => t.mode === 'file' && movedPath(t.path, from, to) !== t.path)
+  if (going.length === 0) return
+  const takes = new Set(going.map((t) => fileTabId(movedPath(t.path, from, to))))
+  const tabs = cur.tabs
+    .filter((t) => !takes.has(t.id) || going.includes(t))
+    .map((t) => {
+      if (!going.includes(t)) return t
+      const path = movedPath(t.path, from, to)
+      const id = fileTabId(path)
+      moved.set(movedKey(sessionId, t.id), id)
+      return { ...t, id, path }
+    })
   setFileTabs(sessionId, { ...cur, tabs })
   const ids = new Set(tabs.map((t) => t.id))
   for (const [k, v] of moved) if (k.startsWith(`${sessionId}\0`) && !ids.has(v)) moved.delete(k)
@@ -78,11 +81,15 @@ export function moveFileTabs(sessionId: string, from: string, to: string): void 
   if (shown?.sessionId === sessionId && shown.mode === 'file' && movedPath(shown.path, from, to) !== shown.path) fileTabsState.shown = { ...shown, path: movedPath(shown.path, from, to) }
 }
 
-/** The id a file tab of `sessionId` has after it moved (`moveFileTabs`), taken once; null: it did not move. */
-export function takeMovedTab(sessionId: string, id: string): string | null {
-  const k = movedKey(sessionId, id)
-  const to = moved.get(k) ?? null
-  moved.delete(k)
+/**
+ * The pane of `sessionId` looks at its tabs after they changed: the id its tab on screen, `id`, has after it moved
+ * (`moveFileTabs`); null when it did not move, or the pane looks for none (its tab is still there). The session's other
+ * moves go with the look: no other tab of the pane is looked for, and a tab opened later at a path one moved from is
+ * not the moved one.
+ */
+export function takeMovedTab(sessionId: string, id: string | null): string | null {
+  const to = id === null ? null : (moved.get(movedKey(sessionId, id)) ?? null)
+  for (const k of [...moved.keys()]) if (k.startsWith(`${sessionId}\0`)) moved.delete(k)
   return to
 }
 

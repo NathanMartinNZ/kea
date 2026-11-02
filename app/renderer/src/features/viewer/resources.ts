@@ -10,23 +10,27 @@
 //   highlightWorkers   the highlight worker (0 or 1), highlightPending its unfinished requests, highlightGrammars
 //                      the grammars it has loaded (recycled above L.highlightGrammarsMax)
 //   viewerFollows      `viewer.follow` calls waiting on core (0 or 1), viewerReads reads in flight
+//   viewerUnsaved      documents with unsaved text (≤ L.viewerUnsavedMax, plus the one on screen), viewerUnsavedBytes
+//                      what they weigh (≤ L.viewerUnsavedBytes, plus that one), viewerSaving their saves in flight
 
 import { foldedRanges } from '@codemirror/language'
 import { EditorView } from '@codemirror/view'
 import type { GitHead } from '@kea/protocol'
 import { currentViewer, viewerStats, type ViewerUi } from './controller.svelte.ts'
 import { fileEditorStats, scrollOf } from './editor.ts'
-import { tokenStore } from './highlight.ts'
+import { drawnTokenLines, tokenStore } from './highlight.ts'
 import { highlighterStats } from './highlighter.ts'
 import { DIFF_CLASSES, diffStats } from './merge.ts'
+import { unsavedStats } from './unsaved.svelte.ts'
 
-export const VIEWER_ROWS = ['viewerEditors', 'viewerMerges', 'viewerDocBytes', 'viewerCachedDocs', 'viewerCachedBytes', 'highlightWorkers', 'highlightPending', 'highlightGrammars', 'viewerFollows', 'viewerReads'] as const
+export const VIEWER_ROWS = ['viewerEditors', 'viewerMerges', 'viewerDocBytes', 'viewerCachedDocs', 'viewerCachedBytes', 'highlightWorkers', 'highlightPending', 'highlightGrammars', 'viewerFollows', 'viewerReads', 'viewerUnsaved', 'viewerUnsavedBytes', 'viewerSaving'] as const
 
 export function viewerResources(): Record<(typeof VIEWER_ROWS)[number], number> {
   const f = fileEditorStats()
   const d = diffStats()
   const h = highlighterStats()
   const v = viewerStats()
+  const u = unsavedStats()
   return {
     viewerEditors: f.editors + d.unified + d.merges * 2,
     viewerMerges: d.merges,
@@ -38,6 +42,9 @@ export function viewerResources(): Record<(typeof VIEWER_ROWS)[number], number> 
     highlightGrammars: h.grammars,
     viewerFollows: v.follows,
     viewerReads: v.reads,
+    viewerUnsaved: u.docs,
+    viewerUnsavedBytes: u.bytes,
+    viewerSaving: u.saving,
   }
 }
 
@@ -55,7 +62,7 @@ export interface ViewerProbe {
     /** The scroll a tab keeps: the first visible line and the pixels scrolled past its top. */
     scroll: { line: number; offset: number; left: number }
     folds: number
-    /** Lines the highlight worker's tokens have arrived for. */
+    /** Lines whose tokens are drawn (stored and on screen). */
     tokenised: number
     wrap: boolean
     findOpen: boolean
@@ -82,7 +89,7 @@ export function viewerProbe(): ViewerProbe | null {
     let folds = 0
     foldedRanges(view.state).between(0, doc.length, () => void folds++)
     const scroller = view.dom.closest<HTMLElement>('.cm-mergeView') ?? view.scrollDOM
-    text = { lines: doc.lines, chars: doc.length, selection: { from: at(sel.from), to: at(sel.to) }, scroll: scrollOf(view, scroller), folds, tokenised: view.state.facet(tokenStore)?.lines ?? 0, wrap: view.lineWrapping, findOpen: view.dom.querySelector('.kea-find') !== null }
+    text = { lines: doc.lines, chars: doc.length, selection: { from: at(sel.from), to: at(sel.to) }, scroll: scrollOf(view, scroller), folds, tokenised: drawnTokenLines(view) ?? view.state.facet(tokenStore)?.lines ?? 0, wrap: view.lineWrapping, findOpen: view.dom.querySelector('.kea-find') !== null }
   }
   return { ui: c.ui, text, git: { changed: c.changedFiles().length, head: c.head() }, resources: viewerResources(), highlighter: { starts: h.starts, workers: h.workers, pending: h.pending, grammars: h.grammars } }
 }

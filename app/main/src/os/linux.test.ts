@@ -109,7 +109,7 @@ const every = (items: Item[]): Item[] => items.flatMap((i) => [i, ...every(sub(i
 
 function linuxMenuInput(o: Partial<MenuInput> = {}): MenuInput & { sent: string[] } {
   const sent: string[] = []
-  return { appName: 'Kea', renderer: null, hasWindow: true, dev: false, send: (id) => sent.push(id), main: { openKea: () => sent.push('main:openKea'), closeToMenuBar: () => sent.push('main:closeToMenuBar'), quit: () => sent.push('main:quit'), checkUpdates: () => sent.push('main:checkUpdates'), reload: () => undefined }, chrome: need(linux.menu), system: protocolLinux, sent, ...o }
+  return { appName: 'Kea', renderer: null, hasWindow: true, dev: false, send: (id) => sent.push(id), main: { openKea: () => sent.push('main:openKea'), closeToMenuBar: () => sent.push('main:closeToMenuBar'), quit: () => sent.push('main:quit'), checkUpdates: () => sent.push('main:checkUpdates'), reload: () => undefined, history: (step) => sent.push(`main:${step}`) }, chrome: need(linux.menu), system: protocolLinux, sent, ...o }
 }
 
 describe('the window on Linux', () => {
@@ -171,10 +171,13 @@ describe('the window on Linux', () => {
     for (const n of tree) expect(n.submenu, n.label).toBeDefined()
     const menu = (label: string) => tree.find((n) => n.label === label)!.submenu!
     // Edit: the roles by id, Copy and Paste by their commands, with the keys Linux shows
-    expect(menu('Edit').map((n) => (n.separator ? '—' : n.id))).toEqual(['role:undo', 'role:redo', '—', 'role:cut', 'terminal.copy', 'terminal.paste', 'terminal.selectAll'])
+    expect(menu('Edit').map((n) => (n.separator ? '—' : n.id))).toEqual(['edit:undo', 'edit:redo', '—', 'role:cut', 'terminal.copy', 'terminal.paste', 'terminal.selectAll'])
     expect(menu('Edit').map((n) => n.label)).toEqual(['Undo', 'Redo', '', 'Cut', 'Copy', 'Paste', 'Select All'])
     expect(menu('Edit').find((n) => n.id === 'terminal.copy')).toMatchObject({ shortcut: 'Ctrl+Shift+C', enabled: true })
-    expect(menu('Edit').find((n) => n.id === 'role:undo')?.shortcut).toBe('Ctrl+Z')
+    expect(menu('Edit').find((n) => n.id === 'edit:undo')?.shortcut).toBe('Ctrl+Z')
+    expect(menu('Edit').find((n) => n.id === 'edit:redo')?.shortcut).toBe('Ctrl+Shift+Z')
+    // Undo and Redo register no key either: Ctrl+Z reaches the terminal, and a text field has it natively
+    expect(every(t).filter((i) => String(i.id).startsWith('edit:')).map((i) => i.registerAccelerator)).toEqual([false, false])
     // Select All keeps the field's Ctrl+A: in a terminal that key is the shell's, and the window runs the command instead
     expect(menu('Edit').find((n) => n.id === 'terminal.selectAll')?.shortcut).toBe('Ctrl+A')
     expect(menu('Window').map((n) => n.id)).toEqual(['window.minimize', 'window.maximize', 'window.fullScreen'])
@@ -199,7 +202,8 @@ describe('the window on Linux', () => {
     // a pick runs what the native menu ran
     ;(findMenuItem(t, 'session.next')!.click as () => void)()
     ;(findMenuItem(t, 'app.closeToMenuBar')!.click as () => void)()
-    expect(input.sent).toEqual(['session.next', 'main:closeToMenuBar'])
+    ;(findMenuItem(t, 'edit:undo')!.click as () => void)()
+    expect(input.sent).toEqual(['session.next', 'main:closeToMenuBar', 'main:undo'])
     expect(findMenuItem(t, 'terminal.selectAll')?.role).toBe('selectAll')
   })
 

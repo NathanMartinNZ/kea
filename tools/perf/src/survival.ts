@@ -303,7 +303,7 @@ export async function answered(home: string, ptyId: string, from: number, app: R
 }
 
 export async function quit(app: Running): Promise<number | null> {
-  app.proc.kill('SIGTERM') // Electron quits gracefully on SIGTERM (before-quit → children shut down → exit 0)
+  app.proc.kill('SIGTERM') // main quits gracefully on SIGTERM (before-quit → the windows' review → children shut down → exit 0)
   let timer: NodeJS.Timeout | undefined
   const late = new Promise<never>((_, reject) => (timer = setTimeout(() => reject(new Error('Kea did not quit within 15 s of SIGTERM')), 15_000)))
   try {

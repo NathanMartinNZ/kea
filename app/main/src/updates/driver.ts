@@ -45,8 +45,8 @@ export interface UpdaterDriver {
   check(): void
   /** Download the version `available` named. */
   download(): void
-  /** Quit and install: Squirrel swaps the bundle after Kea quits and opens the new one. */
-  install(): void
+  /** Quit and install: Squirrel swaps the bundle after Kea quits and opens the new one. False: nothing is ready, and nothing is done. */
+  install(): boolean
   dispose(): void
 }
 

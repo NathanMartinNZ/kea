@@ -349,8 +349,8 @@ export function raiseHow(o: { display: DisplayServer; minimized: boolean; via: O
   if (o.via === 'menu') return 'focus'
   // for a second launch the shell focuses the open window itself
   if (o.via === 'secondInstance') return 'none'
-  // the tray's "Open Kea" and a notification's click (GNOME 46 raises nothing itself for either): an open
-  // window is mapped again, which GNOME raises; a minimized one is rebuilt, which comes up focused
+  // the tray's "Open Kea", a notification's click (GNOME 46 raises nothing itself for either) and a review of unsaved
+  // files: an open window is mapped again, which GNOME raises; a minimized one is rebuilt, which comes up focused
   return o.minimized ? 'rebuild' : 'remap'
 }
 
@@ -358,15 +358,18 @@ export function raiseHow(o: { display: DisplayServer; minimized: boolean; via: O
 export const GO_COMMANDS: readonly string[] = ['session.next', 'session.previous', 'session.jumpNeedsYou', 'session.jumpTo', 'terminal.nextTab', 'terminal.previousTab', 'terminal.focus', 'files.goToFile', 'files.revealInTree', 'view.cycleFocus']
 /** The App commands Linux shows in Help only (macOS has them in the app menu as well). */
 const HELP_COMMANDS: ReadonlySet<string> = new Set(['app.shortcuts', 'app.copyDiagnostics'])
-/** The Edit roles' keys as shown (text fields have them natively; nothing is registered, so no `Ctrl+<letter>` is ever the menu's). */
-const EDIT_KEYS: Readonly<Record<string, string>> = { undo: 'Ctrl+Z', redo: 'Ctrl+Shift+Z', cut: 'Ctrl+X', selectAll: 'Ctrl+A' }
+/**
+ * The Edit items' keys as shown, by role, or by id for Undo and Redo, which are Kea's own items (text fields have them
+ * natively; nothing is registered, so no `Ctrl+<letter>` is ever the menu's).
+ */
+const EDIT_KEYS: Readonly<Record<string, string>> = { 'edit:undo': 'Ctrl+Z', 'edit:redo': 'Ctrl+Shift+Z', cut: 'Ctrl+X', selectAll: 'Ctrl+A' }
 const SEP: MenuItemConstructorOptions = { type: 'separator' }
 
 /**
  * File, Edit, View, Session, Go, Window, Help; no app-name menu, no Services or Hide; Quit in File. File has the
  * Project commands, then Check for Updates… and the App ones (Settings, …), then Open Kea with no window, Close Kea and Quit Kea Completely;
  * View has View's own, then Terminal, Files and Viewer as submenus; Session has Session's and Server's; Go gathers the
- * navigation commands. The Edit roles register no key, so `Ctrl+C`, `Ctrl+V`, `Ctrl+Z` reach the terminal; the Window
+ * navigation commands. The Edit items register no key, so `Ctrl+C`, `Ctrl+V`, `Ctrl+Z` reach the terminal; the Window
  * menu's items are plain ones, since Electron's roles bring `Ctrl+M`, `Ctrl+W` and `F11` with them.
  */
 export function linuxMenu(p: MenuParts): MenuItemConstructorOptions[] {
@@ -376,10 +379,10 @@ export function linuxMenu(p: MenuParts): MenuItemConstructorOptions[] {
   const go = GO_COMMANDS.flatMap((id) => every.filter((i) => i.id === id))
   const joined = (...groups: MenuItemConstructorOptions[][]) => groups.filter((g) => g.length > 0).flatMap((g, k) => (k > 0 ? [SEP, ...g] : g))
   const sub = (label: string, items: MenuItemConstructorOptions[]): MenuItemConstructorOptions[] => (items.length ? [{ label, submenu: items }] : [])
-  const editKey = (role: string): string | undefined => (role === 'copy' ? p.editKeys.copy : role === 'paste' ? p.editKeys.paste : EDIT_KEYS[role])
+  const editKey = (name: string): string | undefined => (name === 'copy' ? p.editKeys.copy : name === 'paste' ? p.editKeys.paste : EDIT_KEYS[name])
   const edit = p.edit.map((i): MenuItemConstructorOptions => {
-    if (!i.role) return i
-    const key = editKey(i.role)
+    if (i.type === 'separator') return i
+    const key = editKey(i.role ?? String(i.id))
     return { ...i, ...(key ? { accelerator: key } : {}), registerAccelerator: false }
   })
   return [
@@ -526,6 +529,7 @@ export const linux: MainOs = {
   },
   // Chromium's own switch, else its hint, else the environment: Electron runs on Wayland where the session has one
   raise: { display: (env, sw) => displayServer(env, sw('ozone-platform') || sw('ozone-platform-hint')), how: raiseHow },
+  edited: notAvailable('Linux desktops draw no mark for unsaved changes on a window’s close button.'),
   menu: { layout: linuxMenu, inWindow: true },
   notify: { create: (make, o) => new make({ title: o.title, body: foldSubtitle(o.subtitle, o.body), silent: o.silent }), permission: false },
   // Unity's LauncherEntry for the desktop file (Electron sends it); 0 clears it

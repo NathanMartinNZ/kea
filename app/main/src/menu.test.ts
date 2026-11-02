@@ -8,7 +8,7 @@ import { linux } from './os/linux.ts'
 import { menuTemplate, windowMenuState, type MenuInput, type WindowMenuState } from './menu.ts'
 
 function input(over: Partial<MenuInput> = {}): MenuInput {
-  return { appName: 'Kea', renderer: null, hasWindow: true, dev: false, send: vi.fn(), main: { openKea: vi.fn(), closeToMenuBar: vi.fn(), quit: vi.fn(), checkUpdates: vi.fn(), reload: vi.fn() }, chrome: need(darwin.menu), system: protocolDarwin, ...over }
+  return { appName: 'Kea', renderer: null, hasWindow: true, dev: false, send: vi.fn(), main: { openKea: vi.fn(), closeToMenuBar: vi.fn(), quit: vi.fn(), checkUpdates: vi.fn(), reload: vi.fn(), history: vi.fn() }, chrome: need(darwin.menu), system: protocolDarwin, ...over }
 }
 
 /** A renderer's report: these commands, each available or not. */
@@ -37,13 +37,26 @@ describe('menu bar', () => {
     expect(['terminal.newShell', 'terminal.nextTab', 'terminal.find', 'terminal.fontBigger'].map((id) => pick(id).accelerator)).toEqual(['Cmd+T', 'Cmd+Shift+]', 'Cmd+F', 'Cmd+Plus'])
     // A command the renderer did not report, or reported unavailable (Close Tab on the Agent tab), is listed disabled
     expect(pick('terminal.closeTab')).toMatchObject({ label: 'Close Tab', enabled: false, accelerator: 'Cmd+W' })
-    // no shortcut of a generated item is registered with the system
-    expect(all(t).filter((m) => m.click && m.accelerator && !MAIN_COMMANDS.includes(m.id as string)).every((m) => m.registerAccelerator === false)).toBe(true)
+    // no shortcut of a generated item is registered with the system (Undo and Redo are the Edit menu's own)
+    expect(all(t).filter((m) => m.click && m.accelerator && !MAIN_COMMANDS.includes(m.id as string) && !String(m.id).startsWith('edit:')).every((m) => m.registerAccelerator === false)).toBe(true)
     ;(pick('terminal.find').click as () => void)()
     expect(i.send).toHaveBeenCalledWith('terminal.find', undefined)
     // a command with several keys runs with its first key's argument
     ;(named(t, 'Session').find((m) => m.id === 'session.jumpTo')?.click as () => void)()
     expect(i.send).toHaveBeenCalledWith('session.jumpTo', { index: 1 })
+  })
+
+  it('U-KB-3 · Undo and Redo are Kea’s own items with ⌘Z and ⇧⌘Z: a pick asks main to have the window take the step, a file document’s own where it has the keyboard', () => {
+    const i = input()
+    const edit = named(menuTemplate(i), 'Edit')
+    expect(edit.slice(0, 2)).toMatchObject([
+      { id: 'edit:undo', label: 'Undo', accelerator: 'CommandOrControl+Z' },
+      { id: 'edit:redo', label: 'Redo', accelerator: 'Shift+CommandOrControl+Z' },
+    ])
+    expect(edit.some((m) => m.role === 'undo' || m.role === 'redo')).toBe(false)
+    ;(edit[0]!.click as () => void)()
+    ;(edit[1]!.click as () => void)()
+    expect(vi.mocked(i.main.history).mock.calls).toEqual([['undo'], ['redo']])
   })
 
   it('U-KB-3 · copy / paste are native roles; quit works with no window; standard macOS roles keep ⌘H ⌘M ⌃⌘F; nothing reloads on ⌘R', () => {
@@ -93,7 +106,7 @@ describe('menu bar', () => {
       .map((m) => m.id)
       .filter((id): id is string => typeof id === 'string')
     // with a window, every command but Open Kea (which is there while there is none)
-    expect(new Set(ids.filter((id) => !id.startsWith('help:')))).toEqual(new Set(COMMANDS.map((c) => c.id).filter((id) => id !== 'app.openKea')))
+    expect(new Set(ids.filter((id) => !id.startsWith('help:') && !id.startsWith('edit:')))).toEqual(new Set(COMMANDS.map((c) => c.id).filter((id) => id !== 'app.openKea')))
     expect(new Set(all(menuTemplate(input({ hasWindow: false }))).map((m) => m.id))).toContain('app.openKea')
     // no command twice, but for the Help menu's own Keyboard Shortcuts and Copy Diagnostics
     expect(ids.filter((id, i) => ids.indexOf(id) !== i)).toEqual([])

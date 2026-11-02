@@ -308,3 +308,87 @@ describe('watchdog at work', () => {
     expect(log.entries.some((e) => e.level === 'warn' && e.msg === 'watchdog: line not written')).toBe(true)
   })
 })
+
+describe('watchdog and unsaved files', () => {
+  it('U-MEM-30 · a window with unsaved files is never reloaded past its hard limit: the reload waits until it has none, said once per episode (an episode that already waited for the user still says it) and logged as skipped, and main hears of it to ask that window to save them; core, ptyhost and the GPU process are not asked; without the input the policy acts as before', async () => {
+    const hard = L.watchdogHardRendererBytes + 1
+    let unsaved = true
+    const asked: string[] = []
+    const unsavedOf = (name: string): boolean => (asked.push(name), unsaved)
+    const p = new WatchdogPolicy()
+    const at = (i: number, idle = IDLE) => brief(p.evaluate(sample({ renderer: [7, hard], core: [8, L.watchdogHardCoreBytes + 1], gpu: [9, L.watchdogHardGpuBytes + 1] }), idle, i * STEP, undefined, unsavedOf))
+    expect(at(0)).toEqual(['renderer hard:deferred (unsaved files)', 'core hard:restart', 'gpu hard:resetWebgl'])
+    expect(asked, 'only a window’s renderer is asked').toEqual(['renderer'])
+    expect(at(1), 'said once').toEqual([])
+    unsaved = false
+    expect(at(2), 'none left: reloaded at the next idle sample').toEqual(['renderer hard:reload'])
+
+    unsaved = true
+    const q = new WatchdogPolicy()
+    const over = (i: number, idle: number) => brief(q.evaluate(sample({ renderer: [7, hard] }), idle, i * STEP, undefined, unsavedOf))
+    expect(over(0, 0)).toEqual(['renderer hard:deferred (not idle)'])
+    expect(over(1, IDLE)).toEqual(['renderer hard:deferred (unsaved files)'])
+    expect(over(2, 0)).toEqual([])
+    expect(over(3, IDLE)).toEqual([])
+
+    // without the input: reloaded as before
+    expect(brief(new WatchdogPolicy().evaluate(sample({ renderer: [7, hard] }), IDLE, 0))).toEqual(['renderer hard:reload'])
+
+    // the watchdog at work: logged as skipped, main told, no action; an input that throws counts as unsaved files
+    for (const input of [() => true, (): boolean => { throw new Error('no window') }]) {
+      const log = createMemoryLogger({ process: 'main' })
+      const acted: string[] = []
+      const skipped: WatchdogTrigger[] = []
+      const w = new Watchdog({ log, idleMs: () => IDLE, line: () => Promise.resolve(), act: async (t) => void acted.push(t.process), unsaved: input, skipped: (t) => void skipped.push(t) })
+      const tick = w.tick(sample({ renderer: [7, hard] }))
+      await tick.done
+      expect(brief(tick.triggers)).toEqual(['renderer hard:deferred (unsaved files)'])
+      expect(acted).toEqual([])
+      expect(skipped.map((t) => [t.process, t.pid])).toEqual([['renderer', 7]])
+      expect(log.entries.filter((e) => e.msg === 'watchdog: window not reloaded: it has unsaved files').map((e) => [e.level, e.process, e.pid])).toEqual([['warn', 'renderer', 7]])
+    }
+  })
+
+  it('U-MEM-30 · a reload held back as it is about to be made (the window came to hold unsaved files after the sample) is not an action: logged as skipped and told to main as the sample’s finding is, no cool-down starts, said once, and the window is reloaded at the first idle sample after its files are saved', async () => {
+    const hard = L.watchdogHardRendererBytes + 1
+    const log = createMemoryLogger({ process: 'main' })
+    let now = 0
+    let unsavedNow = false
+    let unsavedAtAction = true
+    const acted: string[] = []
+    const skipped: WatchdogTrigger[] = []
+    const w = new Watchdog({
+      log,
+      clock: { now: () => now },
+      idleMs: () => IDLE,
+      line: () => Promise.resolve(),
+      act: async (t) => {
+        if (unsavedAtAction) return 'unsaved'
+        acted.push(t.process)
+        return undefined
+      },
+      unsaved: () => unsavedNow,
+      skipped: (t) => void skipped.push(t),
+    })
+    const tick = async (i: number): Promise<string[]> => {
+      now = i * STEP
+      const t = w.tick(sample({ renderer: [7, hard] }))
+      await t.done
+      return brief(t.triggers)
+    }
+    expect(await tick(0)).toEqual(['renderer hard:reload'])
+    expect([acted, skipped.map((t) => t.pid)]).toEqual([[], [7]])
+    expect(log.entries.filter((e) => e.msg === 'watchdog: window not reloaded: it has unsaved files').map((e) => [e.level, e.process, e.pid])).toEqual([['warn', 'renderer', 7]])
+    expect(log.entries.some((e) => e.msg === 'watchdog: action finished'), 'not an action').toBe(false)
+    expect(w.counts(), 'no cool-down').toEqual({ acting: 0, cooling: 0 })
+    unsavedNow = true
+    expect(await tick(1), 'the sample finds them now: said already').toEqual([])
+    expect(skipped).toHaveLength(1)
+    unsavedNow = false
+    unsavedAtAction = false
+    expect(await tick(2), 'saved: reloaded within the cool-down an action would have started').toEqual(['renderer hard:reload'])
+    expect(2 * STEP).toBeLessThan(COOL)
+    expect(acted).toEqual(['renderer'])
+  })
+})
+

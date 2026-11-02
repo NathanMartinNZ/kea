@@ -17,7 +17,12 @@
 //             (core's guard logs it and exits 1)
 //   hold      `<point>|<file>`: the next time core passes that fault point (`create:<step>`, `delete:<stage>`,
 //             `restore:<step>`; app/core/src/main.ts reads Symbol.for('kea.test.faults')), the session's id is written
-//             to <file> and the operation waits for good, so the harness can kill the app at exactly that point
+//             to <file> and the operation waits for good, so the harness can kill the app at exactly that point.
+//             `save:<step>`: a save from the file view (app/core/src/viewer/save.ts), told by the `fs` calls it makes
+//             on its new file `.kea-save-<uuid>`, in every `fs` core has (`original-fs` under Electron): `journal` the
+//             save journal's own write, before the new file is listed in it; `temp` listed, not yet made; `write` made
+//             and half written; `rename` whole and synced, not yet renamed; `renamed` renamed over the file, the journal
+//             not yet told. `{ point, temp }` is written to <file> (`temp`: the new file's path) and the save waits for good
 //   status    core only, through the status engine core hands this hook (app/core/src/status/seam.ts).
 //             `{ deltas, chunk, everyMs, title }`: a storm of `deltas` inputs across every live session, `chunk` every
 //             `everyMs`, applied as the hook intake does. Each session gets whole turns (a tool, a permission prompt
@@ -53,6 +58,7 @@ delete process.env.NODE_OPTIONS
 
 const asyncHooks = require('node:async_hooks')
 const fs = require('node:fs')
+const path = require('node:path')
 const v8 = require('node:v8')
 const vm = require('node:vm')
 const { scanBuffers, BUFFERS, VIEWS } = require('./buffer-scan.cjs')
@@ -185,6 +191,7 @@ function install() {
     hold(arg) {
       const [point, file] = String(arg).split('|')
       if (!point || !file) throw new Error('hold needs <point>|<file>')
+      if (point.startsWith('save:')) return holdSave(point, file)
       const key = Symbol.for('kea.test.faults')
       globalThis[key] = (p, id) => {
         if (p !== point) return undefined
@@ -312,4 +319,67 @@ function install() {
       parent.postMessage({ k: 'kea-test', id: m.id, ok: false, error: String((err && err.message) || err) })
     }
   })
+}
+
+// ── `hold save:<step>` ────────────────────────────────────────────────────────────────────────────────────────────
+
+const SAVE_STEPS = new Set(['save:journal', 'save:temp', 'save:write', 'save:rename', 'save:renamed'])
+/** A save's new file (save.ts `TEMP_NAME`) and the save journal's own new file (kit's atomicWrite). */
+const NEW_FILE = /^\.kea-save-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+const JOURNAL_NEW = /^\.save-journal\.json\.\d+\.[0-9a-f]+\.tmp$/
+
+/**
+ * Stop the next save at `point`: core's `fs.promises.open` and `rename` (every `fs` module it has) are wrapped until
+ * then. At the point the wrappers are taken off, `{ point, temp }` is written to `file` and the call never settles.
+ */
+function holdSave(point, file) {
+  if (!SAVE_STEPS.has(point)) throw new Error(`hold: no save step ${point}`)
+  const mods = [fs]
+  try {
+    const plain = require('original-fs')
+    if (plain && plain !== fs) mods.push(plain)
+  } catch {
+    // not Electron: node:fs is the only one
+  }
+  const undo = [] // bounded: two wrappers for each fs module (at most two modules)
+  const wrap = (obj, name, make) => {
+    const real = obj[name]
+    obj[name] = make(real)
+    undo.push(() => {
+      obj[name] = real
+    })
+  }
+  const stop = (temp) => {
+    for (const u of undo.splice(0)) u()
+    fs.writeFileSync(file, JSON.stringify({ point, temp }))
+    return new Promise(() => {})
+  }
+  for (const P of new Set(mods.map((m) => m.promises))) {
+    wrap(P, 'open', (real) =>
+      async function (p, ...rest) {
+        const name = path.basename(String(p))
+        if (point === 'save:journal' && JOURNAL_NEW.test(name)) return stop(null)
+        if (!NEW_FILE.test(name)) return real.call(this, p, ...rest)
+        if (point === 'save:temp') return stop(String(p))
+        const fh = await real.call(this, p, ...rest)
+        if (point === 'save:write') {
+          const write = fh.write
+          fh.write = async function (buf, offset, length, position) {
+            await write.call(fh, buf, offset, Math.max(1, Math.floor(length / 2)), position)
+            return stop(String(p))
+          }
+        }
+        return fh
+      },
+    )
+    wrap(P, 'rename', (real) =>
+      async function (from, to) {
+        if (!NEW_FILE.test(path.basename(String(from)))) return real.call(this, from, to)
+        if (point === 'save:rename') return stop(String(from))
+        await real.call(this, from, to)
+        return point === 'save:renamed' ? stop(String(from)) : undefined
+      },
+    )
+  }
+  return point
 }

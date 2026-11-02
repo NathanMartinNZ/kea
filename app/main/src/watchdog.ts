@@ -7,13 +7,17 @@
 // · Soft limit. One trigger per episode, never one per sample. An episode ends when a sample finds the process back
 //   at or under the limit, or replaced (another pid), or gone.
 // · Hard limit. One action per episode (restart core, restart ptyhost, reload the window, reset WebGL in
-//   every window), taken at the first sample that finds the process over it while the person has given no input for
+//   every window), taken at the first sample that finds the process over it while the user has given no input for
 //   L.watchdogIdleMs, no action for that process is still under way, and L.watchdogCooldownMs has passed since the last
-//   one for it. The cool-down follows the process's role, not its pid: a restarted core is still core. A role is the
-//   process's name in the sample, except a window's renderer, whose role is its window: the sample names renderers by
-//   their place (`renderer` is whichever window comes first), so when the first window closes the next one takes its
-//   name, and by name it would be a new process in an old role (`RoleOf`; main says which window a renderer is). A
-//   hard episode whose action has to wait says so once (`deferred`, with why).
+//   one for it. A window with unsaved files is never reloaded, since a reload would lose them: the reload waits until
+//   it has none, and main asks that window to save them (`kea:lowMemory`). A reload main holds back as it is about to
+//   make it (the window came to hold unsaved files after the sample) waits the same way and starts no cool-down. The
+//   cool-down follows the process's role, not its pid: a restarted core is still core. A role is the process's name in
+//   the sample, except a window's renderer, whose role is its window: the sample names renderers by their place
+//   (`renderer` is whichever window comes first), so when the first window closes the next one takes its name, and by
+//   name it would be a new process in an old role (`RoleOf`; main says which window a renderer is). A hard episode
+//   whose action has to wait says so once (`deferred`, with why), and once more when the wait is for unsaved files
+//   after another wait was said, since that is when main asks the window to save them.
 // · When the action did not help. A process that an action replaced starts a new episode, so a new core that passes the
 //   limit again is restarted again once the cool-down allows, each time a trigger, without end: a restart every
 //   L.watchdogCooldownMs while the person is away costs less than a process that grows without bound. A process the
@@ -56,14 +60,17 @@ export function limitKind(name: string): LimitKind | null {
  */
 export type RoleOf = (name: string, pid: number) => string
 
+/** Whether a sampled window's renderer holds unsaved files (main: the window's unsaved count); by default none does. */
+export type UnsavedOf = (name: string, pid: number) => boolean
+
 /** What the policy remembers of one process role. */
 interface Role {
   /** The process the episodes belong to (0: none seen). */
   pid: number
   /** A soft episode is open: its trigger was written. */
   soft: boolean
-  /** The hard episode: none, one whose action waits, one whose action was taken, one given up on. */
-  hard: 'no' | 'waiting' | 'acted' | 'gaveUp'
+  /** The hard episode: none, one whose action waits (`unsaved`: for the window's unsaved files), one whose action was taken, one given up on. */
+  hard: 'no' | 'waiting' | 'unsaved' | 'acted' | 'gaveUp'
   /** When the last action for this role was decided (monotonic ms), or null. */
   actedAt: number | null
   /** That action is still under way. */
@@ -103,10 +110,11 @@ export class WatchdogPolicy {
 
   /**
    * One interval. `sample`: null when it failed. `idleMs`: how long the person has given no input. `now`: monotonic ms.
-   * `roleOf`: the role of each sampled process (default: its name). At most one trigger per process: a process found
+   * `roleOf`: the role of each sampled process (default: its name). `unsaved`: whether a window's renderer holds unsaved
+   * files, which keeps it from being reloaded (default: none does). At most one trigger per process: a process found
    * over both limits at once gets the hard one. A trigger names the process as the sample does.
    */
-  evaluate(sample: FootprintSample | null, idleMs: number, now: number, roleOf: RoleOf = (name) => name): WatchdogTrigger[] {
+  evaluate(sample: FootprintSample | null, idleMs: number, now: number, roleOf: RoleOf = (name) => name, unsaved: UnsavedOf = () => false): WatchdogTrigger[] {
     if (!sample) return []
     const out: WatchdogTrigger[] = []
     const seen = new Set<string>() // bounded: the limited processes of this sample, gone with the call
@@ -148,15 +156,16 @@ export class WatchdogPolicy {
         }
         continue
       }
-      const why = r.busy ? 'action under way' : cooling ? 'cool-down' : idleMs < L.watchdogIdleMs ? 'not idle' : null
+      const why = r.busy ? 'action under way' : cooling ? 'cool-down' : idleMs < L.watchdogIdleMs ? 'not idle' : lim.action === 'reload' && unsaved(name, pid) ? 'unsaved files' : null
       if (why === null) {
         r.hard = 'acted'
         r.actedAt = now
         r.busy = true
         r.soft = true
         trigger('hard', lim.action)
-      } else if (r.hard === 'no') {
-        r.hard = 'waiting'
+      } else if (r.hard === 'no' || (why === 'unsaved files' && r.hard !== 'unsaved')) {
+        // said once per episode; the unsaved files once more, since main asks the window to save them then
+        r.hard = why === 'unsaved files' ? 'unsaved' : 'waiting'
         r.soft = true
         trigger('hard', 'deferred', why)
       }
@@ -179,6 +188,19 @@ export class WatchdogPolicy {
     if (r) r.busy = false
   }
 
+  /**
+   * The reload decided for `role` was not made: its window had come to hold unsaved files by then. It was no action: no
+   * cool-down runs, and the episode waits for the files as if the sample had found them (said already).
+   */
+  heldBack(role: string): void {
+    const r = this.roles.get(role)
+    if (!r) return
+    r.busy = false
+    // an action is decided only outside the cool-down, so the one before it (if any) no longer counts either
+    r.actedAt = null
+    if (r.hard === 'acted') r.hard = 'unsaved'
+  }
+
   private cooling(r: Role, now: number): boolean {
     return r.actedAt !== null && now - r.actedAt < L.watchdogCooldownMs
   }
@@ -192,13 +214,18 @@ export interface WatchdogOptions {
   idleMs: () => number
   /**
    * Take one of the watchdog's actions on the process the trigger names; resolves when it is over (the new
-   * process ready, the window loaded).
+   * process ready, the window loaded), or with `'unsaved'` when a window's reload was not made: the window has come to
+   * hold unsaved files since the sample.
    */
   act: (t: WatchdogTrigger & { action: WatchdogAction }) => Promise<unknown>
   /** Write the interval's `resources.ndjson` line (trigger `watchdog`); resolves once it is written. */
   line: (triggers: readonly WatchdogTrigger[], sample: FootprintSample) => Promise<unknown>
   /** The role of a sampled process (`RoleOf`; main: a window's renderer by its window). One that throws: the name. */
   role?: RoleOf
+  /** Whether a window's renderer holds unsaved files (`UnsavedOf`; main: its window's count). One that throws: it does. */
+  unsaved?: UnsavedOf
+  /** A window's reload was held back for its unsaved files (once per episode): main asks that window to save them. */
+  skipped?: (t: WatchdogTrigger) => void
 }
 
 /** What one interval came to: its triggers, and `done` once its line is written and its actions are over. */
@@ -247,9 +274,18 @@ export class Watchdog {
       roles.set(name, role)
       return role
     }
-    const triggers = this.policy.evaluate(sample, idle, this.clock.now(), roleOf)
+    const unsaved: UnsavedOf = (name, pid) => {
+      try {
+        return this.o.unsaved?.(name, pid) ?? false
+      } catch (err) {
+        this.o.log.warn('watchdog: unsaved files not read', { process: name, error: String(err) })
+        return true
+      }
+    }
+    const triggers = this.policy.evaluate(sample, idle, this.clock.now(), roleOf, unsaved)
     if (triggers.length === 0) return { triggers, done: Promise.resolve() }
     for (const t of triggers) this.o.log.error('watchdog: limit exceeded', { ...t })
+    for (const t of triggers.filter((x) => x.why === 'unsaved files')) this.unsavedFiles(t)
     // the reports first: an action replaces the very process whose counts the line is written for
     const written = Promise.resolve()
       .then(() => this.o.line(triggers, sample))
@@ -257,16 +293,26 @@ export class Watchdog {
     const acts = triggers.filter(isAction).map((t) =>
       written.then(async () => {
         const started = this.clock.now()
+        let heldBack = false
         try {
-          await this.o.act(t)
-          this.o.log.info('watchdog: action finished', { process: t.process, action: t.action, ms: Math.round(this.clock.now() - started) })
+          heldBack = (await this.o.act(t)) === 'unsaved'
+          if (heldBack) this.unsavedFiles(t)
+          else this.o.log.info('watchdog: action finished', { process: t.process, action: t.action, ms: Math.round(this.clock.now() - started) })
         } catch (err) {
           this.o.log.error('watchdog: action failed', { process: t.process, action: t.action, error: String(err) })
         } finally {
-          this.policy.settled(roles.get(t.process) ?? t.process)
+          const role = roles.get(t.process) ?? t.process
+          if (heldBack) this.policy.heldBack(role)
+          else this.policy.settled(role)
         }
       }),
     )
     return { triggers, done: Promise.all([written, ...acts]).then(() => undefined) }
+  }
+
+  /** A window's reload held back for its unsaved files: logged as skipped, and main asks the window to save them. */
+  private unsavedFiles(t: WatchdogTrigger): void {
+    this.o.log.warn('watchdog: window not reloaded: it has unsaved files', { process: t.process, pid: t.pid })
+    this.o.skipped?.(t)
   }
 }

@@ -2,7 +2,7 @@
 // by App.svelte. U-SB-5 drives this same wiring with stores of its own.
 //
 //   sessions list   the last active tab of each session, its file and diff tabs and the ⌃Tab order
-//                   keep listed sessions only
+//                   keep listed sessions only; unsaved files of a session that is gone stay as orphans
 //   projects list   the composer drafts and the open Archived groups keep existing projects only
 //   terminals list  the scroll marks of released terminals keep existing PTYs only
 
@@ -29,6 +29,8 @@ export interface WindowKept {
   /** The projects whose Archived group is open. */
   archivedOpen(): ReadonlySet<string>
   setArchivedOpen(next: ReadonlySet<string>): void
+  /** Unsaved files of sessions for which `exists` is false (gone, or archived with their worktree cleaned) become orphans. */
+  orphanUnsaved?(exists: (sessionId: string) => boolean): void
 }
 
 /** Wire the prunes; returns the unwiring. */
@@ -41,6 +43,10 @@ export function forgetWhatGoes(stores: WindowStores, kept: WindowKept): () => vo
     stores.sessions.subscribeList(() => {
       forgetTabs(isListed)
       forgetFileTabs(isListed)
+      kept.orphanUnsaved?.((id) => {
+        const s = stores.sessions.get(id)
+        return !!s && listed(s) && !(s.lifecycle === 'archived' && s.worktreeMissing)
+      })
       kept.mru.prune((id) => isListed(id) || id === kept.pending())
     }),
     stores.projects.subscribeList(() => {

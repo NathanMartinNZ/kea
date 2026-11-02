@@ -1,8 +1,10 @@
-<!-- Delete a session, saying what will be lost and what stays recoverable, in exact numbers (sheets.ts). -->
+<!-- Delete a session, saying what will be lost and what stays recoverable, in exact numbers (sheets.ts); its unsaved
+     files are asked about before the delete runs. -->
 <script lang="ts">
   import { untrack } from 'svelte'
   import type { DeletePreview } from '@kea/protocol'
   import { call } from '../../lib/rpc.ts'
+  import { withDiscards } from '../viewer/review.svelte.ts'
   import SheetFrame from './SheetFrame.svelte'
   import { closeSheet, deleteSummary, plural } from './sheets.ts'
   import { failed, sessions, showToast, ui } from './state.svelte.ts'
@@ -39,15 +41,20 @@
     const force = deleteBranch && unmerged
     const branch = deleteBranch
     closeSheet()
-    try {
-      const r = await call('sessions.delete', { id, deleteBranch: branch, ...(force ? { forceBranch: true } : {}) })
-      // A delete leaves no row to say its teardown failed, so a toast names the session; its log went with the
-      // session's directory, so View log shows the one the delete returned
-      const log = r.log
-      if (r.teardownFailed) showToast({ message: `The teardown of ${title} failed.`, action: { label: 'View log', run: () => (ui.sheet = { kind: 'log', sessionId: id, title, ...(log ? { log } : {}) }) } })
-    } catch (e) {
-      failed("Couldn't delete the session", e)
-    }
+    // the session's unsaved files are asked about first; Don't Save's go only once the delete has happened
+    await withDiscards({ kind: 'sessions', ids: new Set([id]) }, async () => {
+      try {
+        const r = await call('sessions.delete', { id, deleteBranch: branch, ...(force ? { forceBranch: true } : {}) })
+        // A delete leaves no row to say its teardown failed, so a toast names the session; its log went with the
+        // session's directory, so View log shows the one the delete returned
+        const log = r.log
+        if (r.teardownFailed) showToast({ message: `The teardown of ${title} failed.`, action: { label: 'View log', run: () => (ui.sheet = { kind: 'log', sessionId: id, title, ...(log ? { log } : {}) }) } })
+        return r.deleted
+      } catch (e) {
+        failed("Couldn't delete the session", e)
+        return false
+      }
+    })
   }
 </script>
 

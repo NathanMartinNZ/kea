@@ -13,7 +13,7 @@ import { AGENT_MARK, agentEvents, claudeByDefault, fakeAgentTerminal, gate, star
 import { changeRows, clickChange, clickFile, clickScope, diffStatText, GIT_MS, panelModes, panelRegion, scopeShown, showMode, tree, treeRowInView, treeRows, waitChanges, waitTree, wheel } from '../support/app-files.ts'
 import { addProject, agentTerminal, demoRepo, paneSession, selectSession, sessionIds, startSession, waitLive } from '../support/app-sessions.ts'
 import { commitFiles, EditorWorld, editorButton, listening, opened, pidAlive, serverAddress, serverAnswer, serverChip, serverControl, serverTreeScript, treePids, waitServer, worktreesOf } from '../support/app-server.ts'
-import { clickFileTab, fileTabs, viewerShown } from '../support/app-tabs.ts'
+import { clickFileTab, fileTabs, pinFileTab, viewerShown } from '../support/app-tabs.ts'
 import { changeMarker, commitAll, gutterLines, loginSource, tokenClasses, viewer, viewerText, waitBody, waitViewer, writeFiles } from '../support/app-viewer.ts'
 import { expect, test } from './fixtures.ts'
 import { sysKey } from '../support/keys.ts'
@@ -60,8 +60,10 @@ test('E-SES-13 · two sessions, each with its own file panel and file tabs: the 
   await clickFile(kea, 'src/long.ts') // opens src on the way, far down the list: the tree is scrolled to it
   await waitBody(kea, 'src/long.ts', 'text')
   await until('the document has the keyboard', async () => (await viewerShown(kea))?.focused || undefined)
-  await page.keyboard.press('Enter') // pinned
+  // pinned by a double-click on its tab (↵ is a newline in a file that can be edited); the document keeps the keyboard
+  await pinFileTab(kea, 'src/long.ts')
   await until('long.ts pinned', async () => (await tabShape(kea)).includes('src/long.ts file *') || undefined)
+  await until('the document has the keyboard', async () => (await viewerShown(kea))?.focused || undefined)
   await goToLine(kea, 150)
   const placeA = (await waitViewer(kea, 'the cursor on line 150, the view scrolled to it', (v) => v.text?.selection.from.line === 150 && (v.text.scroll.line ?? 0) > 100)).text!
   // the tree a little further up, by the wheel: not at either end, the row of long.ts still drawn

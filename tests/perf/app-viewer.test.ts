@@ -32,7 +32,10 @@ interface OpenMark {
   drawn: number
   painted: number
 }
-declare const __keaProbe: { timeOpen(req: OpenRequest, colours: boolean): Promise<{ text: OpenMark; coloured: OpenMark | null }> }
+declare const __keaProbe: {
+  timeOpen(req: OpenRequest, colours: boolean): Promise<{ text: OpenMark; coloured: OpenMark | null }>
+  viewer(): { text: { lines: number; tokenised: number } | null; highlighter: { pending: number } } | null
+}
 
 const MIB = 2 ** 20
 /** Opens per timing scenario after the warm-up ones: enough for a steady median. */
@@ -337,6 +340,114 @@ describe('file viewer (app)', () => {
         checks: [check('p50', d.p50, bud.p50, 'max', bud.unit), check('p99', d.p99, bud.p99, 'max', bud.unit)],
       })
       expect(e.pass, `P-FV-7: ${JSON.stringify(e.values)}`).toBe(true)
+    },
+    10 * 60_000,
+  )
+
+  it(
+    'P-FV-8 · typing in the middle of an editable TypeScript file near the full-feature size: keydown → the frame that draws the character (p50, p99) and → its line coloured again (max) within budget; the renderer’s heap growth over the run recorded',
+    async () => {
+      const KEYS = 200
+      const FILE = 'big/typing.ts'
+      const { kea, id, worktree } = await session({})
+      const page = await kea.page()
+      // a line of `sampleSource` is 19 bytes on average: the file stays within L.viewerFullBytes, so it opens editable
+      writeFiles(worktree, { [FILE]: sampleSource(3, Math.floor((L.viewerFullBytes * 0.95) / 19)) })
+      expect(fs.statSync(path.join(worktree, FILE)).size).toBeLessThanOrEqual(L.viewerFullBytes)
+      expect(await openFile(kea, { sessionId: id, path: FILE, mode: 'file' })).toBe(true)
+      await coloured(kea, FILE)
+      const shown = await viewer(kea)
+      expect(shown?.ui.editable, 'the file opened editable').toBe(true)
+      const middle = Math.floor(shown!.text!.lines / 2)
+      await page.keyboard.press(textKey('Control+g'))
+      await page.locator('.viewer .kea-goto .kea-bar-input').waitFor()
+      await page.keyboard.type(`${middle}:4`)
+      await page.keyboard.press('Enter')
+      await page.locator('.viewer .kea-goto').waitFor({ state: 'detached' })
+      const { renderer } = await memoryProbes(kea)
+      await renderer.settle()
+      const heapBefore = (await renderer.read()).bytes['renderer.heap'] as number
+      // each key: keydown (capture phase) → the frame that draws the change, by the rule of every one-frame budget (a
+      // change made in a frame's animation callbacks is drawn by that frame, one made between frames by the next), and
+      // → the frame that draws the edited line's colours from the worker
+      const drawn: number[] = []
+      const painted: number[] = []
+      const recoloured: number[] = []
+      for (let i = 0; i < KEYS; i++) {
+        const ch = 'abcdefghij'[i % 10] as string
+        const armed = page.evaluate(
+          (c) =>
+            new Promise<{ drawn: number; painted: number; recoloured: number }>((resolve, reject) => {
+              const content = document.querySelector('.viewer .cm-content')
+              if (!content) return reject(new Error('no document'))
+              let down: number | null = null
+              let drawnAt: number | null = null
+              let paintedAt: number | null = null
+              // true from a frame's animation callbacks until its rendering is done: a change made then is drawn by that frame
+              let inFrame = false
+              let ticking = true
+              const tick = (): void => {
+                if (!ticking) return
+                inFrame = true
+                setTimeout(() => (inFrame = false), 0)
+                // recoloured: every line's tokens drawn again (an edited line's kept colours do not count) and the worker at rest
+                if (paintedAt !== null && down !== null) {
+                  const v = __keaProbe.viewer()
+                  if (v?.text && v.text.tokenised === v.text.lines && v.highlighter.pending === 0) {
+                    ticking = false
+                    window.removeEventListener('keydown', onKey, true)
+                    resolve({ drawn: (drawnAt as number) - down, painted: paintedAt - down, recoloured: performance.now() - down })
+                    return
+                  }
+                }
+                requestAnimationFrame(tick)
+              }
+              requestAnimationFrame(tick)
+              const onKey = (e: KeyboardEvent): void => {
+                if (down === null && e.key === c) down = e.timeStamp
+              }
+              window.addEventListener('keydown', onKey, true)
+              const watch = new MutationObserver(() => {
+                if (down === null) return
+                watch.disconnect()
+                // the frame after the drawing one starts once that paint is done
+                const paint = (): void => void requestAnimationFrame((t) => (paintedAt = t))
+                if (inFrame) {
+                  drawnAt = performance.now()
+                  paint()
+                } else
+                  requestAnimationFrame((t) => {
+                    drawnAt = t
+                    paint()
+                  })
+              })
+              watch.observe(content, { childList: true, subtree: true, characterData: true })
+              setTimeout(() => {
+                ticking = false
+                watch.disconnect()
+                reject(new Error(`the edit of ${c} was not drawn and coloured`))
+              }, 10_000)
+            }),
+          ch,
+        )
+        await page.keyboard.press(ch)
+        const m = await armed
+        drawn.push(m.drawn)
+        painted.push(m.painted)
+        recoloured.push(m.recoloured)
+      }
+      await renderer.settle()
+      const heapAfter = (await renderer.read()).bytes['renderer.heap'] as number
+      const d = dist(drawn)
+      const bud = budget('P-FV-8')
+      const e = record({
+        id: 'P-FV-8',
+        metric: bud.metric,
+        method: `a ${(fs.statSync(path.join(worktree, FILE)).size / MIB).toFixed(2)} MiB TypeScript-like file (sampleSource), opened editable and coloured; ${KEYS} letters typed one at a time at line ${middle}; each from its keydown (capture phase) to the frame that draws the change (p50, p99), and to the frame by which every line's tokens are drawn again, an edited line's kept colours not counting, with the worker at rest (max); the paint, the start of the frame after the drawing one, as information; the renderer's heap after garbage collection, before and after the run`,
+        values: { ...d, paintedP50: median(painted), recolouredMax: Math.max(...recoloured), recolouredP50: median(recoloured), heapGrowthMiB: (heapAfter - heapBefore) / MIB },
+        checks: [check('p50', d.p50, bud.p50, 'max', bud.unit), check('p99', d.p99, bud.p99, 'max', bud.unit), check('recoloured', Math.max(...recoloured), bud.max_recoloured, 'max', bud.unit)],
+      })
+      expect(e.pass, `P-FV-8: ${JSON.stringify(e.values)}`).toBe(true)
     },
     10 * 60_000,
   )

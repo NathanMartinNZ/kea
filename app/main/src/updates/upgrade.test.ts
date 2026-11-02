@@ -19,6 +19,7 @@ function guard(o: Partial<UpgradeDeps> & { ids?: (string | null)[]; tree?: strin
     upgraded: (v) => calls.push(`upgraded ${v}`),
     removed: () => calls.push('removed'),
     relaunch: (t) => calls.push(`relaunch ${t}`),
+    unsaved: () => false,
     log: { info: () => undefined, warn: () => undefined },
     ...o,
   })

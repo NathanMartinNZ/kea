@@ -23,6 +23,7 @@ when the row that holds the focus goes (deleted, restored, filtered away) the fo
   import { relativeTime } from '../sessions/model.ts'
   import { deletedAgo, plural } from '../sessions/sheets.ts'
   import { failed, projects, sessionRows, sessions } from '../sessions/state.svelte.ts'
+  import { unsavedView } from '../viewer/unsaved.svelte.ts'
   import { archiveSessions, deleteSessions, removeBuildFolders, restoreSession } from './actions.ts'
   import './disk.css'
   import { branchText, deletedRows, diskView, keptText, lifecycleText, rowActions, shareText, sizeText, totalText, type DeletedRow, type DiskRow } from './model.ts'
@@ -254,9 +255,12 @@ when the row that holds the focus goes (deleted, restored, filtered away) the fo
   const run = { removeBuildFolders: removeAndSay, archive: archiveSessions, delete: deleteSessions }
   const WHY_NOT: Record<Action, string> = { removeBuildFolders: 'Nothing rebuildable was found', archive: 'Already archived', delete: '' }
 
+  /** A session with unsaved files in this window is not deleted from here. */
+  const UNSAVED = 'It has unsaved files in this window: save or close them first'
+
   /** One row's action; nothing while the row is busy or the action does not apply (the control says so). */
   function act(r: DiskRow, what: Action): void {
-    if (diskUi.busy.has(r.id) || !rowActions(r)[what]) return
+    if (diskUi.busy.has(r.id) || !rowActions(r)[what] || (what === 'delete' && unsavedView.sessions.has(r.id))) return
     void run[what]([r.id])
   }
 
@@ -391,14 +395,15 @@ when the row that holds the focus goes (deleted, restored, filtered away) the fo
               <span class="disk-meta" role="gridcell"
                 >{projectName.current(r.projectId)} · {lifecycleText(r.lifecycle)} · {relativeTime(r.lastActivityAt, now) === 'now' ? 'active now' : `active ${relativeTime(r.lastActivityAt, now)} ago`}{r.stale ? ' · stale' : ''} ·
                 <span data-disk-branch>{branchText(branches.get(r.id))}</span>{#if kept.get(r.id)}
-                  · <span data-disk-kept>{kept.get(r.id)}</span>{/if}</span
+                  · <span data-disk-kept>{kept.get(r.id)}</span>{/if}{#if unsavedView.sessions.has(r.id)}
+                  · <span data-disk-unsaved>unsaved files</span>{/if}</span
               >
               <span class="disk-row-actions" role="gridcell">
                 <button class="link-button" tabindex={tab} aria-disabled={busy || !can.removeBuildFolders} data-tip={can.removeBuildFolders ? undefined : WHY_NOT.removeBuildFolders} aria-label="Remove build folders of {r.title}" onclick={() => act(r, 'removeBuildFolders')}
                   >Remove build folders</button
                 >
                 <button class="link-button" tabindex={tab} aria-disabled={busy || !can.archive} data-tip={can.archive ? undefined : WHY_NOT.archive} aria-label="Archive {r.title}" onclick={() => act(r, 'archive')}>Archive</button>
-                <button class="link-button disk-danger" tabindex={tab} aria-disabled={busy} aria-label="Delete {r.title}…" onclick={() => act(r, 'delete')}>Delete…</button>
+                <button class="link-button disk-danger" tabindex={tab} aria-disabled={busy || unsavedView.sessions.has(r.id)} data-tip={unsavedView.sessions.has(r.id) ? UNSAVED : undefined} aria-label="Delete {r.title}…" onclick={() => act(r, 'delete')}>Delete…</button>
               </span>
             </div>
           {/each}

@@ -11,10 +11,16 @@ are attached into this mount's `editor` element while it shows them. What the he
 
 Keys: `⌘` bindings are the router's. The viewer's own keys (`⌃G`, `⌥Z`, `⌥↓`, `⌥↑`, `]`, `[`) arrive here, and
 their command is looked up in the command table's scoped bindings (`scopedBinding`). `Esc` and `↵` are the tab strip's
-unless a bar of the viewer uses them (`bars.ts`). The viewer adds the `Markdown file` key scope to the pane's two.
+unless a bar of the viewer or an editable document uses them (`bars.ts`, `editing.ts`). The viewer adds the `Markdown file` key scope to the pane's two, and
+the `editable file` scope while its document can be edited (a found but unavailable scoped binding would hide the
+unscoped one, so the scope is not provided while the document is read-only).
+
+An editable document's line under the header says what is pressing about its text (changed on disk where the user
+edited, not saved, deleted on disk, closing) with its actions; "Read-only" after the language gives its reason as a
+tooltip.
 -->
 <script lang="ts">
-  import { onDestroy, untrack } from 'svelte'
+  import { onDestroy, tick, untrack } from 'svelte'
   import { protocolOs } from '@kea/protocol'
   import { terminalFontStack } from '@kea/terminal'
   import './viewer.css'
@@ -24,9 +30,10 @@ unless a bar of the viewer uses them (`bars.ts`). The viewer adds the `Markdown 
   import { currentKeyScopes, provideKeyScope } from '../commands/scope.ts'
   import { prefs } from '../terminal/prefs.ts'
   import { copyPath, noteAction, openTabInEditor, switchMode } from './commands.ts'
-  import { sizeText, ViewerController, type NoteAction } from './controller.svelte.ts'
+  import { sizeText, ViewerController, type NoteAction, type NoticeAction } from './controller.svelte.ts'
   import { fileEditor } from './editor.ts'
   import { installSyntaxStyles } from './highlight.ts'
+  import { closeAsking } from './review.svelte.ts'
   import type { ViewerProps } from './tab.ts'
 
   let { sessionId, tab, onview }: ViewerProps = $props()
@@ -35,6 +42,7 @@ unless a bar of the viewer uses them (`bars.ts`). The viewer adds the `Markdown 
   let body: HTMLDivElement | undefined = $state()
   let editorHost: HTMLDivElement | undefined = $state()
   let previewHost: HTMLDivElement | undefined = $state()
+  let noticeLine: HTMLParagraphElement | undefined = $state()
   /** An image at its own size instead of scaled to fit (a click toggles it). */
   let actual = $state(false)
   let look = $state.raw(prefs.appearance())
@@ -49,6 +57,7 @@ unless a bar of the viewer uses them (`bars.ts`). The viewer adds the `Markdown 
       return !!root && (root.contains(a) || a === root.parentElement)
     },
     onview: (view) => onview(view),
+    focusNotice: () => void tick().then(() => noticeLine?.querySelector<HTMLButtonElement>('button')?.focus()),
   })
   onDestroy(() => ctl.dispose())
 
@@ -57,6 +66,7 @@ unless a bar of the viewer uses them (`bars.ts`). The viewer adds the `Markdown 
   const editorShown = $derived(ui.body.kind === 'text' || ui.body.kind === 'diff')
   // `Reveal in Finder`, `Reveal in File Manager`
   const NOTE_LABELS: Readonly<Record<NoteAction, string>> = { editor: 'Open in editor', default: 'Open with default app', reveal: `Reveal in ${protocolOs.words.fileManager}` }
+  const NOTICE_LABELS: Readonly<Record<NoticeAction, string>> = { compare: 'Compare', useFile: 'Use the File’s', keepMine: 'Keep Yours', retry: 'Try Again', save: 'Save', copyAll: 'Copy All', dontSave: 'Don’t Save', show: 'Show' }
 
   // which tab is on screen, as values: the strip hands over a new `tab` object every time the viewer saves the tab's
   // view (`onview`), and that alone must not show the document again
@@ -103,6 +113,8 @@ unless a bar of the viewer uses them (`bars.ts`). The viewer adds the `Markdown 
 
   // a Markdown file's own binding (`⇧⌘V`) applies while the keyboard is in its tab
   $effect(() => provideKeyScope(() => (ctl.ui.canPreview && root?.contains(document.activeElement) ? 'Markdown file' : null)))
+  // Indent Less / More (`⌘[` / `⌘]`) while the keyboard is in a document that can be edited
+  $effect(() => provideKeyScope(() => (ctl.editable() && root?.contains(document.activeElement) ? 'editable file' : null)))
 
   /** The viewer's keys without `⌘`. A field of a bar keeps its plain characters. */
   function onKey(e: KeyboardEvent): void {
@@ -158,6 +170,7 @@ unless a bar of the viewer uses them (`bars.ts`). The viewer adds the `Markdown 
     {:else if ui.language && ui.mode === 'file' && editorShown}
       <span class="viewer-quiet viewer-language">{ui.language}</span>
     {/if}
+    {#if ui.readOnly && ui.mode === 'file' && editorShown}<span class="viewer-quiet viewer-readonly" data-tip={ui.readOnly}>Read-only</span>{/if}
     {#if ui.encoding && editorShown}<span class="viewer-quiet viewer-encoding">{ui.encoding}</span>{/if}
     {#if ui.mode === 'diff' || ui.entry}
       <div class="viewer-switch" role="group" aria-label="File or diff">
@@ -174,7 +187,8 @@ unless a bar of the viewer uses them (`bars.ts`). The viewer adds the `Markdown 
       </div>
     {:else if ui.canSource && ui.mode === 'file'}
       <div class="viewer-switch" role="group" aria-label="Image or source">
-        <button aria-pressed={!ui.source} onmousedown={keepFocus} onclick={() => ui.source && ctl.toggleOther()}>Image</button>
+        <!-- the image leaves the source's unsaved changes: the warning first -->
+        <button aria-pressed={!ui.source} onmousedown={keepFocus} onclick={() => ui.source && void closeAsking(sessionId, ui.path, () => ctl.toggleOther())}>Image</button>
         <span class="dot" aria-hidden="true">·</span>
         <button aria-pressed={ui.source} onmousedown={keepFocus} onclick={() => !ui.source && ctl.toggleOther()}>Source</button>
       </div>
@@ -186,9 +200,16 @@ unless a bar of the viewer uses them (`bars.ts`). The viewer adds the `Markdown 
         <button aria-pressed={ui.layout === 'split'} data-command="viewer.toggleDiffLayout" onmousedown={keepFocus} onclick={() => ui.layout !== 'split' && ctl.toggleLayout()}>Split</button>
       </div>
     {/if}
-    <button class="viewer-open" data-command="viewer.openInEditor" onmousedown={keepFocus} onclick={() => openTabInEditor(ctl)}>Open in editor</button>
+    <button class="viewer-open" data-command="viewer.openInEditor" onmousedown={keepFocus} onclick={() => void openTabInEditor(ctl)}>Open in editor</button>
   </div>
-  {#if ui.notices.length > 0}
+  {#if ui.editNotice}
+    <p bind:this={noticeLine} class="viewer-notice viewer-edit-notice" role="status">
+      <span>{ui.editNotice.text}</span>
+      {#each ui.editNotice.actions as action (action)}
+        <button onmousedown={keepFocus} onclick={() => ctl.noticeAction(action)}>{NOTICE_LABELS[action]}</button>
+      {/each}
+    </p>
+  {:else if ui.notices.length > 0}
     <p class="viewer-notice" role="status">{ui.notices.join(' · ')}</p>
   {/if}
   <div bind:this={body} class={ui.deleted ? 'viewer-body deleted' : 'viewer-body'} tabindex="-1">

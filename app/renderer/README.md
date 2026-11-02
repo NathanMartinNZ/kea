@@ -16,7 +16,7 @@ attached terminal; the preload (`app/preload`) hands both over. It imports `pack
 | `src/features/composer/` | The new-session composer: prompt, project, agent and its options, base branch, worktree and branch name, with a draft per project |
 | `src/features/terminal/` | Terminal views (WebGL, with the DOM renderer after a lost context), the registry that decides which views stay alive, find, links, paste and drop, clipboard writes (OSC 52), the screen-reader mode and font zoom |
 | `src/features/files/` | The file panel: the file tree and its file operations, the Changes list, Go to File and Discard |
-| `src/features/viewer/` | Read-only file and diff tabs on CodeMirror, syntax highlighting with Shiki in a worker, the Markdown preview and images |
+| `src/features/viewer/` | File and diff tabs on CodeMirror, syntax highlighting with Shiki in a worker, the Markdown preview and images. A text file is edited and saved there (`editing.ts`, `languageAids.ts`, `saving.ts`, `document.ts`); the window keeps its unsaved documents (`unsaved.svelte.ts`) and asks Save, Don't Save or Cancel before anything closes one (`review.svelte.ts`, `UnsavedSheet.svelte`); an agent's writes are merged under unsaved text. Diffs stay read-only |
 | `src/features/server/` | The dev-server control in the header: Run, Stop and the port chip |
 | `src/features/editor/` | Open in editor: the header's split button and its commands |
 | `src/features/status/` | Session status in the window: what the user is viewing, the needs-you count in the title, the session popover and the account-condition notes |
@@ -48,8 +48,9 @@ commands in `features/<feature>/commands.ts`.
   `new External(subscribe, get)` (`lib/reactive.svelte.ts`, built on `createSubscriber`): `subscribeRow(id, …)` for
   one row, `subscribeList` for the list, so a status change re-renders only its row. `watch(read, cb)` runs plain code
   when rune state changes (command availability: `commands.changed()`).
-- **Heavy objects.** xterm `Terminal`s, addons, WebGL canvases, ports and the registries live only in plain module
-  registries (`features/terminal/views.ts` `terminals`), never in `$state`, `$derived`, props or context; `$state`
+- **Heavy objects.** xterm `Terminal`s, addons, WebGL canvases, editor states, ports and the registries live only in
+  plain module registries (`features/terminal/views.ts` `terminals`, `features/viewer/unsaved.svelte.ts`'s unsaved
+  documents), never in `$state`, `$derived`, props or context; `$state`
   deep-proxies whatever it holds. Components hold ids. A view's element goes into its host with an attachment
   (`{@attach mountView(id)}` in `TerminalArea.svelte`) whose cleanup takes it out; the registry creates and disposes
   the views.

@@ -219,7 +219,7 @@ async function install(built: string, target: InstallTarget, o: { noRelaunch: bo
     if (!q.empty) {
       discardStage(target.app)
       const left = q.left.map((p) => `${p.pid} ${path.basename(p.comm)}`).join(', ')
-      fail(`Kea did not quit within ${findings.quitSeconds} s (still running from the app: ${left}).\nNothing was replaced: ${target.app} is as it was. Kea has been asked to quit and may still do so; your sessions keep running either way. Run this again once it has quit (if it never does, end it in Activity Monitor).`)
+      fail(`Kea did not quit within ${findings.quitSeconds} s (still running from the app: ${left}).\nNothing was replaced: ${target.app} is as it was. Kea has been asked to quit and may still do so: it may be waiting for files with unsaved changes to be saved, so look at its window. Your sessions keep running either way. Run this again once it has quit (if it never does, end it in Activity Monitor).`)
     }
     console.log(`Kea has quit (${((performance.now() - t0) / 1000).toFixed(1)} s). Its sessions run on.`)
   }

@@ -2,7 +2,8 @@
 // lock, serves the UI from `kea://`, runs core and ptyhost under one Supervisor each and brokers MessagePorts: the
 // control port core ⇄ ptyhost, one RPC port per window to core and one stream port per attached terminal to ptyhost.
 // After that, main is not on the data path. It also samples every process's footprint and writes the hourly resource
-// report (resources.ts), and runs the memory watchdog's actions (watchdog.ts).
+// report (resources.ts), runs the memory watchdog's actions (watchdog.ts), and asks the windows to review their unsaved
+// files before anything closes them (review.ts).
 
 import fs from 'node:fs'
 import os from 'node:os'
@@ -11,7 +12,7 @@ import { performance } from 'node:perf_hooks'
 import * as electron from 'electron'
 import { app, BrowserWindow, dialog, ipcMain, Menu, MessageChannelMain, nativeTheme, Notification, powerMonitor, protocol, screen, session, shell, Tray, type IpcMainEvent, type MenuItemConstructorOptions, type Session, type WebContents } from 'electron'
 import { createLogger, installHookHelper, registerSingletonGauge, resources, Supervisor, type Logger } from '@kea/kit'
-import { childArgv, childV8Flags, DESKTOP_IDS, EDIT_ROLES, isAvailable, KEA_FILE_SCHEME, L, need, parsePerfBusy, parseRepository, RELEASE_REPOSITORY, releaseUrls, scrubSessionEnv, zMenuState, zPtyId, zResourcesReply, zSessionId, type CollectedResources, type EditRole, type InstallKind, type MenuBarState, type PlatformReport, type ReleaseArch, type ResourceReport, type UpdateState } from '@kea/protocol'
+import { childArgv, childV8Flags, DESKTOP_IDS, EDIT_ROLES, isAvailable, KEA_FILE_SCHEME, L, need, parsePerfBusy, parseRepository, RELEASE_REPOSITORY, releaseUrls, scrubSessionEnv, zMenuState, zPtyId, zResourcesReply, zSessionId, type CollectedResources, type EditRole, type HandedDocuments, type InstallKind, type MenuBarState, type PlatformReport, type ReleaseArch, type ResourceReport, type UpdateState } from '@kea/protocol'
 import { COLOR, SIZE_PX } from '@kea/ui/tokens'
 import { installFrontGuard } from './frontGuard.ts'
 import { keaHome } from './home.ts'
@@ -29,7 +30,8 @@ import { PlatformReports } from './platformReport.ts'
 import { RendererLog } from './rendererLog.ts'
 import { collectReports, FootprintSampler, nameProcesses, Replies, rendererKey, ResourceLog, type ReportSource, type WatchdogAction, type WatchdogTrigger } from './resources.ts'
 import { refusedSwitches } from './switches.ts'
-import { WindowHandoff } from './handoff.ts'
+import { DocumentHandover, WindowHandoff } from './handoff.ts'
+import { Leaving, WindowReviews, type ReviewMessage } from './review.ts'
 import { childHookEnv, childHookPath, installTestApi, updateTestHooks } from './testHooks.ts'
 import type { UpdaterDriver, UpdaterEvents } from './updates/driver.ts'
 import { checkFeed, updateSessionFetch } from './updates/feed.ts'
@@ -246,6 +248,7 @@ ipcMain.on('kea:hello', (e) => {
   if (!w) return
   coreAvailability.hello(w.webContents.id) // a window reloaded while core restarts still shows the bar
   handoff.started(w.webContents.id) // a rebuilt window's page has taken what it was handed
+  reviews.hello(w.webContents.id) // its page can review its unsaved files now
   if (rpcPorts.hello(w.webContents.id, ready('core') !== null)) sendRpcPort(w)
   sendScreenReader(w) // a window (a reloaded one too) learns at once whether a screen reader runs
   platformReports.assemble('window') // the window sandbox is read from a renderer
@@ -438,15 +441,28 @@ function createWindow(o: { handoff?: boolean } = {}): BrowserWindow {
       if (PERF) w.showInactive()
       else w.show()
     })
-  // bounds persist per window
-  w.on('close', () => writeWindowState(app.getPath('userData'), { ...w.getNormalBounds(), maximized: w.isMaximized() }))
+  // Bounds persist per window. Closing it (its close button, the shell's ×) reviews its unsaved files first and closes
+  // it again on proceed (review.ts `close`), the window rebuilt in its place on Wayland when that one was asked. A window
+  // made in place of a minimized one that has not yet taken the unsaved files handed to it holds nothing: it closes at
+  // once, and the old window keeps them (its `closed` abandons the hand-over)
+  w.on('close', (e) => {
+    writeWindowState(app.getPath('userData'), { ...w.getNormalBounds(), maximized: w.isMaximized() })
+    if (handedDocuments.waitsFor(id)) return
+    if (!reviews.close(id, closeWindow)) e.preventDefault()
+  })
   w.webContents.on('render-process-gone', (_e, d) => {
     log.warn('renderer gone', { reason: d.reason })
     disconnect(id)
     if (!w.isDestroyed()) w.webContents.reload() // every terminal reattaches from ptyhost's snapshots
   })
-  // A hung renderer is ended (render-process-gone above then reloads it in a new process)
+  // A hung renderer is ended (render-process-gone above then reloads it in a new process), unless it holds unsaved
+  // files: that window is left to recover, since ending it would lose them. A review asked of it is decided without it
+  // either way
   w.on('unresponsive', () => {
+    if (!reviews.unresponsive(id)) {
+      log.warn('renderer unresponsive with unsaved files: left to recover', { unsaved: reviews.unsaved(id) })
+      return
+    }
     log.warn('renderer unresponsive: reloading the window')
     if (!w.isDestroyed()) w.webContents.forcefullyCrashRenderer()
   })
@@ -470,6 +486,7 @@ function createWindow(o: { handoff?: boolean } = {}): BrowserWindow {
     windows.delete(id)
     rendererLog.closed(id)
     disconnect(id)
+    reviews.closed(id)
     rebuildMenu()
     sendFocus()
   })
@@ -477,7 +494,16 @@ function createWindow(o: { handoff?: boolean } = {}): BrowserWindow {
   return w
 }
 
+/** A close made again after its review: false when the window is gone. */
+function closeWindow(id: number): boolean {
+  const w = windows.get(id)
+  if (!w || w.isDestroyed()) return false
+  w.close()
+  return true
+}
+
 function disconnect(connId: number): void {
+  reviews.gone(connId) // its unsaved count, and a review asked of it, go with its page
   rpcPorts.gone(connId)
   menuStates.delete(connId)
   connections.delete(connId)
@@ -532,37 +558,106 @@ function openKea(o: { sessionId?: string } = {}, via: OpenVia = 'menu'): void {
   w.focus()
 }
 
-/** What the old window hands the one rebuilt in its place (its composer drafts, handoff.ts). */
+/** What the old window hands the one rebuilt in its place: its composer drafts and its unsaved files (handoff.ts). */
 const handoff = new WindowHandoff()
-/** A rebuild under way: a second request meanwhile (a double click in the shell) makes no second window. */
-let rebuilding: Promise<void> | null = null
+const handedDocuments = new DocumentHandover()
+/** A rebuild under way: a second request for that window meanwhile (a double click in the shell) makes no second window. */
+let rebuilding: { old: BrowserWindow; done: Promise<BrowserWindow | null> } | null = null
 
 /**
  * A minimized window on Wayland, which nothing Kea calls brings back, is replaced by a window made from its state,
- * the way a closed one is reopened (sessions, terminals and the settings live outside the window). The old
- * window's composer drafts are handed to the new one (`WindowHandoff`; its other window-lived state is not). The new
- * one is made before the old one goes, so Kea is never without a window (`window-all-closed`), and comes up focused,
- * made in answer to the person's click in the shell.
+ * the way a closed one is reopened (sessions, terminals and the settings live outside the window). The old window's
+ * composer drafts and unsaved files are handed to the new one (handoff.ts; its other window-lived state is not). The
+ * new one is made before the old one goes, so Kea is never without a window (`window-all-closed`), and comes up
+ * focused, made in answer to the user's click in the shell. With unsaved files the old window goes only once the
+ * new one has taken them, and stays, with them, when the hand-over is abandoned. Resolves the new window, or null when
+ * none replaced the old one.
  */
-function rebuildWindow(old: BrowserWindow): Promise<void> {
-  rebuilding ??= (async () => {
-    writeWindowState(app.getPath('userData'), { ...old.getNormalBounds(), maximized: old.isMaximized() })
-    await handoff.ask((reqId) => old.webContents.send('kea:handoffAsk', { reqId }))
-    log.info('window rebuilt (minimized on Wayland)', { drafts: handoff.held })
-    handoff.giveTo(createWindow({ handoff: true }).webContents.id)
-    if (!old.isDestroyed()) old.destroy()
-  })().finally(() => (rebuilding = null))
-  return rebuilding
+function rebuildWindow(old: BrowserWindow): Promise<BrowserWindow | null> {
+  if (rebuilding?.old === old) return rebuilding.done
+  const done = (rebuilding?.done ?? Promise.resolve(null))
+    .then(() => rebuildNow(old))
+    .catch((e: unknown) => {
+      log.warn('window not rebuilt', { error: e instanceof Error ? e.message : String(e) })
+      return null
+    })
+    .finally(() => {
+      if (rebuilding?.done === done) rebuilding = null
+    })
+  rebuilding = { old, done }
+  return done
 }
 
-// The old window's answer, and the new window's preload asking for it as it starts (answered at once, from memory)
+async function rebuildNow(old: BrowserWindow): Promise<BrowserWindow | null> {
+  if (old.isDestroyed()) return null
+  const oldId = old.webContents.id
+  writeWindowState(app.getPath('userData'), { ...old.getNormalBounds(), maximized: old.isMaximized() })
+  await handoff.ask(oldId, (reqId) => old.webContents.send('kea:handoffAsk', { reqId }))
+  const docs = await handedDocuments.ask(oldId, (reqId) => old.webContents.send('kea:giveDocuments', { reqId }))
+  const unsaved = reviews.unsaved(oldId)
+  if (!docs && unsaved > 0) {
+    log.warn('window not rebuilt: its unsaved files were not handed over', { unsaved })
+    return null
+  }
+  const documents = docs?.documents.length ?? 0
+  log.info('window rebuilt (minimized on Wayland)', { drafts: handoff.held, documents })
+  const w = createWindow({ handoff: true })
+  handoff.giveTo(w.webContents.id)
+  if (documents > 0) {
+    if (!(await handOver(old, w, docs!))) {
+      log.warn('window rebuild abandoned: the old window keeps its unsaved files')
+      if (!w.isDestroyed()) w.destroy()
+      return null
+    }
+    reviews.replaced(oldId, w.webContents.id, documents)
+  }
+  if (!old.isDestroyed()) old.destroy()
+  return w
+}
+
+/**
+ * The old window's unsaved files held for the new one until its page takes them (`kea:takeDocuments`): true then, false
+ * when the new window closes or fails to load first, has not taken them in L.windowRebuildTakeMs, or the old one stops
+ * responding.
+ */
+function handOver(old: BrowserWindow, w: BrowserWindow, docs: HandedDocuments): Promise<boolean> {
+  const wc = w.webContents
+  const abandon = (): void => handedDocuments.abandon()
+  const failed = (_e: unknown, _code: number, _desc: string, _url: string, mainFrame: boolean): void => {
+    if (mainFrame) abandon()
+  }
+  w.on('closed', abandon)
+  wc.on('did-fail-load', failed)
+  old.on('unresponsive', abandon)
+  return handedDocuments.give(wc.id, docs).finally(() => {
+    w.removeListener('closed', abandon)
+    wc.removeListener('did-fail-load', failed)
+    old.removeListener('unresponsive', abandon)
+  })
+}
+
+// The old window's answer (taken from it alone), and the new window's preload asking for it as it starts (answered at
+// once, from memory)
 ipcMain.on('kea:handoff', (e, msg: unknown) => {
   if (!fromOurWindow(e)) return
   const m = msg as { reqId?: unknown; state?: unknown } | null
-  if (!handoff.answer(m?.reqId, m?.state)) log.warn('window handoff refused')
+  if (!handoff.answer(e.sender.id, m?.reqId, m?.state)) log.warn('window handoff refused')
 })
 ipcMain.on('kea:takeHandoff', (e) => {
   e.returnValue = fromOurWindow(e) ? handoff.take(e.sender.id) : null
+})
+// The old window's unsaved files (taken from it alone), and the new window's page taking them once it has loaded (null
+// for any other window)
+ipcMain.on('kea:documents', (e, msg: unknown) => {
+  if (!fromOurWindow(e)) return
+  const m = msg as { reqId?: unknown; documents?: unknown } | null
+  if (!handedDocuments.answer(e.sender.id, m?.reqId, m?.documents)) log.warn('unsaved files refused for the rebuilt window')
+})
+ipcMain.on('kea:takeDocuments', (e, msg: unknown) => {
+  const w = fromOurWindow(e)
+  const reqId = (msg as { reqId?: unknown } | null)?.reqId
+  if (!w || !Number.isInteger(reqId)) return
+  w.webContents.send('kea:handedDocuments', { reqId, documents: handedDocuments.take(w.webContents.id) })
 })
 
 let lastMenu = ''
@@ -584,7 +679,18 @@ function rebuildMenu(): void {
       const target = menuWindow()
       if (target && !target.isDestroyed()) target.webContents.send('kea:command', { id, ...(args !== undefined ? { args } : {}) })
     },
-    main: { openKea: () => openKea(), closeToMenuBar: () => closeToMenuBar(), quit: () => userQuit(), checkUpdates: () => checkUpdatesCommand(), reload: () => menuWindow()?.webContents.reload() },
+    main: {
+      openKea: () => openKea(),
+      closeToMenuBar: () => closeToMenuBar(),
+      quit: () => userQuit(),
+      checkUpdates: () => checkUpdatesCommand(),
+      reload: () => void reloadWindow(menuWindow()),
+      // the window runs the step: its file document's own, or the browser's role (`kea:editRole`)
+      history: (step) => {
+        const target = menuWindow()
+        if (target && !target.isDestroyed()) target.webContents.send('kea:history', step)
+      },
+    },
     updateTitle: updates.title,
   })
   menuNow = template
@@ -679,6 +785,113 @@ function sendFocus(force = false): void {
   core.post({ k: 'focus', focused })
 }
 
+// ── unsaved files: reviewed before anything closes them (review.ts) ─────────────────────────────
+
+const REVIEW_CHANNELS: Readonly<Record<ReviewMessage['k'], string>> = { review: 'kea:review', decided: 'kea:reviewDecided', closeDone: 'kea:closeDone' }
+/**
+ * The windows' review of their unsaved files before a quit, Keep in Menu Bar, a restart, a window's close or Reload
+ * Window, and each window's unsaved count (macOS's edited dot, the watchdog, the automatic restart).
+ */
+const reviews = new WindowReviews({
+  post: (id, m) => {
+    const w = windows.get(id)
+    if (!w || w.isDestroyed()) return false
+    const { k, ...payload } = m
+    try {
+      w.webContents.send(REVIEW_CHANNELS[k], payload)
+      return true
+    } catch {
+      return false
+    }
+  },
+  forward: (id) => bringForward(id),
+  going: () => leaving.going,
+  counted: (id, n) => {
+    const w = windows.get(id)
+    if (w && !w.isDestroyed() && isAvailable(mainOs.edited)) mainOs.edited.set(w, n > 0)
+  },
+  log,
+})
+
+/** Every way Kea goes (a quit, Stop All and Quit, Keep in Menu Bar, a restart), each after the windows' review. */
+const leaving = new Leaving({
+  review: (reason, o) => reviews.prepare(reason, o),
+  quit: () => app.quit(),
+  relaunch: (target) => {
+    app.relaunch({ args: relaunchArgs(process.argv, target) })
+    app.quit()
+  },
+  // core stops every session (at most L.quitStopAllTimeoutMs)
+  stopAll: async () => {
+    const core = ready('core')
+    if (!core) log.warn('quit without stopping: core is away, so terminals keep running')
+    await core?.stopAll(L.quitStopAllTimeoutMs).catch((e: unknown) => log.warn('stop all did not finish before the quit', { error: String(e) }))
+  },
+  keepDrafts: () => keepDrafts(),
+  enterMenuBar: () => enterMenuBar(),
+  running: () => menuBarState?.running ?? 0,
+  // under --kea-perf a restart is recorded for the harness, never made
+  recordRelaunch: PERF
+    ? (target) => {
+        relaunchRequests.push(target)
+        if (relaunchRequests.length > L.logMemoryEntries) relaunchRequests.shift()
+      }
+    : null,
+  log,
+})
+
+/**
+ * A window with unsaved files comes forward before its review, as the OS layer's `raise` says; on Wayland a minimized
+ * one is rebuilt, and the window made in its place is asked. Null when no window replaced it (the rebuild failed or was
+ * abandoned): the review counts it as a window that missed its request. Under --kea-perf no window takes focus.
+ */
+async function bringForward(id: number): Promise<number | null> {
+  const w = windows.get(id)
+  if (!w || w.isDestroyed() || PERF || w.isFocused()) return id
+  const how = mainOs.raise.how({ display: DISPLAY, minimized: w.isMinimized(), via: 'review' })
+  if (how === 'rebuild') {
+    const made = await rebuildWindow(w)
+    return made && !made.isDestroyed() ? made.webContents.id : null
+  }
+  if (how === 'remap') {
+    w.hide()
+    w.show()
+  } else if (how === 'focus') {
+    if (w.isMinimized()) w.restore()
+    w.show()
+    w.focus()
+  }
+  return id
+}
+
+// A window has the request at once, then answers once the user has; its unsaved count on each change
+ipcMain.on('kea:reviewAck', (e, msg: unknown) => {
+  const w = fromOurWindow(e)
+  const reqId = (msg as { reqId?: unknown } | null)?.reqId
+  if (w && typeof reqId === 'number' && Number.isInteger(reqId)) reviews.ack(w.webContents.id, reqId)
+})
+ipcMain.on('kea:reviewAnswer', (e, msg: unknown) => {
+  const w = fromOurWindow(e)
+  const m = (msg ?? {}) as { reqId?: unknown; answer?: unknown }
+  if (!w || typeof m.reqId !== 'number' || !Number.isInteger(m.reqId)) return
+  if (m.answer === 'proceed' || m.answer === 'cancel') reviews.answer(w.webContents.id, m.reqId, m.answer)
+})
+ipcMain.on('kea:unsavedCount', (e, n: unknown) => {
+  const w = fromOurWindow(e)
+  if (w && typeof n === 'number' && Number.isSafeInteger(n) && n >= 0) reviews.setUnsaved(w.webContents.id, n)
+})
+
+/** Developer › Reload Window: the window's unsaved files are reviewed first (review.ts `reload`). */
+function reloadWindow(w: BrowserWindow | null): Promise<void> {
+  if (!w || w.isDestroyed()) return Promise.resolve()
+  return reviews.reload(w.webContents.id, (id) => {
+    const x = windows.get(id)
+    if (!x || x.isDestroyed()) return false
+    x.webContents.reload()
+    return true
+  })
+}
+
 // ── ⌘Q and menu-bar mode (menuBar.ts) ───────────────────────────────────────────────────────
 
 /** Core's last menu-bar state (null until core has sent one); kept across a core restart. */
@@ -702,9 +915,6 @@ let servicesWatch: { now(): DesktopServiceState; dispose(): void } | null = null
 let pendingShow: string | null = null
 /** Settings › About to show once the window being made has its renderer (Check for Updates… with no window). */
 let pendingAbout = false
-let stoppingAll = false
-/** A second quit request came while every terminal was being stopped: Kea quits without waiting. */
-let forcedQuit = false
 /**
  * The Dock icon's show and hide: a hide that Electron ignores, just after a show, is made again later (menuBar.ts).
  */
@@ -740,7 +950,8 @@ function trayItem(t: Tray) {
 /** `⌘Q` (`app.closeToMenuBar`): quit, stop all and quit, the menu bar, or the first-quit sheet (menuBar.ts). */
 function closeToMenuBar(): void {
   const w = menuWindow()
-  const canAsk = !!w && !w.isDestroyed() && connections.has(w.webContents.id)
+  // a window that missed a review is not sent the sheet either (review.ts `canAsk`)
+  const canAsk = !!w && !w.isDestroyed() && connections.has(w.webContents.id) && reviews.canAsk(w.webContents.id)
   // On Linux Kea can run in the background only while a tray host is there to reopen it from
   const canBackground = background.canRunInBackground
   const action = quitAction({ state: menuBarState, sheetSeen: quitSheetSeen(app.getPath('userData')), canAsk, background: canBackground })
@@ -749,20 +960,18 @@ function closeToMenuBar(): void {
   else runQuitChoice(action)
 }
 
+/** `⌘Q`'s choice, or the first-quit sheet's answer: the windows' review comes last, before anything is done. */
 function runQuitChoice(c: QuitChoice | 'quit'): void {
-  if (c === 'menuBar') enterMenuBar()
-  else if (c === 'stopAll') void stopAllAndQuit()
-  else app.quit()
+  void leaving.choose(c)
 }
 
 /**
  * Every quit the user asks for (Quit Kea Completely, the palette, the last window closing with nowhere to keep Kea):
- * with a terminal running they are all stopped first, so nothing is left running. An update's or a relaunch's quit
- * calls `app.quit()` itself and leaves them running for the new Kea to adopt.
+ * the windows' review first; then with a terminal running they are all stopped, so nothing is left running. An
+ * update's or a relaunch's quit leaves them running for the new Kea to adopt.
  */
 function userQuit(): void {
-  if ((menuBarState?.running ?? 0) > 0) void stopAllAndQuit()
-  else app.quit()
+  void leaving.quit()
 }
 
 // the first-quit sheet's answer: never shown again once answered; Esc answers nothing. Keep in Menu Bar and
@@ -781,21 +990,6 @@ ipcMain.on('kea:quitChoice', (e, choice: unknown) => {
   quitSheet.answer(choice)
   runQuitChoice(choice)
 })
-
-/** Stop All and Quit: core stops every session (at most L.quitStopAllTimeoutMs), then a full quit. */
-async function stopAllAndQuit(): Promise<void> {
-  if (stoppingAll) {
-    // a second request while the first waits: quit now
-    forcedQuit = true
-    app.quit()
-    return
-  }
-  stoppingAll = true
-  const core = ready('core')
-  if (!core) log.warn('quit without stopping: core is away, so terminals keep running')
-  await core?.stopAll(L.quitStopAllTimeoutMs).catch((e: unknown) => log.warn('stop all did not finish before the quit', { error: String(e) }))
-  if (!forcedQuit) app.quit()
-}
 
 /**
  * The window closes (its renderer exits), the Dock icon hides, and the menu-bar item stays; core, ptyhost and the
@@ -939,21 +1133,32 @@ const watchdog = new Watchdog({
     for (const [id, w] of windows) if (!w.isDestroyed() && w.webContents.getOSProcessId() === pid) return `window:${id}`
     return `renderer-pid:${pid}`
   },
+  // a window with unsaved files is not reloaded: it is asked to save them (its "Kea is low on memory" banner)
+  unsaved: (name, pid) => {
+    const w = limitKind(name) === 'renderer' ? rendererWindow(pid) : null
+    return !!w && reviews.unsaved(w.webContents.id) > 0
+  },
+  skipped: (t) => rendererWindow(t.pid)?.webContents.send('kea:lowMemory'),
 })
+
+/** The window whose renderer is `pid`, if it is still open. */
+function rendererWindow(pid: number): BrowserWindow | null {
+  return [...windows.values()].find((x) => !x.isDestroyed() && x.webContents.getOSProcessId() === pid) ?? null
+}
 
 /**
  * The watchdog's actions, each by the way a crash of that process is already met, never a second one; resolves when the
- * action is over. The trigger names the process the sample measured: one that has gone since is left to its
- * replacement.
+ * action is over, or with `'unsaved'` for a reload not made (watchdog.ts `act`). The trigger names the process the
+ * sample measured: one that has gone since is left to its replacement.
  */
-function watchdogAct(t: WatchdogTrigger & { action: WatchdogAction }): Promise<void> {
-  if (quitting) return Promise.resolve()
+function watchdogAct(t: WatchdogTrigger & { action: WatchdogAction }): Promise<unknown> {
+  if (leaving.quitting) return Promise.resolve()
   if (t.action === 'restart') {
     // core, ptyhost: the Supervisor's restart (kill, then a new one at once, no backoff); the windows follow as after a
     // crash (a new RPC port; `kea:streamsReset`). Over once the new one is ready
     const name = t.process === 'core' || t.process === 'ptyhost' ? t.process : null
     if (!name || children[name].current?.pid !== t.pid) return Promise.resolve()
-    return new Promise((resolve) => {
+    return new Promise<void>((resolve) => {
       readyWaiters[name].push(resolve)
       void children[name].sup.restart()
     })
@@ -961,10 +1166,12 @@ function watchdogAct(t: WatchdogTrigger & { action: WatchdogAction }): Promise<v
   if (t.action === 'reload') {
     // the window whose renderer was measured: reloaded as Developer › Reload Window does, so its connection scopes go
     // (`did-start-navigation`) and every terminal reattaches from ptyhost's snapshots, as after a renderer crash. Over
-    // once it has loaded, failed to, or closed
-    const w = [...windows.values()].find((x) => !x.isDestroyed() && x.webContents.getOSProcessId() === t.pid)
+    // once it has loaded, failed to, or closed. A window that has come to hold unsaved files since the sample is left:
+    // that is no action, and the watchdog asks it to save them
+    const w = rendererWindow(t.pid)
     if (!w) return Promise.resolve()
-    return new Promise((resolve) => {
+    if (reviews.unsaved(w.webContents.id) > 0) return Promise.resolve('unsaved')
+    return new Promise<void>((resolve) => {
       const wc = w.webContents
       const ended = (how: 'loaded' | 'failed' | 'closed') => (): void => {
         wc.removeListener('did-finish-load', loaded)
@@ -1086,6 +1293,7 @@ registerSingletonGauge('main.keaFileDirs', () => keaFileDirs.size)
 registerSingletonGauge('main.watchdog', () => watchdog.counts())
 registerSingletonGauge('main.updates', () => updates.counts())
 registerSingletonGauge('main.packageWatch', () => (packageWatch ? 1 : 0))
+registerSingletonGauge('main.reviews', () => ({ ...reviews.counts(), handedDocuments: handedDocuments.count }))
 
 // ── updates (updates/) ──────────────────────────────────────────────────────────────
 
@@ -1123,16 +1331,23 @@ function makeUpdaterDriver(on: UpdaterEvents): UpdaterDriver {
     testConfigPath = path.join(HOME, 'test-app-update.yml')
     fs.writeFileSync(testConfigPath, `provider: generic\nurl: ${UPDATE_HOOKS.feed}\nupdaterCacheDirName: kea-updater-test\n`, { mode: 0o600 })
   }
-  return make({
-    url: FEED_BASE,
-    allowed: allowedUpdateUrl,
-    headers: UPDATE_HEADERS,
-    fetchTimeoutMs: L.updateFetchTimeoutMs,
-    stallMs: L.updateStallMs,
-    log: { info: (m) => log.info(m), warn: (m) => log.warn(m), error: (m) => log.error(m) },
+  const feed = FEED_BASE
+  // Squirrel closes every window, then quits: Kea is going meanwhile (the windows, each answered proceed, close
+  // unasked), until Squirrel quits Kea or reports that the install failed (review.ts `updater`)
+  return leaving.updater(
+    (events) =>
+      make({
+        url: feed,
+        allowed: allowedUpdateUrl,
+        headers: UPDATE_HEADERS,
+        fetchTimeoutMs: L.updateFetchTimeoutMs,
+        stallMs: L.updateStallMs,
+        log: { info: (m) => log.info(m), warn: (m) => log.warn(m), error: (m) => log.error(m) },
+        on: events,
+        ...(testConfigPath ? { testConfigPath } : {}),
+      }),
     on,
-    ...(testConfigPath ? { testConfigPath } : {}),
-  })
+  )
 }
 
 /** The update state changed: the windows are told, and the menu and the tray say Restart to Update or Restart Kea. */
@@ -1163,9 +1378,11 @@ const updates = new UpdateManager({
   },
   makeDriver: UPDATE_HOW.mode === 'updater' ? makeUpdaterDriver : null,
   changed: (state) => updateStateChanged(state),
-  beforeRestart: () => keepDrafts(),
-  // Restart Kea, asked for by the person: whatever restarts this run already made
-  relaunch: () => void relaunchKea(treeVersion(process.resourcesPath) ?? 'unknown'),
+  // the windows' review, then the drafts kept; the restart's ticket settles once it is made or given up
+  beforeRestart: () => leaving.beforeRestart(),
+  afterRestart: (started) => leaving.afterRestart(started),
+  // Restart Kea, asked for by the user and reviewed: whatever restarts this run already made
+  relaunch: () => void leaving.relaunch(treeVersion(process.resourcesPath) ?? 'unknown', { reviewed: true }),
   log,
 })
 // where Kea updates itself: did the version Squirrel had ready install?
@@ -1207,7 +1424,7 @@ ipcMain.on('kea:updateNoticeShown', (e) => {
 async function keepDrafts(): Promise<void> {
   const w = menuWindow()
   if (!w || w.isDestroyed() || !connections.has(w.webContents.id)) return
-  await handoff.ask((reqId) => w.webContents.send('kea:handoffAsk', { reqId }))
+  await handoff.ask(w.webContents.id, (reqId) => w.webContents.send('kea:handoffAsk', { reqId }))
   const state = handoff.state
   if (!state || state.drafts.length === 0) return
   try {
@@ -1217,26 +1434,8 @@ async function keepDrafts(): Promise<void> {
   }
 }
 
-/** The restarts Kea would have made under the test hooks, which record them instead. */
+/** The restarts Kea would have made under the test hooks, which record them instead (`leaving.relaunch`). */
 const relaunchRequests: string[] = [] // bounded: the newest L.logMemoryEntries (an in-memory log for tests)
-let relaunching = false
-
-/** Restart Kea into the files on disk (`target`: their version), the drafts kept; nothing while it quits. */
-async function relaunchKea(target: string): Promise<void> {
-  if (quitting || relaunching) return
-  relaunching = true
-  await keepDrafts()
-  if (PERF) {
-    log.info('restart not made (perf)', { target })
-    relaunchRequests.push(target)
-    if (relaunchRequests.length > L.logMemoryEntries) relaunchRequests.shift()
-    relaunching = false
-    return
-  }
-  log.info('restarting Kea', { target })
-  app.relaunch({ args: relaunchArgs(process.argv, target) })
-  app.quit()
-}
 
 /** Kea's files replaced or removed under it (Linux packages; a rebuilt dev tree): see updates/upgrade.ts. */
 const upgrade = new UpgradeGuard({
@@ -1255,7 +1454,9 @@ const upgrade = new UpgradeGuard({
     stopPackageWatch()
     updates.removed()
   },
-  relaunch: (target) => void relaunchKea(target),
+  // a restart into the files that replaced Kea's, reviewed; none by itself while a window has unsaved files
+  relaunch: (target) => void leaving.relaunch(target),
+  unsaved: () => reviews.anyUnsaved(),
   log,
 })
 
@@ -1317,11 +1518,21 @@ app.on('second-instance', () => {
   openKea({}, 'secondInstance')
 })
 
-let quitting = false
+/** Main's shutdown is under way: a quit made meanwhile goes through as Electron's own. */
+let shuttingDown = false
+/**
+ * A quit that reached `before-quit` unasked (Dock › Quit, the app switcher, a macOS logout) is held while the windows
+ * review their unsaved files, and made again on proceed (`leaving.beforeQuit`); a reviewed one shuts the children down,
+ * then Kea exits.
+ */
 app.on('before-quit', (e) => {
-  if (quitting) return
+  if (shuttingDown) return
   e.preventDefault()
-  quitting = true
+  if (leaving.beforeQuit()) shutDown()
+})
+
+function shutDown(): void {
+  shuttingDown = true
   background.dispose()
   servicesWatch?.dispose()
   servicesWatch = null
@@ -1336,24 +1547,27 @@ app.on('before-quit', (e) => {
   updates.dispose()
   stopPackageWatch()
   void shutdownChildren([children.ptyhost, children.core]).finally(() => app.exit(0)) // lifecycle.ts
-})
+}
 
 // On macOS the window closing never quits Kea; it stays in the Dock and reopens on activate. On Linux, with no Dock,
 // Kea goes to the background while terminals run and a tray host is there to reopen it from, and stops every terminal
-// and quits otherwise
+// and quits otherwise (each window's close was reviewed, so there is no window left to ask)
 app.on('window-all-closed', () => {
   rebuildMenu()
-  if (quitting || background.background || !isAvailable(mainOs.background)) return
+  if (leaving.quitting || background.background || !isAvailable(mainOs.background)) return
   const action = lastWindowAction({ lastWindow: mainOs.background.lastWindow, background: background.canRunInBackground, running: menuBarState?.running ?? 0 })
   if (action === 'stay') return
   log.info('last window closed', { action })
   if (action === 'background') enterMenuBar()
-  else if (action === 'stopAll') void stopAllAndQuit()
-  else app.quit()
+  else if (action === 'stopAll') void leaving.stopAllAndQuit()
+  else void leaving.quit()
 })
 
 void app.whenReady().then(() => {
   perfMarks.ready = performance.now()
+  // SIGTERM, SIGINT and SIGHUP are quits reviewed as any other, though not the user's own (`leaving.listen`).
+  // Registered here, after Electron's own handlers, which they replace
+  leaving.listen((signal, handler) => process.on(signal, handler))
   // what Electron draws itself in the system's colours (Linux: dark, as the window is)
   const theme = isAvailable(mainOs.windowChrome) ? mainOs.windowChrome.nativeTheme : null
   if (theme) nativeTheme.themeSource = theme

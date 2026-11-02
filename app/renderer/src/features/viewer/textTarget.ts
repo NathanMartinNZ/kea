@@ -1,11 +1,13 @@
 // The viewer's part in the text menu: the document a right-click landed in (a CodeMirror view, the diff's two
-// included), whether its text is selected, and Select All, which is CodeMirror's own: the document is not editable, so
-// the page's role would select the whole window.
+// included), whether it can be edited and its text is selected, and Select All, which is CodeMirror's own: in a
+// read-only document the page's role would select the whole window.
 
 import { selectAll } from '@codemirror/commands'
 import { EditorView } from '@codemirror/view'
 
 export interface ViewerText {
+  /** The document can be edited (Cut and Paste apply). */
+  readonly editable: boolean
   readonly hasSelection: boolean
   /** The keyboard to the document, so the Edit role's copy reaches its own copy handler. */
   focus(): void
@@ -18,6 +20,7 @@ export function viewerTextAt(el: Element): ViewerText | null {
   const view = root instanceof HTMLElement ? EditorView.findFromDOM(root) : null
   if (!view) return null
   return {
+    editable: !view.state.readOnly,
     hasSelection: view.state.selection.ranges.some((r) => !r.empty),
     focus: () => view.focus(),
     selectAll: () => {

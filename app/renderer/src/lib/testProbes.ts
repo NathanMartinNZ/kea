@@ -1,7 +1,7 @@
 // Probes for the app-level test suites, installed with the perf probes, only when the app runs with `--kea-perf`:
 // `window.__keaProbe`. Read-only views of the terminal registry and the window's state, plus the few actions a test
-// cannot take through the UI (write output into a view, run a command or a core call by name). Nothing here is used by
-// the app itself.
+// cannot take through the UI (write output into a view, run a command or a core call by name, drop unsaved files).
+// Nothing here is used by the app itself.
 //
 //   classes     prototypes for `Runtime.queryObjects` (the leak tests count live `Terminal`, search and WebGL addon
 //               instances)
@@ -43,7 +43,9 @@
 //               `viewerText()` is the document's whole text; `viewerCopy()` what `⌘C` would copy (the clipboard is
 //               never touched). `classes` also holds `EditorView` and `MergeView` (L-FV-1, L-FV-2) and the palette's
 //               `PaletteData` (L-PAL-1). `timeOpen()` runs `viewer.open` and times the frames that draw the document
-//               and its first colours (the viewer's performance tests)
+//               and its first colours (the viewer's performance tests). `discardUnsaved()` answers Don't Save for
+//               every unsaved file without asking: the harness calls it before it closes a window or quits Kea, so
+//               no review waits for an answer
 //   timeRow()   times the frame that draws a row of the file panel (the file panel's performance tests;
 //               features/files/resources.ts)
 //   palette     the palette's timings (P-UI-2, P-UI-3) and its usage counts (features/palette/probes.ts)
@@ -72,6 +74,7 @@ import { timeRow } from '../features/files/resources.ts'
 import { paletteProbe } from '../features/palette/probes.ts'
 import { PaletteData } from '../features/palette/data.ts'
 import { timeOpen, VIEWER_CLASSES, viewerCopy, viewerProbe, viewerText } from '../features/viewer/resources.ts'
+import { discardUnsaved } from '../features/viewer/review.svelte.ts'
 
 export interface ViewProbe {
   ptyId: string
@@ -249,6 +252,8 @@ export function installTestProbes(): void {
     viewer: () => viewerProbe(),
     viewerText: () => viewerText(),
     viewerCopy: () => viewerCopy(),
+    /** Don't Save for every unsaved file, asking nothing: the harness before it closes a window or quits. */
+    discardUnsaved: (): void => discardUnsaved(),
     timeOpen: (req: { path: string }, colours: boolean) => timeOpen(() => void commands.run('viewer.open', req), { path: req.path, colours }),
     timeRow: (o: { selector: string; from: 'key' | 'now'; timeoutMs?: number }) => timeRow(o),
     palette: paletteProbe(),

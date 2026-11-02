@@ -12,6 +12,8 @@ composer, or, with neither, the plain shell tabs of the `shells` pseudo-session.
   import { panel } from '../features/files/state.svelte.ts'
   import Sheets from '../features/sessions/Sheets.svelte'
   import Settings from '../features/settings/Settings.svelte'
+  import { reviewView } from '../features/viewer/review.svelte.ts'
+  import UnsavedSheet from '../features/viewer/UnsavedSheet.svelte'
   import { ui } from '../features/sessions/state.svelte.ts'
   import SessionPane from './SessionPane.svelte'
   import TerminalPane from './TerminalPane.svelte'
@@ -51,6 +53,12 @@ composer, or, with neither, the plain shell tabs of the `shells` pseudo-session.
   {#if panel.copyIn}
     {#key panel.copyIn}
       <CopyInSheet ask={panel.copyIn} />
+    {/key}
+  {/if}
+  <!-- the warning before unsaved changes are lost: closing a tab, and each file of a review -->
+  {#if reviewView.ask}
+    {#key reviewView.ask}
+      <UnsavedSheet ask={reviewView.ask} />
     {/key}
   {/if}
 </div>

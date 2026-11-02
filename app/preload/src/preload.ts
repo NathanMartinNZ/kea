@@ -2,19 +2,24 @@
 // state and choices, the wake signal after sleep, whether a screen reader runs, core going away, main's requests
 // for the renderer's resource report and the window's own question for every process's (`askResourceReports`: Copy
 // diagnostics and the dev HUD), the native pieces of the window's UI (the folder picker, Reveal in the file manager,
-// opening settings.json, the path of a dropped file), the first-quit sheet and its answer and a session to show, what
-// a window rebuilt in this one's place handed over and this window's own answer when main asks (the composer drafts,
-// on Wayland), and platform facts. Nothing else crosses: no Node, no ipcRenderer, no fs.
+// opening settings.json, the path of a dropped file), the first-quit sheet and its answer and a session to show, the
+// review of the window's unsaved files main asks for before anything closes them (its acknowledgement, its answer,
+// the end of the action, the window's unsaved count), what a window rebuilt in this one's place handed over and this
+// window's own answers when main asks (the composer drafts and the unsaved files, on Wayland), and platform facts.
+// Nothing else crosses: no Node, no ipcRenderer, no fs.
 //
 // contextBridge cannot carry MessagePorts, so ports reach the page by `window.postMessage` with the port transferred
 // (`{ kea: 'rpc' }`, `{ kea: 'stream', reqId }`); main's other messages travel the same way (`{ kea: 'command', id }`,
-// `{ kea: 'wake' }`, `{ kea: 'coreAway' }`, `{ kea: 'resources', reqId }`, `{ kea: 'quitSheet', live }`,
+// `{ kea: 'wake' }`, `{ kea: 'history', step }`: the Edit menu's Undo or Redo, which an editable file runs on its own
+// history, `{ kea: 'coreAway' }`, `{ kea: 'resources', reqId }`, `{ kea: 'quitSheet', live }`,
 // `{ kea: 'showSession', sessionId }`, `{ kea: 'screenReader', on }`, `{ kea: 'windowMenu', at, items }`: Linux's
-// application menu for the window to draw, `{ kea: 'gpuReset' }`: the memory watchdog asks
-// for the GPU process's memory back), so the page never registers a listener across the bridge, where Electron cannot
-// remove one by identity. The renderer's `lib/bridge.ts` turns these into `openStream(ptyId):
-// Promise<MessagePort>`, `onCommand`, `onWake`, `onCoreConnection` and the answer to a resource-report request
-// (`sendResources`).
+// application menu for the window to draw, `{ kea: 'gpuReset' }`: the memory watchdog asks for the GPU process's memory
+// back, `{ kea: 'lowMemory' }`: it held back this window's reload for its unsaved files,
+// `{ kea: 'review', reqId, reason }`, `{ kea: 'reviewDecided', reqId, outcome }`, `{ kea: 'closeDone', reqId, went }`,
+// `{ kea: 'giveDocuments', reqId }`, `{ kea: 'handedDocuments', reqId, documents }`), so the page never registers a
+// listener across the bridge, where Electron cannot remove one by identity. The renderer's `lib/bridge.ts` turns these
+// into `openStream(ptyId): Promise<MessagePort>`, `onCommand`, `onWake`, `onHistory`, `onCoreConnection`, the review
+// host and the answer to a resource-report request (`sendResources`).
 
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 
@@ -52,6 +57,9 @@ ipcRenderer.on('kea:command', (_e, msg: { id: unknown; args?: unknown }) => {
   if (typeof msg?.id === 'string') toPage({ kea: 'command', id: msg.id, ...(msg.args !== undefined ? { args: msg.args } : {}) }, [])
 })
 ipcRenderer.on('kea:wake', () => toPage({ kea: 'wake' }, []))
+ipcRenderer.on('kea:history', (_e, step: unknown) => {
+  if (step === 'undo' || step === 'redo') toPage({ kea: 'history', step }, [])
+})
 ipcRenderer.on('kea:windowMenu', (_e, msg: { at?: unknown; items?: unknown }) => toPage({ kea: 'windowMenu', at: msg?.at, items: msg?.items }, []))
 ipcRenderer.on('kea:gpuReset', () => toPage({ kea: 'gpuReset' }, []))
 ipcRenderer.on('kea:screenReader', (_e, msg: { on: unknown }) => toPage({ kea: 'screenReader', on: msg?.on === true }, []))
@@ -78,6 +86,22 @@ ipcRenderer.on('kea:updateState', (_e, msg: { state: unknown }) => toPage({ kea:
 ipcRenderer.on('kea:handoffAsk', (_e, msg: { reqId: unknown }) => {
   if (Number.isInteger(msg?.reqId)) toPage({ kea: 'handoffAsk', reqId: msg.reqId }, [])
 })
+ipcRenderer.on('kea:lowMemory', () => toPage({ kea: 'lowMemory' }, []))
+ipcRenderer.on('kea:review', (_e, msg: { reqId: unknown; reason: unknown }) => {
+  if (Number.isInteger(msg?.reqId) && typeof msg.reason === 'string') toPage({ kea: 'review', reqId: msg.reqId, reason: msg.reason }, [])
+})
+ipcRenderer.on('kea:reviewDecided', (_e, msg: { reqId: unknown; outcome: unknown }) => {
+  if (Number.isInteger(msg?.reqId) && (msg.outcome === 'proceed' || msg.outcome === 'cancel')) toPage({ kea: 'reviewDecided', reqId: msg.reqId, outcome: msg.outcome }, [])
+})
+ipcRenderer.on('kea:closeDone', (_e, msg: { reqId: unknown; went: unknown }) => {
+  if (Number.isInteger(msg?.reqId)) toPage({ kea: 'closeDone', reqId: msg.reqId, went: msg.went === true }, [])
+})
+ipcRenderer.on('kea:giveDocuments', (_e, msg: { reqId: unknown }) => {
+  if (Number.isInteger(msg?.reqId)) toPage({ kea: 'giveDocuments', reqId: msg.reqId }, [])
+})
+ipcRenderer.on('kea:handedDocuments', (_e, msg: { reqId: unknown; documents: unknown }) => {
+  if (Number.isInteger(msg?.reqId)) toPage({ kea: 'handedDocuments', reqId: msg.reqId, documents: msg.documents ?? null }, [])
+})
 
 contextBridge.exposeInMainWorld('kea', {
   platform: { version, arch: process.arch, perf },
@@ -86,6 +110,29 @@ contextBridge.exposeInMainWorld('kea', {
   /** This window's answer to main's question `reqId` (`{ kea: 'handoffAsk', reqId }`); main checks it (zWindowHandoff). */
   handOver: (reqId: number, state: unknown): void => {
     if (Number.isInteger(reqId) && typeof state === 'object' && state !== null) ipcRenderer.send('kea:handoff', { reqId, state })
+  },
+  /**
+   * This window's unsaved files for the one main rebuilds in its place (`{ kea: 'giveDocuments', reqId }`), or null
+   * when it holds none; main checks them (zHandedDocuments) and keeps them in memory only.
+   */
+  giveDocuments: (reqId: number, documents: unknown): void => {
+    if (Number.isInteger(reqId) && typeof documents === 'object') ipcRenderer.send('kea:documents', { reqId, documents })
+  },
+  /** A rebuilt window takes the unsaved files handed over; they arrive as `{ kea: 'handedDocuments', reqId, documents }` (null: none). */
+  takeDocuments: (reqId: number): void => {
+    if (Number.isInteger(reqId)) ipcRenderer.send('kea:takeDocuments', { reqId })
+  },
+  /** The window has main's review request `reqId` (`{ kea: 'review', reqId, reason }`), sent at once on receipt. */
+  reviewAck: (reqId: number): void => {
+    if (Number.isInteger(reqId)) ipcRenderer.send('kea:reviewAck', { reqId })
+  },
+  /** The window's answer to review request `reqId`, once the user has answered: `proceed` or `cancel`. */
+  answerReview: (reqId: number, answer: string): void => {
+    if (Number.isInteger(reqId) && (answer === 'proceed' || answer === 'cancel')) ipcRenderer.send('kea:reviewAnswer', { reqId, answer })
+  },
+  /** How many files the window holds unsaved, on each change (macOS's edited dot, the memory watchdog, the automatic restart). */
+  setUnsavedCount: (n: number): void => {
+    if (Number.isSafeInteger(n) && n >= 0) ipcRenderer.send('kea:unsavedCount', n)
   },
   /** Ask main for the RPC port (again after a reload); it arrives as `{ kea: 'rpc' }`. */
   hello: (): void => ipcRenderer.send('kea:hello'),

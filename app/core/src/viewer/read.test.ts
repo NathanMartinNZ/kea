@@ -5,7 +5,7 @@ import path from 'node:path'
 import { L } from '@kea/protocol'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { imagePixelSize } from './image.ts'
-import { readFile, resolveInside } from './read.ts'
+import { readFile, readForEdit, resolveInside, versionOf } from './read.ts'
 
 let tmp: string
 let cwd: string
@@ -142,5 +142,36 @@ describe('reading a file for the viewer', () => {
       expect(imagePixelSize(Buffer.from([0xff, 0xd8, 0xff]), ext)).toBeNull()
       expect(imagePixelSize(pngHeader(1, 1).subarray(0, 20), ext)).toBeNull()
     }
+  })
+
+  it('U-FV-12 · a file tab’s read: a version only within the full-feature size or when the window names one, and `same`, with the file’s writability and mode but no bytes, while the file still has that version', async () => {
+    const rel = 'edit/a.ts'
+    const file = path.join(cwd, rel)
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    fs.writeFileSync(file, 'one\n')
+    fs.chmodSync(file, 0o644)
+    const v = versionOf(Buffer.from('one\n'))
+    expect(await readForEdit(cwd, rel, {})).toMatchObject({ kind: 'text', version: v, writable: 'yes', mode: 0o644 })
+    expect(await readForEdit(cwd, rel, { ifNotVersion: v })).toEqual({ kind: 'same', writable: 'yes', mode: 0o644 })
+    // made read-only, then executable, while the tab has it: the bytes are the same, and `same` says what changed
+    fs.chmodSync(file, 0o444)
+    expect(await readForEdit(cwd, rel, { ifNotVersion: v })).toEqual({ kind: 'same', writable: 'permission', mode: 0o444 })
+    fs.chmodSync(file, 0o755)
+    expect(await readForEdit(cwd, rel, { ifNotVersion: v })).toEqual({ kind: 'same', writable: 'yes', mode: 0o755 })
+    // another version: the bytes, and theirs
+    fs.writeFileSync(file, 'two\n')
+    expect(await readForEdit(cwd, rel, { ifNotVersion: v })).toMatchObject({ kind: 'text', version: versionOf(Buffer.from('two\n')), writable: 'yes', mode: 0o755 })
+    // a read that is not a file tab's says none of it
+    const plain = await readFile(cwd, rel)
+    for (const k of ['version', 'writable', 'mode']) expect(plain, k).not.toHaveProperty(k)
+
+    // over the full-feature size the file is not hashed, unless the window already has a version of it
+    const big = Buffer.alloc(L.viewerFullBytes + 1, 'x')
+    fs.writeFileSync(path.join(cwd, 'edit/big.txt'), big)
+    const large = await readForEdit(cwd, 'edit/big.txt', {})
+    expect(large).toMatchObject({ kind: 'text', writable: 'yes', size: L.viewerFullBytes + 1 })
+    expect(large).not.toHaveProperty('version')
+    expect(await readForEdit(cwd, 'edit/big.txt', { ifNotVersion: v })).toMatchObject({ kind: 'text', version: versionOf(big) })
+    expect(await readForEdit(cwd, 'edit/big.txt', { ifNotVersion: versionOf(big) })).toMatchObject({ kind: 'same', writable: 'yes' })
   })
 })

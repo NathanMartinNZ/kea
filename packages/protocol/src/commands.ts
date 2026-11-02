@@ -22,7 +22,7 @@ export const SURFACES = ['session ⌃', 'project ⌃', 'file ⌃', 'files ⌃', 
 export type Surface = (typeof SURFACES)[number]
 
 /** Where a scoped binding applies. Unscoped bindings apply everywhere. */
-export const KEY_SCOPES = ['viewer tab', 'diff tab', 'file tab', 'Markdown file', 'file panel', 'detached overlay'] as const
+export const KEY_SCOPES = ['viewer tab', 'diff tab', 'file tab', 'Markdown file', 'editable file', 'file panel', 'detached overlay'] as const
 export type KeyScope = (typeof KEY_SCOPES)[number]
 
 export interface CommandDef {
@@ -138,6 +138,7 @@ export const COMMANDS: readonly CommandDef[] = [
   { id: 'viewer.switchFileDiff', title: 'Switch File / Diff', category: 'Viewer', other: 'viewer header' },
   { id: 'viewer.goToLine', title: 'Go to Line…', category: 'Viewer', keys: ['⌃G'], linuxKeys: ['Alt+G'], keyScope: 'viewer tab' },
   { id: 'viewer.find', title: 'Find in File', category: 'Viewer', keys: ['⌘F'], linuxKeys: ['Ctrl+Shift+F'], keyScope: 'viewer tab' },
+  { id: 'viewer.replace', title: 'Replace in File', category: 'Viewer', keys: ['⌥⌘F'], linuxKeys: ['Ctrl+Shift+H'], keyScope: 'viewer tab' },
   { id: 'viewer.toggleWrap', title: 'Toggle Word Wrap', category: 'Viewer', keys: ['⌥Z'], linuxKeys: ['Alt+Z'], keyScope: 'file tab' },
   { id: 'viewer.toggleMarkdownPreview', title: 'Toggle Markdown Preview', category: 'Viewer', keys: ['⇧⌘V'], linuxKeys: ['Ctrl+Shift+Alt+V'], keyScope: 'Markdown file', other: 'viewer header' },
   { id: 'viewer.toggleDiffLayout', title: 'Toggle Unified / Side-by-Side', category: 'Viewer', keys: ['⌘⇧\\'], linuxKeys: ['Ctrl+Shift+\\'], keyScope: 'diff tab', other: 'viewer header' },
@@ -147,8 +148,11 @@ export const COMMANDS: readonly CommandDef[] = [
   { id: 'viewer.previousFile', title: 'Previous Changed File', category: 'Viewer', keys: ['['], linuxKeys: ['['], keyScope: 'diff tab' },
   { id: 'viewer.sendReference', title: 'Send Reference to Agent', category: 'Viewer', keys: ['⌘L'], linuxKeys: ['Ctrl+Shift+L'], keyScope: 'viewer tab' },
   { id: 'viewer.copyReference', title: 'Copy Reference', category: 'Viewer', keys: ['⌘⇧C'], linuxKeys: ['Ctrl+Shift+Alt+C'], keyScope: 'viewer tab' },
-  { id: 'viewer.pinTab', title: 'Pin Tab', category: 'Viewer', gesture: 'double-click the tab, or ↵ in it' },
+  { id: 'viewer.pinTab', title: 'Pin Tab', category: 'Viewer', gesture: 'double-click the tab, or ↵ in a read-only document' },
   { id: 'viewer.openInEditor', title: 'Open in Editor', category: 'Viewer', keys: ['⌘↵'], linuxKeys: ['Ctrl+Shift+Enter'], keyScope: 'viewer tab', other: 'viewer header' },
+  { id: 'viewer.save', title: 'Save', category: 'Viewer', keys: ['⌘S'], linuxKeys: ['Ctrl+Shift+S'] },
+  { id: 'viewer.indentLess', title: 'Indent Less', category: 'Viewer', keys: ['⌘['], linuxKeys: ['Ctrl+['], keyScope: 'editable file' },
+  { id: 'viewer.indentMore', title: 'Indent More', category: 'Viewer', keys: ['⌘]'], linuxKeys: ['Ctrl+]'], keyScope: 'editable file' },
   { id: 'server.toggle', title: 'Run / Stop Dev Server', category: 'Server', keys: ['⌘R'], linuxKeys: ['Ctrl+Shift+R'], titles: ['Run Dev Server', 'Stop Dev Server'] },
   { id: 'server.restart', title: 'Restart Dev Server', category: 'Server', keys: ['⇧⌘R'], linuxKeys: ['Ctrl+Shift+F5'] },
   { id: 'server.openBrowser', title: 'Open in Browser', category: 'Server', gesture: 'click the port chip' },

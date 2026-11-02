@@ -30,7 +30,8 @@
 //   .filePanelTimers, .fileLayers, .fileOps   the file panel: what it holds of the session on screen, and the file
 //                                clipboard and a drag under way (features/files/resources.ts)
 //   renderer.viewerEditors, .viewerMerges, .viewerDocBytes, .viewerCachedDocs, .viewerCachedBytes, .highlightWorkers,
-//   .highlightPending, .highlightGrammars, .viewerFollows, .viewerReads   the file viewer (features/viewer/resources.ts)
+//   .highlightPending, .highlightGrammars, .viewerFollows, .viewerReads, .viewerUnsaved, .viewerUnsavedBytes,
+//   .viewerSaving   the file viewer (features/viewer/resources.ts)
 //   renderer.diskRows, .diskBranches, .diskDeleted, .diskSelected, .diskObservers   Settings › Disk while it is open: rows
 //                                of core's `disk` store held, branch states held, deleted sessions listed, rows selected
 //                                or busy, its one observer of the rows on screen (0 while closed; features/disk)

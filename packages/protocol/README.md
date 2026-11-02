@@ -25,7 +25,8 @@ rules on any machine.
 | `agents.ts` | The `agents` store (each agent CLI: installed, signed in, the models and modes it offers), `agentsApi`, and the envelope `kea-helper hook` sends for each agent hook |
 | `status.ts` | Normalised agent events, the `status` and `status.conditions` stores, `statusApi`, the attention order and badge count, and the schemas of status reports and replay fixtures |
 | `files.ts` | Paths inside a worktree, git status (the `git:<sessionId>` store and the one Changes order), the file tree store, and `filesApi` (tree, finder, Discard Changes) |
-| `viewer.ts` | Opening a file or diff, `viewerApi` (read, diff, gutter changes, follow), and the `kea-file://` URLs local images are served through |
+| `viewer.ts` | Opening a file or diff, `viewerApi` (read, diff, gutter changes, follow, save), the version a save names and why it is refused, and the `kea-file://` URLs local images are served through |
+| `unsaved.ts` | A window's unsaved files as they cross main: why main asks a window to review them (`REVIEW_REASONS`), and the documents a window rebuilt on Wayland hands the one made in its place (`zHandedDocuments`, kept in memory only) |
 | `editor.ts` | `editorApi`: opening a session's folder or file in an editor or the terminal app, the editors found, and opening a pull request page |
 | `server.ts` | The dev server: the `server:<sessionId>` store and `serverApi` (run, stop, restart, take over a port, scan) |
 | `disk.ts` | The `disk` store (a worktree's size and rebuildable share), `diskApi`, the stale rule and `formatBytes` |

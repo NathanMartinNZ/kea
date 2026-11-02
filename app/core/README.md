@@ -30,7 +30,7 @@ is for, and ptyhost carries its bytes.
 | `src/agents/` | The agent service: detecting each agent CLI, the command a session's agent starts with, the hook socket and the spools behind it, the helper copy that hooks run, and the watches on an agent's status file and transcript. Everything agent-specific comes from `packages/adapters` |
 | `src/status/` | The status engine (each live session's phase and the items that need the user, from hooks, status files, transcripts and terminal activity), the notification policy, account conditions such as a usage limit, "Why this status?" and status reports |
 | `src/files/` | The files panel: the tree and its file operations, git status and the diff against the session's base, the finder (fuzzy file search on a worker thread) and Discard Changes |
-| `src/viewer/` | The file viewer and diffs: reads that stay inside the session's working directory, binary and text detection, a diff's two sides and its gutter |
+| `src/viewer/` | The file viewer and diffs: reads that stay inside the session's working directory, binary and text detection, a diff's two sides and its gutter, and saving a file the user edited (only over the version it was read as, by rename or in place, with a journal of the new files a save makes) |
 | `src/editor/` | Open in Editor, the terminal app, the pull request page, and checking paths printed in a terminal |
 | `src/server/` | Each session's dev server: detecting it, Run, Stop and Restart in a terminal of its own, port blocks, port scans and the URL it prints |
 | `src/settings/` | `settings.json`, `keybindings.json` and the Ghostty config: parsed, validated and watched, with the last good version kept while a file is broken |

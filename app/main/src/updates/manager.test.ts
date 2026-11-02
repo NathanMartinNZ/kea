@@ -1,6 +1,6 @@
 // Main's update state: what a check finds, when an automatic one runs (wall clock, resume, the one-time line, core's
 // switch, the default home), the macOS updater's events, whether a version Squirrel had ready installed, and the
-// restarts it offers with the drafts kept first.
+// restarts it offers once the windows' review allows them, with the drafts kept first.
 import { L, NO_UPDATE_MARKS, type UpdateMarks, type UpdateState } from '@kea/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import type { UpdaterDriver, UpdaterEvents } from './driver.ts'
@@ -62,7 +62,8 @@ function make(o: Partial<ManagerDeps> & { marks0?: UpdateMarks; offered?: () => 
     feed,
     makeDriver: null,
     changed: (s) => states.push(s),
-    beforeRestart: () => (order.push('drafts'), Promise.resolve()),
+    beforeRestart: () => (order.push('drafts'), Promise.resolve(true)),
+    afterRestart: (started) => order.push(`after ${started}`),
     relaunch: () => (order.push('relaunch'), relaunch()),
     log: { info: () => undefined, warn: () => undefined },
     ...o,
@@ -217,12 +218,12 @@ describe('automatic checks', () => {
 /** A driver the test answers for. */
 function fakeDriver() {
   let on: UpdaterEvents | null = null
-  const d = { check: vi.fn(), download: vi.fn(), install: vi.fn(), dispose: vi.fn() } satisfies UpdaterDriver
+  const d = { check: vi.fn(), download: vi.fn(), install: vi.fn(() => true), dispose: vi.fn() } satisfies UpdaterDriver
   return { make: (events: UpdaterEvents) => ((on = events), d), d, on: () => on as UpdaterEvents }
 }
 
 describe('the macOS updater', () => {
-  it('U-DST-8 · a newer version downloads at once, its progress shows, and Squirrel’s ready offers Restart to Update, which keeps the drafts and then installs', async () => {
+  it('U-DST-8 · a newer version downloads at once, its progress shows, and Squirrel’s ready offers Restart to Update, which installs once the review allows it and the drafts are kept; a review that says no, or fails, installs nothing', async () => {
     const f = fakeDriver()
     const { m, marks, order } = make({ how: BY_UPDATER, makeDriver: f.make })
     m.checkNow()
@@ -240,8 +241,25 @@ describe('the macOS updater', () => {
     expect(f.d.check, 'no check once ready').toHaveBeenCalledTimes(1)
     m.restart()
     await flush()
-    expect(order).toEqual(['drafts'])
+    expect(order).toEqual(['drafts', 'after true'])
     expect(f.d.install).toHaveBeenCalledTimes(1)
+
+    // the review answered cancel, or failed: nothing installs, and nothing waits for the restart's end
+    for (const answer of [() => Promise.resolve(false), () => Promise.reject(new Error('review failed'))]) {
+      const g = fakeDriver()
+      const review = vi.fn(answer)
+      const no = make({ how: BY_UPDATER, makeDriver: g.make, beforeRestart: review })
+      no.m.checkNow()
+      g.on().available('1.0.3')
+      g.on().ready('1.0.3')
+      no.m.restart()
+      await flush()
+      expect(g.d.install).not.toHaveBeenCalled()
+      expect(no.order).toEqual([])
+      no.m.restart()
+      await flush()
+      expect(review, 'asked again: the restart was not left under way').toHaveBeenCalledTimes(2)
+    }
   })
 
   it('U-DST-9 · a Squirrel failure, or a download that fails, gives way to install.sh with the reason; an inactive updater means nothing updates this build', () => {
@@ -252,6 +270,16 @@ describe('the macOS updater', () => {
     f.on().failed('code signature did not match', 'squirrel')
     expect(m.state).toMatchObject({ mode: 'command', phase: { k: 'available', version: '1.0.3' } })
     expect(m.state.why).toMatch(/code signature did not match/)
+
+    // Squirrel had it ready, accepted Restart to Update and then failed: no Restart to Update left that cannot install
+    const r = fakeDriver()
+    const ready = make({ how: BY_UPDATER, makeDriver: r.make })
+    ready.m.checkNow()
+    r.on().available('1.0.3')
+    r.on().ready('1.0.3')
+    r.on().failed('ShipIt could not be launched', 'squirrel')
+    expect(ready.m.state).toMatchObject({ mode: 'command', phase: { k: 'available', version: '1.0.3' } })
+    expect([ready.m.title, ready.m.state.why]).toEqual(['Check for Updates…', 'macOS could not install the update: ShipIt could not be launched'])
 
     const g = fakeDriver()
     const check = make({ how: BY_UPDATER, makeDriver: g.make })
@@ -300,7 +328,7 @@ describe('the macOS updater', () => {
 })
 
 describe('files replaced under a running Kea', () => {
-  it('U-DST-11 · upgraded ends checking and offers Restart Kea, which keeps the drafts and then restarts; removed offers nothing', async () => {
+  it('U-DST-11 · upgraded ends checking and offers Restart Kea, which restarts once the review allows it and the drafts are kept (a review that says no restarts nothing); removed offers nothing', async () => {
     const { m, clock, feed, order } = make()
     open(m)
     m.upgraded('1.0.3')
@@ -312,7 +340,13 @@ describe('files replaced under a running Kea', () => {
     expect(feed).not.toHaveBeenCalled()
     m.restart()
     await flush()
-    expect(order).toEqual(['drafts', 'relaunch'])
+    expect(order).toEqual(['drafts', 'relaunch', 'after true'])
+
+    const no = make({ beforeRestart: () => Promise.resolve(false) })
+    no.m.upgraded('1.0.3')
+    no.m.restart()
+    await flush()
+    expect(no.relaunch).not.toHaveBeenCalled()
 
     const r = make()
     r.m.removed()

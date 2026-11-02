@@ -6,12 +6,18 @@
 // is then opened by its real path, without following a link put there since and without waiting (`O_NONBLOCK`: a FIFO
 // in a file's place must not hold core), and only a regular file is read.
 //
+// A file tab's read (`edit`) also says what a save needs: the version of the bytes sent (their SHA-256), the file's
+// permission bits, and whether a save could write it (save.ts writes by the same rules). A file that still hashes to
+// the version the window has is answered `same`, without its bytes but with those two, which change without them.
+//
 // Nothing read here is kept: the bytes are handed to the caller, which sends them and lets go.
 
+import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
-import { imageExtension, L, type FileRead } from '@kea/protocol'
+import { hasGitSegment, imageExtension, L, type FileRead, type FileReadResult, type Writable } from '@kea/protocol'
+import { sessionFs, type FsModule } from '../files/fsImpl.ts'
 import { detect } from './detect.ts'
 import { imagePixelSize } from './image.ts'
 import { opensSafely } from './openable.ts'
@@ -85,16 +91,73 @@ export async function readUpTo(fh: fsp.FileHandle, max: number): Promise<Buffer<
     if (bytesRead === 0) break
     n += bytesRead
   }
-  return n === max ? buf : Buffer.from(buf.subarray(0, n))
+  if (n === max) return buf
+  const out = Buffer.allocUnsafeSlow(n)
+  buf.copy(out, 0, 0, n)
+  return out
 }
 
 const empty = (kind: FileRead['kind'], link: string | null = null): FileRead => ({ kind, size: 0, mtimeMs: 0, link, text: null, image: null, openable: false })
 
+/** A version of a file's contents: the SHA-256 of exactly its bytes, in hex. */
+export const versionOf = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex')
+
+/** The user core runs as; a file of another owner is never replaced by a rename. */
+export const userId = (): number => process.getuid?.() ?? -1
+
+/** The groups a file of the user's can be given: theirs. A file of another group is never replaced by a rename. */
+export const userGroups = (): ReadonlySet<number> => new Set([...(process.getgroups?.() ?? []), ...(process.getegid ? [process.getegid()] : [])])
+
+/** Who a save writes as: the user core runs as, and their groups. */
+export interface SaveUser {
+  uid: number
+  groups: ReadonlySet<number>
+}
+
+/** The path asked for, or where a link on it leads inside the working directory (`where` is `ok`), passes through `.git`. */
+export const inGitDir = (rel: string, where: Resolved): boolean => hasGitSegment(rel) || (where.link !== null && hasGitSegment(where.link))
+
+const accessible = (f: FsModule, p: string, mode: number): Promise<boolean> => f.promises.access(p, mode).then(() => true, () => false)
+
 /**
- * `viewer.read`. `source`: read an image type as text (the SVG `Source` toggle). `maxBytes`: the load limit,
- * L.viewerMaxBytes when not given; a diff's side passes the diff's.
+ * A save replaces the file at `real` by renaming a new file over it when the file is the user's, its group one of
+ * theirs (the new file can be given it) and its folder the user's to write in; otherwise it writes the file in place.
  */
-export async function readFile(cwd: string, rel: string, o: { source?: boolean; maxBytes?: number } = {}): Promise<FileRead> {
+export async function savesByRename(f: FsModule, real: string, st: { uid: number; gid: number }, user: SaveUser): Promise<boolean> {
+  return st.uid === user.uid && user.groups.has(st.gid) && (await accessible(f, path.dirname(real), fs.constants.W_OK | fs.constants.X_OK))
+}
+
+/** Whether a save could write the file at `where`: by the path, the user's permission, and a hard link written in place. */
+export async function writableOf(f: FsModule, rel: string, where: Resolved, st: { uid: number; gid: number; nlink: number }, user: SaveUser): Promise<Writable> {
+  if (inGitDir(rel, where)) return 'git'
+  if (!(await accessible(f, where.real, fs.constants.W_OK))) return 'permission'
+  if (st.nlink > 1 && !(await savesByRename(f, where.real, st, user))) return 'hard-linked'
+  return 'yes'
+}
+
+export interface ReadOptions {
+  /** Read an image type as text (the SVG `Source` toggle). */
+  source?: boolean
+  /** The load limit: L.viewerMaxBytes when not given; a diff's side passes the diff's. */
+  maxBytes?: number
+}
+
+/** A file tab's read, which the user may edit: `ifNotVersion` is the version the window has. */
+export interface EditRead {
+  ifNotVersion?: string | undefined
+}
+
+/** `viewer.read` without `edit`, and a diff's sides. */
+export function readFile(cwd: string, rel: string, o: ReadOptions = {}): Promise<FileRead> {
+  return read(cwd, rel, o, null) as Promise<FileRead>
+}
+
+/** `viewer.read` with `edit`: a text read adds `version`, `writable` and `mode`; a file still at `ifNotVersion` is `same`, with the last two. */
+export function readForEdit(cwd: string, rel: string, edit: EditRead, o: ReadOptions = {}): Promise<FileReadResult> {
+  return read(cwd, rel, o, edit)
+}
+
+async function read(cwd: string, rel: string, o: ReadOptions, edit: EditRead | null): Promise<FileReadResult> {
   const where = await resolveInside(cwd, rel)
   if (where.state === 'outside') return empty('outside', where.link)
   if (where.state === 'missing') return empty('missing')
@@ -120,9 +183,17 @@ export async function readFile(cwd: string, rel: string, o: { source?: boolean; 
     }
     if (stat.size > (o.maxBytes ?? L.viewerMaxBytes)) return { ...base, kind: 'large', openable }
     const bytes = await readUpTo(fh, stat.size)
+    // hashed only for a file the window may edit (within the full-feature size) or already has a version of
+    const ifNot = edit?.ifNotVersion
+    const version = edit && (ifNot !== undefined || stat.size <= L.viewerFullBytes) ? versionOf(bytes) : undefined
+    const writableNow = () => writableOf(sessionFs, rel, where, stat, { uid: userId(), groups: userGroups() })
+    const mode = stat.mode & 0o7777
+    if (version !== undefined && version === ifNot) return { kind: 'same', writable: await writableNow(), mode }
     const d = detect(bytes)
     if (d.binary) return { ...base, kind: 'binary', openable }
-    return { ...base, kind: 'text', text: { bytes, encoding: d.encoding, invalid: d.invalid, eol: d.eol }, openable }
+    const text = { bytes, encoding: d.encoding, invalid: d.invalid, eol: d.eol }
+    if (!edit) return { ...base, kind: 'text', text, openable }
+    return { ...base, kind: 'text', text, openable, ...(version !== undefined ? { version } : {}), writable: await writableNow(), mode }
   } finally {
     await fh.close().catch(() => undefined)
   }

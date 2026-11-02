@@ -1,10 +1,12 @@
 import fs from 'node:fs'
+import { ChangeSet, Text, type ChangeSpec } from '@codemirror/state'
 import { INITIAL } from 'shiki/textmate'
 import { describe, expect, it } from 'vitest'
+import { followEdits, lineEdits } from '../highlight.ts'
 import { SYNTAX_ROLES, SYNTAX_THEME, syntaxCss, tokenClass } from '../syntax.ts'
 import { TokenStore, tokenStart, tokenStyle } from '../tokens.ts'
 import { HighlightEngine, type EngineHost } from './engine.ts'
-import type { FromWorker } from './protocol.ts'
+import type { EditRun, FromWorker } from './protocol.ts'
 import { ShikiGrammars } from './shiki.ts'
 import { LineTokenizer, splitLines } from './tokenizer.ts'
 
@@ -157,13 +159,16 @@ const SAMPLES: [lang: string, text: string][] = [
 
 const grammars = new ShikiGrammars()
 
-function host(posted: FromWorker[], o: { onYield?: () => void } = {}): EngineHost {
+function host(posted: FromWorker[], o: { onYield?: () => void; onPost?: (m: FromWorker) => void } = {}): EngineHost {
   let t = 0
   return {
     grammar: (lang) => grammars.grammar(lang),
     roleOf: () => grammars.roleOf(),
     grammars: () => grammars.count(),
-    post: (m) => void posted.push(m),
+    post: (m) => {
+      posted.push(m)
+      o.onPost?.(m)
+    },
     // every reading is a millisecond later: a budget is spent at a known rate
     now: () => t++,
     yield: async () => {
@@ -325,6 +330,282 @@ describe('chunked tokenisation', () => {
     expect((lineOf(s, 0) as number[]).length).toBeGreaterThan(1)
     // the state carried on past the skipped line: the comment that opens after it still closes
     expect((lineOf(s, 3) as number[]).length).toBeGreaterThan(1)
+  })
+})
+
+/** A seeded random number generator (mulberry32): the same edits on every run. */
+function random(seed: number): () => number {
+  let a = seed >>> 0
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0
+    let t = a
+    t = Math.imul(t ^ (t >>> 15), t | 1)
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+/** Tokens of every line of `text` from one run over the whole of it. */
+async function wholeRun(lang: string, text: string): Promise<TokenStore> {
+  const lines = splitLines(text)
+  const store = new TokenStore()
+  store.put(new LineTokenizer((await grammars.grammar(lang))!, grammars.roleOf(), LIMITS).run(lines, 0, lines.length, INITIAL).chunk)
+  return store
+}
+
+/**
+ * The window's side of an edit run, kept as `EditTokens` keeps it: the store follows each change (the edited lines keep
+ * their colours), requests carry the line edits since the previous one, and a chunk that arrives after the text changed
+ * is dropped.
+ */
+class EditSide {
+  doc: Text
+  readonly lang: string
+  readonly store = new TokenStore()
+  readonly engine: HighlightEngine
+  /** Each request's chunks as the worker posted them. */
+  readonly runs = new Map<number, [number, number][]>()
+  /** The current request's chunks put in the store before the rest are lost, as when the text changes meanwhile. */
+  keep = Infinity
+  /** Done at the worker's next return to its event loop. */
+  atYield: (() => void) | null = null
+  id = 0
+  private sent: Text | null = null
+  private changes: ChangeSet | null = null
+  private count = 0
+  private sentCount = 0
+  private applied = 0
+  private moved = false
+
+  constructor(lang: string, text: string) {
+    this.lang = lang
+    this.doc = Text.of(splitLines(text))
+    const onYield = () => {
+      const f = this.atYield
+      this.atYield = null
+      f?.()
+    }
+    this.engine = new HighlightEngine(host([], { onPost: (m) => this.received(m), onYield }), LIMITS)
+  }
+
+  private received(m: FromWorker): void {
+    if (m.t !== 'chunk') return
+    this.runs.get(m.id)?.push([m.from, m.to])
+    if (m.id !== this.id || this.moved || this.applied >= this.keep) return
+    this.store.put(m)
+    this.applied++
+  }
+
+  edit(spec: ChangeSpec): void {
+    const changes = ChangeSet.of(spec, this.doc.length)
+    const next = changes.apply(this.doc)
+    followEdits(this.store, changes, this.doc, next, true)
+    this.changes = this.changes ? this.changes.compose(changes) : changes
+    this.doc = next
+    this.count++
+    this.moved = true
+  }
+
+  request(o: { since?: number | null } = {}): number {
+    const from = this.sent
+    const edit: EditRun = {
+      since: o.since !== undefined ? o.since : from === null ? null : this.sentCount,
+      count: this.count,
+      edits: from !== null && this.changes ? lineEdits(this.changes, from, this.doc) : [],
+      applied: this.applied,
+    }
+    this.sent = this.doc
+    this.changes = null
+    this.sentCount = this.count
+    this.applied = 0
+    this.moved = false
+    this.keep = Infinity
+    this.runs.set(++this.id, [])
+    this.engine.handle({ t: 'tokenize', id: this.id, doc: 'edited', lang: this.lang, text: this.doc.toString(), from: 0, budgetMs: null, edit })
+    return this.id
+  }
+
+  /** Lines request `id` tokenised. */
+  tokenised(id: number): number {
+    let n = 0
+    for (const [from, to] of this.runs.get(id) ?? []) n += to - from
+    return n
+  }
+
+  /** Lines whose tokens differ from a whole-file run of the text as it is now (stale kept ones included). */
+  async differing(): Promise<number[]> {
+    const whole = await wholeRun(this.lang, this.doc.toString())
+    const out: number[] = []
+    for (let n = 0; n < this.doc.lines; n++) if (JSON.stringify(lineOf(this.store, n)) !== JSON.stringify(lineOf(whole, n))) out.push(n)
+    if (this.store.lines !== this.doc.lines) out.push(-1)
+    return out
+  }
+}
+
+/** A random edit of `doc`: typing one character, a deletion, a paste of a few lines, a comment or string opened, or several cursors typing at once. */
+function randomEdit(rng: () => number, doc: Text, pool: readonly string[]): { spec: ChangeSpec; typing: boolean } {
+  const pos = () => Math.floor(rng() * (doc.length + 1))
+  const pick = <T,>(xs: readonly T[]): T => xs[Math.floor(rng() * xs.length)] as T
+  const kind = rng()
+  if (kind < 0.4) return { spec: { from: pos(), insert: pick(['a', 'x', 'Q', '1', ' ', '_', '.', '\n']) }, typing: true }
+  if (kind < 0.5) return { spec: { from: pos(), insert: pick(['"', "'", '`', '/*', '*/', '<!--', '-->', '"""', '#', '{', '}', '(', ')', '\\', '[[', ']]']) }, typing: false }
+  if (kind < 0.65) {
+    const from = pos()
+    return { spec: { from, to: Math.min(doc.length, from + Math.floor(rng() * 120)) }, typing: false }
+  }
+  if (kind < 0.8) {
+    const at = Math.floor(rng() * pool.length)
+    return { spec: { from: pos(), insert: pool.slice(at, at + 1 + Math.floor(rng() * 6)).join('\n') }, typing: false }
+  }
+  // several cursors type the same text; two of them may share a line
+  const line = doc.line(1 + Math.floor(rng() * doc.lines))
+  const at = new Set([line.from + Math.floor(rng() * (line.length + 1)), line.from + Math.floor(rng() * (line.length + 1))])
+  for (let i = 0, n = 1 + Math.floor(rng() * 4); i < n; i++) at.add(pos())
+  const insert = pick(['a', 'z9', ' ', '\n', '//'])
+  return { spec: [...at].sort((a, b) => a - b).map((from) => ({ from, insert })), typing: false }
+}
+
+describe('highlighting while the user types', () => {
+  it('U-FV-26 · an edit run with per-line states equals a whole-file run after random edits, multi-line and multi-cursor ones included, in every language, and stops early', async () => {
+    let typed = 0
+    let toEnd = 0
+    for (const [i, [lang, text]] of SAMPLES.entries()) {
+      const side = new EditSide(lang, text)
+      const first = side.request()
+      await drained(side.engine)
+      // a first request tokenises the whole text from the top, its first chunk L.viewerFirstLines long
+      expect(side.runs.get(first)?.[0], lang).toEqual([0, LIMITS.firstLines])
+      expect(side.tokenised(first), lang).toBe(side.doc.lines)
+      expect(side.engine.endStates('edited'), lang).toBe(side.doc.lines)
+      expect(await side.differing(), lang).toEqual([])
+      const rng = random(0x5eed + i)
+      const pool = splitLines(text)
+      for (let step = 0; step < 14; step++) {
+        const mode = rng()
+        // one to three changes between two requests, as typing between two frames gives
+        let typing = true
+        let firstLine = side.doc.lines
+        for (let n = 1 + Math.floor(rng() * 3); n > 0; n--) {
+          const e = randomEdit(rng, side.doc, pool)
+          const changes = ChangeSet.of(e.spec, side.doc.length)
+          changes.iterChangedRanges((fromA) => void (firstLine = Math.min(firstLine, side.doc.lineAt(fromA).number - 1)))
+          typing &&= e.typing
+          side.edit(e.spec)
+        }
+        const id = side.request()
+        const label = `${lang}, step ${step}`
+        if (mode < 0.15) {
+          // the window put only some of this request's chunks in its store: the next request has the rest done again
+          side.keep = Math.floor(rng() * 2)
+          await drained(side.engine)
+          side.edit(randomEdit(rng, side.doc, pool).spec)
+          side.request()
+        } else if (mode < 0.3) {
+          // the text changes while the run is under way: the newer request takes over from where the run had got to
+          side.atYield = () => {
+            side.edit(randomEdit(rng, side.doc, pool).spec)
+            side.request()
+          }
+        }
+        await drained(side.engine)
+        expect(await side.differing(), label).toEqual([])
+        if (mode >= 0.3 && typing) {
+          typed += side.tokenised(id)
+          toEnd += side.doc.lines - firstLine
+        }
+      }
+    }
+    // typing a character mostly leaves the line's end state as it was: the runs stop long before the end of the file
+    expect(typed).toBeGreaterThan(0)
+    expect(typed / toEnd).toBeLessThan(0.25)
+  })
+
+  it('U-FV-26 · a run tokenises the edited lines and stops at the first that ends as before; one that changes the state runs on in chunks, the first L.viewerFirstLines long', async () => {
+    const text = Array.from({ length: 60 }, (_, n) => `const v${n} = ${n}`).join('\n')
+    const side = new EditSide('typescript', text)
+    side.request()
+    await drained(side.engine)
+    const at = (line: number, col: number) => side.doc.line(line + 1).from + col
+    // a letter typed in a name: that line alone
+    side.edit({ from: at(30, 7), insert: 'x' })
+    expect(side.runs.get(side.request())).toEqual([])
+    await drained(side.engine)
+    expect(side.runs.get(side.id)).toEqual([[30, 31]])
+    // a line broken in two: both halves
+    side.edit({ from: at(10, 5), insert: '\n' })
+    side.request()
+    await drained(side.engine)
+    expect(side.runs.get(side.id)).toEqual([[10, 12]])
+    // two cursors far apart: each place on its own, the lines between left alone
+    side.edit([
+      { from: at(5, 7), insert: 'y' },
+      { from: at(50, 7), insert: 'y' },
+    ])
+    side.request()
+    await drained(side.engine)
+    expect(side.runs.get(side.id)).toEqual([
+      [5, 6],
+      [50, 51],
+    ])
+    // a comment opened: everything after it changes, chunk by chunk to the end
+    side.edit({ from: at(20, 0), insert: '/*' })
+    side.request()
+    await drained(side.engine)
+    const run = side.runs.get(side.id)!
+    expect(run[0]).toEqual([20, 20 + LIMITS.firstLines])
+    expect(run[1]).toEqual([20 + LIMITS.firstLines, 20 + LIMITS.firstLines + LIMITS.chunkLines])
+    expect(run.at(-1)?.[1]).toBe(side.doc.lines)
+    // closed again: the lines after it come back, then a letter typed far below is one line again
+    side.edit({ from: side.doc.line(26).to, insert: ' */' })
+    side.request()
+    await drained(side.engine)
+    expect(side.runs.get(side.id)?.[0]?.[0]).toBe(25)
+    side.edit({ from: at(55, 7), insert: 'z' })
+    side.request()
+    await drained(side.engine)
+    expect(side.runs.get(side.id)).toEqual([[55, 56]])
+    expect(await side.differing()).toEqual([])
+
+    // a comment opened, the run's first chunk ending past the edited line and lost on the way, and a newer request
+    // before the second: the newer one tokenises that chunk again and goes on past it, to the end
+    side.edit({ from: at(40, 0), insert: '/*' })
+    side.request()
+    side.keep = 0
+    side.atYield = () => side.request()
+    await drained(side.engine)
+    expect(side.runs.get(side.id)?.at(-1)?.[1]).toBe(side.doc.lines)
+    expect(await side.differing()).toEqual([])
+  })
+
+  it('U-FV-26 · a request whose count does not follow on from the one the worker holds drops the line states and starts from the top', async () => {
+    const [, text] = SAMPLES[0]!
+    const side = new EditSide('typescript', text)
+    side.request()
+    await drained(side.engine)
+    // a count the worker does not hold: from the top, over every line
+    side.edit({ from: side.doc.line(100).from, insert: 'let a = 1\n' })
+    const mismatched = side.request({ since: 41 })
+    await drained(side.engine)
+    expect(side.runs.get(mismatched)?.[0]?.[0]).toBe(0)
+    expect(side.tokenised(mismatched)).toBe(side.doc.lines)
+    expect(side.engine.endStates('edited')).toBe(side.doc.lines)
+    expect(await side.differing()).toEqual([])
+    // a first request (no count to follow on from), and one after the document was read as read-only, do the same
+    side.edit({ from: side.doc.line(200).from, insert: 'x' })
+    const fresh = side.request({ since: null })
+    await drained(side.engine)
+    expect(side.tokenised(fresh)).toBe(side.doc.lines)
+    side.engine.handle({ t: 'tokenize', id: 900, doc: 'edited', lang: 'typescript', text: side.doc.toString(), from: 0, budgetMs: null })
+    await drained(side.engine)
+    expect(side.engine.endStates('edited')).toBe(0)
+    side.edit({ from: side.doc.line(300).from, insert: 'y' })
+    const after = side.request()
+    await drained(side.engine)
+    expect(side.tokenised(after)).toBe(side.doc.lines)
+    expect(await side.differing()).toEqual([])
+    // and the state goes with `forget`
+    side.engine.handle({ t: 'forget', doc: 'edited' })
+    expect(side.engine.endStates('edited')).toBe(0)
   })
 })
 

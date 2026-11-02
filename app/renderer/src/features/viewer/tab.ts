@@ -45,10 +45,11 @@ export interface ViewerTab {
  * editor per window therefore lives outside the component, in a plain registry of this feature, and is attached into
  * whichever mount exists, as terminal views are (`features/terminal/views.ts`).
  *
- * Keys: the mount handles what the viewer leaves alone — `Esc` closes the tab (back to the Agent terminal) and `↵`
- * pins a preview — so the viewer calls `preventDefault()` on an `Esc` or `↵` it uses itself (its find widget, Go to
- * Line). Everything else that changes tabs is a command: `viewer.open` (another file, or this one in the other mode),
- * `viewer.pinTab`, `terminal.closeTab`.
+ * Keys: the mount handles what the viewer leaves alone — `Esc` leaves Compare, or closes the tab (back to the Agent
+ * terminal) unless its file has unsaved changes, and `↵` pins a preview — so the viewer calls `preventDefault()` on an
+ * `Esc` or `↵` it uses itself (its find widget, Go to Line, a new line in an editable document). Everything else that
+ * changes tabs is a command: `viewer.open` (another file, or this one in the other mode), `viewer.pinTab`,
+ * `terminal.closeTab` (which asks first when the file has unsaved changes).
  */
 export interface ViewerProps {
   sessionId: string

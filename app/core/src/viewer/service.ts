@@ -1,8 +1,10 @@
 // The viewer's part of core: what serves `viewer.*` (protocol viewer.ts). It reads a file or a diff's sides for the
-// window that asks, follows the one file each window has open, and keeps no contents.
+// window that asks, follows the one file each window has open, writes a file the user saves in it (save.ts), and keeps
+// no contents.
 //
 // Visible set: every call is for the session the calling window shows and is refused for any other, and a
-// window's follow ends when it shows another session or goes.
+// window's follow ends when it shows another session or goes. A save is one of the session's file operations: it takes
+// the slot a tree operation or a discard takes (files/session.ts), so none of them overlap.
 //
 // Following: one followed path per window, asked of the watch service (inside a subscribed worktree it
 // costs no watch of its own). A change of the file, or of the session's git state (its scope, base or an entry: the
@@ -15,9 +17,11 @@ import { L, RpcError, type FollowResult, type Handlers, type viewerApi } from '@
 import type { GitFacts } from '../files/facts.ts'
 import type { VisibleScope, VisibleSet } from '../platform/visible.ts'
 import type { FileWatch, WatchService } from '../platform/watch/service.ts'
+import { sessionFs, type FsModule } from '../files/fsImpl.ts'
 import { readChanges, readDiff, type DiffFacts } from './diff.ts'
 import { NOT_OPENED_BY_TYPE, opensSafely } from './openable.ts'
-import { openForRead, readFile, resolveInside } from './read.ts'
+import { openForRead, readFile, readForEdit, resolveInside, userGroups, userId } from './read.ts'
+import { saveFile, type SaveJournal } from './save.ts'
 import path from 'node:path'
 
 type Env = Readonly<Record<string, string | undefined>>
@@ -39,7 +43,22 @@ export interface ViewerServiceOptions {
   openTool: string | null
   /** In place of running `openTool` (a test that records). */
   openDefault?(file: string): Promise<{ ok: boolean; message: string | null }>
+  /**
+   * What `viewer.save` needs: the save journal (save.ts), and from the files service a session's file-operation slot
+   * and its refresh after a write (files/service.ts). Absent: every save is refused (a test of the reads).
+   */
+  saves?: ViewerSaves
   clock?: Clock
+}
+
+export interface ViewerSaves {
+  journal: SaveJournal
+  /** Take the session's file-operation slot: its release, or null while a file operation, a discard or a save holds it. */
+  slot(sessionId: string): (() => void) | null
+  /** A save wrote one of the session's files. */
+  saved(sessionId: string): void
+  /** The file system calls a save makes: `sessionFs` (files/fsImpl.ts) unless a test wraps it. */
+  fs?: FsModule
 }
 
 interface Follow {
@@ -77,6 +96,7 @@ export class ViewerService {
   private readonly follows = new Map<VisibleScope, Follow>()
   private readonly subs: Disposable[]
   private inFlight = 0
+  private saving = 0
   private disposed = false
 
   constructor(o: ViewerServiceOptions) {
@@ -95,20 +115,25 @@ export class ViewerService {
     ]
   }
 
-  /** The resource report's `core.viewer`. */
-  get resourceCounts(): { follows: number; waiters: number; timers: number; reads: number } {
+  /** The resource report's `core.viewer`: `journal` is the new files the save journal names (save.ts). */
+  get resourceCounts(): { follows: number; waiters: number; timers: number; reads: number; saves: number; journal: number } {
     let waiters = 0
     let timers = 0
     for (const f of this.follows.values()) {
       if (f.waiter) waiters++
       if (f.timer !== null) timers++
     }
-    return { follows: this.follows.size, waiters, timers, reads: this.inFlight }
+    return { follows: this.follows.size, waiters, timers, reads: this.inFlight, saves: this.saving, journal: this.o.saves?.journal.size ?? 0 }
   }
 
   handlers(): Handlers<typeof viewerApi> {
     return {
-      'viewer.read': ({ sessionId, path: rel, source }, { peer }) => this.counted(() => readFile(this.cwdFor(peer, sessionId), rel, source ? { source } : {})),
+      'viewer.read': ({ sessionId, path: rel, source, edit }, { peer }) =>
+        this.counted(() => {
+          const cwd = this.cwdFor(peer, sessionId)
+          const o = source ? { source } : {}
+          return edit ? readForEdit(cwd, rel, edit, o) : readFile(cwd, rel, o)
+        }),
       'viewer.diff': ({ sessionId, path: rel }, { peer, signal }) =>
         this.counted(async () => {
           const cwd = this.cwdFor(peer, sessionId)
@@ -137,6 +162,21 @@ export class ViewerService {
         await fh.close().catch(() => undefined)
         if (!stat.isFile() || (stat.mode & 0o111) !== 0) return { ok: false, message: 'Executable files are not opened from here' }
         return this.o.openDefault ? this.o.openDefault(where.real) : openWith(this.o.openTool, where.real)
+      },
+      'viewer.save': async ({ sessionId, path: rel, text, base, eol, create }, { peer }) => {
+        const cwd = this.cwdFor(peer, sessionId)
+        const saves = this.o.saves
+        // a failure with no errno carries no words
+        if (!saves) return { kind: 'refused', reason: 'io' }
+        this.saving++
+        try {
+          const r = await saveFile(cwd, { path: rel, text, base, eol, ...(create ? { create } : {}) }, { fs: saves.fs ?? sessionFs, uid: userId(), groups: userGroups(), journal: saves.journal, slot: () => saves.slot(sessionId), wrote: () => saves.saved(sessionId) })
+          // by how it ended, never by path
+          this.o.log.info('save', { session: sessionId, ...(r.kind === 'refused' ? { refused: r.reason } : { kind: r.kind }), ...(create ? { create: true } : {}) })
+          return r
+        } finally {
+          this.saving--
+        }
       },
     }
   }

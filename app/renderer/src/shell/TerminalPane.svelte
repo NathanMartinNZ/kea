@@ -4,8 +4,8 @@ PTYs (agent, the setup script while `SessionView.setup` names it, server, shells
 the plain shell tabs of the `shells` pseudo-session, whose first shell opens only when `terminal.restored` reports none
 survived and core's first `sessions` snapshot lists no session. In both, a new shell (`⌘T`: `terminal.openShell` for the
 shells, `sessions.openShell` in a session) becomes active once the terminals store lists it, as does an agent that
-starts while the pane shows (after setup), and a shell that exits closes its tab. A person closing a shell tab that has
-a running foreground process is asked first (`terminal.foreground`, then the sheet).
+starts while the pane shows (after setup), and a shell that exits closes its tab. Closing a shell tab that has a
+running foreground process asks first (`terminal.foreground`, then the sheet).
 
 The tab a session showed last comes back with it. The window remembers it while it lives (`lastActive`); the session
 remembers it too (`savedTab.ts`: saved with its panel state), so a window that has not shown the session before (closed
@@ -28,7 +28,9 @@ File and diff tabs: a session's strip also holds the tabs `viewer.open` opened (
 copy `fileTabs.svelte.ts`). While one is active the viewer is mounted over the terminal area
 (`features/viewer/Viewer.svelte`) and the area shows no terminal: the session's terminals stay alive underneath as its
 other tabs do (pinned, the Agent terminal warm), so a flip back is a warm switch. The strip's own commands are
-registered here: `viewer.open`, `viewer.pinTab`, and Close / Next / Previous Tab over every kind of tab.
+registered here: `viewer.open`, `viewer.pinTab`, and Close / Next / Previous Tab over every kind of tab. A file tab
+whose file has unsaved changes shows a dot and is never closed by the pinned cap; Esc leaves it open, and closing it
+(`⌘W`, its close button, a middle click) asks first.
 
 The split: where the window is wide enough (`layoutState.split`), a session's pane is two panes side by side, the work
 pane (this strip without the Agent tab, its terminals then its files, one shown) and the agent pane beside it
@@ -45,6 +47,7 @@ instead of the Agent tab's dot.
 <script lang="ts">
   import { tick, untrack, type Snippet } from 'svelte'
   import { zOpenRequest, type OpenRequest } from '@kea/protocol'
+  import { L } from '@kea/protocol/limits'
   import { Icon } from '@kea/ui'
   import { disposeAll } from '@kea/terminal'
   import { call } from '../lib/rpc.ts'
@@ -67,7 +70,10 @@ instead of the Agent tab's dot.
   import { uiState } from '../features/terminal/ui.svelte.ts'
   import { terminalName } from '../features/terminal/screenReader.ts'
   import { activeView, focusedView, setActivePane, setTabKinds, setTerminalNames, terminals } from '../features/terminal/views.ts'
+  import { currentViewer } from '../features/viewer/controller.svelte.ts'
+  import { closeAsking, reviewView } from '../features/viewer/review.svelte.ts'
   import type { TabViewState } from '../features/viewer/tab.ts'
+  import { isUnsaved, unsavedKey, unsavedView } from '../features/viewer/unsaved.svelte.ts'
   import Viewer from '../features/viewer/Viewer.svelte'
   import { fileTabsOf, reportShownFile, setFileTabs, takeMovedTab } from './fileTabs.svelte.ts'
   import AgentPane from './AgentPane.svelte'
@@ -256,8 +262,9 @@ instead of the Agent tab's dot.
     const a = active
     untrack(() => {
       const asked = wanted
-      // a file tab whose file moved in the file tree (renamed, or its folder moved) is the same tab at its new path
-      const cur = a !== null && isFileTabId(a) && !f.includes(a) ? (takeMovedTab(context, a) ?? a) : a
+      // a file tab whose file moved in the file tree (renamed, or its folder moved) is the same tab at its new path; the
+      // moves of the tabs not on screen are let go with this look
+      const cur = takeMovedTab(context, a !== null && isFileTabId(a) && !f.includes(a) ? a : null) ?? a
       let next = pickActiveTab(t, f, { active: cur, wanted: asked }, home(), start())
       // the split's work pane whose shown terminal left shows the tab before it, else the one after (its strip's
       // order: terminals, then files); with none left, its empty state
@@ -533,9 +540,13 @@ instead of the Agent tab's dot.
 
   /** The shell tab whose close is waiting for an answer, with the program running in it. */
   let closing = $state.raw<{ ptyId: string; text: string } | null>(null)
+  // a review of unsaved files answers every other open question Cancel first
+  $effect(() => {
+    if (reviewView.ask) untrack(() => (closing = null))
+  })
 
   /**
-   * A person closing a shell tab that has a running foreground process is asked first, and also when it could not be
+   * The user closing a shell tab that has a running foreground process is asked first, and also when it could not be
    * learned whether it has one; a shell known to be idle, and a tab whose shell has ended, just close.
    * (A shell that exits closes its own tab, below, without asking.)
    */
@@ -545,7 +556,8 @@ instead of the Agent tab's dot.
       // asked also when core did not answer or does not know: a program that may be running is never ended unasked
       const q = closeQuestion(await call('terminal.foreground', { ptyId }).catch(() => null))
       if (q) {
-        if (tabs.includes(ptyId)) closing = { ptyId, text: q.text }
+        // a review of unsaved files that began meanwhile has answered this question Cancel: no sheet over it
+        if (tabs.includes(ptyId) && !reviewView.ask) closing = { ptyId, text: q.text }
         return
       }
     }
@@ -582,8 +594,11 @@ instead of the Agent tab's dot.
     return r.success && r.data.sessionId === context ? r.data : null
   }
 
+  /** A tab whose file has unsaved changes is never the one the pinned cap closes. */
+  const held = (path: string): boolean => isUnsaved(context, path)
+
   function openFile(req: OpenRequest): void {
-    const r = openFileTab(fileTabsOf(context), req)
+    const r = openFileTab(fileTabsOf(context), req, L.viewerPinnedTabsMax, held)
     setFileTabs(context, r.tabs)
     wanted = null
     active = r.id
@@ -596,7 +611,7 @@ instead of the Agent tab's dot.
   }
 
   function pinFile(id: string): void {
-    setFileTabs(context, pinFileTab(fileTabsOf(context), id))
+    setFileTabs(context, pinFileTab(fileTabsOf(context), id, L.viewerPinnedTabsMax, held))
   }
 
   /**
@@ -617,16 +632,27 @@ instead of the Agent tab's dot.
     if (split && viewerHad && (back === 'agent' || active === null)) focusAgent()
   }
 
+  /** ⌘W, the close button, a middle click: a tab whose file has unsaved changes asks first. */
+  function closeFileAsking(id: string): void {
+    const t = files.tabs.find((x) => x.id === id)
+    if (t) void closeAsking(context, t.path, () => closeFile(id))
+    else closeFile(id)
+  }
+
   function saveView(id: string, view: TabViewState): void {
     setFileTabs(context, saveFileTabView(fileTabsOf(context), id, view))
   }
 
-  /** Keys the viewer left alone: Esc closes the tab, ↵ pins a preview. */
+  /**
+   * Keys the viewer left alone: Esc leaves Compare, or closes the tab unless its file has unsaved changes (Esc never
+   * asks the warning); ↵ pins a preview.
+   */
   function onViewerKey(e: KeyboardEvent): void {
     const t = fileTab
     if (!t || e.defaultPrevented || e.isComposing || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return
     if (e.key === 'Escape') {
       e.preventDefault()
+      if (currentViewer()?.escape() || isUnsaved(context, t.path)) return
       closeFile(t.id)
     } else if (e.key === 'Enter' && !t.pinned) {
       e.preventDefault()
@@ -762,7 +788,7 @@ instead of the Agent tab's dot.
         closing: () => (paneActive === 'agent' ? agentId : active),
         focusAgent,
         agentThere: () => split && agentId !== null,
-        closeTab: (id) => (isFileTabId(id) ? closeFile(id) : void askClose(id)),
+        closeTab: (id) => (isFileTabId(id) ? closeFileAsking(id) : void askClose(id)),
         select,
         openFind,
       }),
@@ -865,18 +891,19 @@ instead of the Agent tab's dot.
               data-path={t.path}
               data-pinned={t.pinned}
               aria-selected={t.id === active}
-              class={['tab', 'file', 'closable', t.id === active ? 'active' : '', t.pinned ? '' : 'preview'].filter(Boolean).join(' ')}
+              class={['tab', 'file', 'closable', t.id === active ? 'active' : '', t.pinned ? '' : 'preview', unsavedView.files.has(unsavedKey(context, t.path)) ? 'unsaved' : ''].filter(Boolean).join(' ')}
+              aria-label={unsavedView.files.has(unsavedKey(context, t.path)) ? `${fileTabTitle(t.path)}, unsaved` : undefined}
               aria-description={t.path}
               data-tip={t.path}
               onmousedown={keepFocus}
               onclick={(e) => {
-                if (onCloseButton(e)) return closeFile(t.id)
+                if (onCloseButton(e)) return closeFileAsking(t.id)
                 select(t.id)
                 focusViewer()
               }}
               ondblclick={() => pinFile(t.id)}
               onauxclick={(e) => {
-                if (e.button === 1) closeFile(t.id)
+                if (e.button === 1) closeFileAsking(t.id)
               }}><span class="tab-title">{fileTabTitle(t.path)}</span>{@render closeButton()}</button
             >
           {/each}
@@ -909,7 +936,7 @@ instead of the Agent tab's dot.
       {#if fileTab}
         {@const tab = fileTab}
         <!-- the viewer's mount: over the terminal area, which shows no terminal meanwhile -->
-        <!-- svelte-ignore a11y_no_noninteractive_element_interactions (the keys the viewer inside leaves alone: Esc closes the tab, ↵ pins a preview) -->
+        <!-- svelte-ignore a11y_no_noninteractive_element_interactions (the keys the viewer inside leaves alone: Esc leaves Compare or closes the tab, ↵ pins a preview) -->
         <div bind:this={mount} class="viewer-mount" role="tabpanel" aria-label={tab.path} tabindex="-1" data-path={tab.path} data-mode={tab.mode} onkeydown={onViewerKey}>
           <Viewer sessionId={context} {tab} onview={(view) => saveView(tab.id, view)} />
         </div>

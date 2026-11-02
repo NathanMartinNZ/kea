@@ -12,10 +12,10 @@ import { BUDGETS } from '../../tools/perf/src/generated/budgets.ts'
 import { median } from '../../tools/perf/src/stats.ts'
 import { footprint, KeaRun, STEP_MS, until, type Kea } from '../support/app.ts'
 import { expectBytesFlat, expectCountsFlat, RendererProbe, runCycles, WARMUP_CYCLES, type LeakRun } from '../support/app-leak.ts'
-import { addProject, agentTerminal, demoRepo, startSession, waitLive } from '../support/app-sessions.ts'
+import { addProject, agentTerminal, demoRepo, selectSession, startSession, waitLive } from '../support/app-sessions.ts'
 import { fileTabs, openFile } from '../support/app-tabs.ts'
 import { closeViewer, commitAll, plainText, sampleSource, sessionWorktree, viewer, viewerRows, viewerText, waitBody, waitViewer, WorkerProbe, writeFiles } from '../support/app-viewer.ts'
-import { sysKey, textKey } from '../support/keys.ts'
+import { MOD_CLICK, sysKey, textKey } from '../support/keys.ts'
 
 const runs: KeaRun[] = []
 const probes: { close(): Promise<void> }[] = []
@@ -359,20 +359,27 @@ describe('file viewer leaks (app)', () => {
     expect(Math.max(...closed), `after close (MB): ${mb(closed)}`).toBeLessThan(BYTES / 2)
   })
 
-  it('L-FV-5 · the open file rewritten 100 times, as an agent editing it does: the view follows every time, one editor and one document’s text held throughout, every count equal, heaps within budget', async () => {
+  it('L-FV-5 · the open file rewritten 100 times, as an agent editing it does (one rewrite in two adds a line): the view follows every time, one editor and one document’s text held throughout, every count equal, heaps within budget', async () => {
     const LINES = 600
     const FILE = 'fv/live.ts'
     const lines = sampleSource(0, LINES).split('\n')
     const { kea, renderer, id, worktree } = await start({ [FILE]: lines.join('\n') })
     await openText(kea, id, FILE)
     const chars = lines.join('\n').length
-    /** The file after its `i`th rewrite: three lines changed, always to the same length. */
+    /**
+     * The file after its `i`th rewrite: three lines changed, always to the same length. An odd rewrite makes the first of
+     * them two lines, so every reload is one transaction whose changes differ in line count, and the lines between them
+     * keep their colours only if each change is placed by its own line count.
+     */
     const rewrite = (i: number): string => {
       const next = [...lines]
-      for (const at of [7, 301, 595]) next[at] = `  // rewrite ${String(i).padStart(6, '0')}`
+      const n = String(i).padStart(6, '0')
+      for (const at of [7, 301, 595]) next[at] = `  // rewrite ${n}`
+      if (i % 2 === 1) next[7] = `  // r ${n}\n  //x`
       return next.join('\n')
     }
     expect(rewrite(1).length).toBe(rewrite(123456).length)
+    expect(rewrite(1).split('\n').length).toBe(rewrite(2).split('\n').length + 1)
     // the canonical state: the file already differs from the commit and the status pipeline has said so, so the
     // gutter's markers and whatever lists the change are drawn before the baseline
     fs.writeFileSync(path.join(worktree, FILE), rewrite(999_999))
@@ -397,5 +404,168 @@ describe('file viewer leaks (app)', () => {
     expect(seriesOf(run, 'renderer.viewerCachedDocs').every((n) => n === 0)).toBe(true)
     expectCountsFlat(run, () => true)
     await expectBytesFlat(kea, renderer, run, HEAPS, 'L-FV-5')
+  })
+
+  it('L-FV-6 · editable files typed into, left for another session and shown again, then saved (⌘S) or let go (⌘W, Don’t Save) and closed, in turn; a Replace All over a file near L.viewerFullBytes and typing at many cursors in the same run: one editor, no unsaved document, save in flight, cached document, journal entry or new file of a save left at any checkpoint, every count equal, heaps within budget', async () => {
+    // all in the ignored `big/`, so a save never changes what the session's git status lists
+    const SMALL = 'big/edit.ts'
+    const LARGE = 'big/large.txt'
+    const FIRST = '// rev 000000' // the small file's first line, retyped at the same length every time
+    const small = `${FIRST}\n${sampleSource(7, 120)}`
+    // `value` once in every six lines: about one replacement in every 120 bytes
+    const large = sampleSource(9, Math.floor((L.viewerFullBytes * 0.95) / 19))
+    const CURSORS = 20 // the small file's `value`s, every one of them a cursor
+    const { run, kea, renderer, id, worktree } = await start({})
+    writeFiles(worktree, { [SMALL]: small, [LARGE]: large })
+    expect(Buffer.byteLength(large), 'the large file is near the full-feature size, and within it').toBeLessThanOrEqual(L.viewerFullBytes)
+    expect(Buffer.byteLength(large)).toBeGreaterThan(L.viewerFullBytes * 0.9)
+    expect(small.split('"value ').length - 1, 'the small file’s values').toBe(CURSORS)
+    const page = await kea.page()
+    const agent = await agentTerminal(kea, id)
+    // another session to leave for and come back from
+    const other = await startSession(kea, 'other')
+    await waitLive(kea, other)
+    await selectSession(kea, id)
+    const journal = path.join(run.home, 'save-journal.json')
+    /** Saves the journal lists now (none while the file is not there). */
+    const journalEntries = (): number => {
+      try {
+        return (JSON.parse(fs.readFileSync(journal, 'utf8')) as unknown[]).length
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code === 'ENOENT') return 0
+        throw e
+      }
+    }
+    /** A save's new files anywhere in the worktree. */
+    const newFiles = (): string[] => (fs.readdirSync(worktree, { recursive: true }) as string[]).filter((f) => path.basename(f).startsWith('.kea-save-'))
+    const onDisk: Record<string, string> = { [SMALL]: small, [LARGE]: large }
+    let maxUnsaved = 0
+    let maxUnsavedBytes = 0
+
+    /** Open `p` in a preview tab, editable, and put the keyboard in its text at its first line. */
+    const open = async (p: string): Promise<void> => {
+      expect(await openFile(kea, { sessionId: id, path: p, mode: 'file' }), `viewer.open ${p}`).toBe(true)
+      const shown = await waitViewer(kea, `${p} shown, editable and coloured`, (v) => v.ui.path === p && v.ui.body.kind === 'text' && v.text !== null && v.ui.editable && (v.ui.language === 'Plain Text' || v.text.tokenised === v.text.lines) && v.highlighter.pending === 0, 60_000)
+      expect(shown.ui.unsaved, `${p} opens with nothing unsaved`).toBe(false)
+      await page.locator('.viewer .cm-content').focus()
+      await page.keyboard.press(textKey('Meta+ArrowUp'))
+    }
+    /** To the other session and back: the unsaved document waits in the registry, then is on screen again as it was. */
+    const awayAndBack = async (p: string): Promise<void> => {
+      await selectSession(kea, other)
+      const away = await viewerRows(kea)
+      expect([away.viewerUnsaved, away.viewerDocBytes], `${p} unsaved while its session is not shown, and not on screen`).toEqual([1, 0])
+      maxUnsaved = Math.max(maxUnsaved, away.viewerUnsaved as number)
+      maxUnsavedBytes = Math.max(maxUnsavedBytes, away.viewerUnsavedBytes as number)
+      await selectSession(kea, id)
+      await waitViewer(kea, `${p} on screen again, unsaved`, (v) => v.ui.path === p && v.ui.body.kind === 'text' && v.ui.unsaved && v.ui.editable)
+      await page.locator('.viewer .cm-content').focus()
+    }
+    /** ⌘S: saved, then closed with Esc (it is clean). */
+    const save = async (p: string, text: string): Promise<void> => {
+      await page.keyboard.press(sysKey('Meta+s'))
+      await waitViewer(kea, `${p} saved`, (v) => v.ui.path === p && !v.ui.unsaved && v.resources.viewerSaving === 0 && v.ui.editNotice === null, 60_000)
+      expect(fs.readFileSync(path.join(worktree, p), 'utf8') === text, `${p} on disk is the text saved`).toBe(true)
+      onDisk[p] = text
+      await closeViewer(kea)
+    }
+    /** ⌘W, then Don't Save in the warning: the tab closes and the file stays as it was on disk. */
+    const dontSave = async (p: string): Promise<void> => {
+      await page.keyboard.press(sysKey('Meta+w'))
+      const sheet = page.getByRole('alertdialog')
+      await sheet.getByRole('button', { name: 'Don’t Save' }).click({ timeout: STEP_MS })
+      await page.waitForFunction(() => document.querySelector('.viewer-mount') === null, undefined, { polling: 'raf', timeout: STEP_MS })
+      await sheet.waitFor({ state: 'detached', timeout: STEP_MS })
+      expect(fs.readFileSync(path.join(worktree, p), 'utf8') === onDisk[p], `${p} on disk as it was`).toBe(true)
+    }
+    /** The small file's first line typed again, key by key, as no earlier cycle typed it. */
+    const retype = async (i: number): Promise<string> => {
+      const line = `// rev ${String(i + 1).padStart(6, '0')}`
+      await page.keyboard.press('Shift+End')
+      await page.keyboard.type(line)
+      const text = `${line}\n${small.slice(FIRST.length + 1)}`
+      await until('the line typed', async () => (await viewerText(kea)) === text || undefined)
+      return text
+    }
+
+    const leak = await runCycles({
+      kea,
+      renderer,
+      // two of each kind before the baseline: the window's heap rises over the first few dozen cycles (the editor's
+      // and the find bar's code warming up) and stays level after
+      warmup: 8,
+      batch: 4,
+      quiesce: async () => {
+        await page.locator(`[role=tablist][aria-label="Terminals"] [role=tab][data-pty="${agent}"]`).click()
+        await page.waitForFunction(() => document.querySelector('.viewer-mount') === null, undefined, { polling: 'raf', timeout: STEP_MS })
+        await settled(kea, renderer)()
+      },
+      // the journal and the worktree, judged with the counts
+      extra: async () => ({ counts: { 'disk.saveJournalEntries': journalEntries(), 'disk.newFilesOfSaves': newFiles().length }, bytes: {} }),
+      cycle: async (i) => {
+        switch (i % 4) {
+          case 0: {
+            // typed, away and back, saved
+            await open(SMALL)
+            const text = await retype(i)
+            await awayAndBack(SMALL)
+            await save(SMALL, text)
+            break
+          }
+          case 1: {
+            // typed, away and back, let go
+            await open(SMALL)
+            await retype(i)
+            await awayAndBack(SMALL)
+            await dontSave(SMALL)
+            break
+          }
+          case 2: {
+            // Replace All over the large file (every `value` one way, then back the next time), away and back, saved
+            await open(LARGE)
+            const was = onDisk[LARGE] as string
+            const [from, to] = was.includes('"value ') ? ['value', 'VALUE'] : ['VALUE', 'value']
+            await page.keyboard.press(sysKey('Alt+Meta+f'))
+            await page.locator('.viewer .kea-find input[aria-label="Find in file"]').fill(from)
+            await page.locator('.viewer .kea-replace-input').fill(to)
+            await page.locator('.viewer').getByRole('button', { name: 'Replace all', exact: true }).click()
+            await waitViewer(kea, 'every match replaced', (v) => v.ui.unsaved)
+            await page.keyboard.press('Escape')
+            await waitViewer(kea, 'the find bar closed', (v) => v.text?.findOpen === false)
+            await awayAndBack(LARGE)
+            await save(LARGE, was.replaceAll(`"${from} `, `"${to} `))
+            break
+          }
+          case 3: {
+            // a cursor at every `value` of the small file, typed at all of them, away and back, let go
+            await open(SMALL)
+            await page.keyboard.press(sysKey('Control+g'))
+            // the first `value`: line 4 (the first line, then the source's), after `  const text = "`
+            await page.locator('.viewer .kea-goto .kea-bar-input').fill('4:17')
+            await page.keyboard.press('Enter')
+            await page.locator('.viewer .kea-goto').waitFor({ state: 'detached' })
+            // CodeMirror's Mod (⌘ on macOS, Ctrl elsewhere, the click modifier's key): the word, then each next one
+            for (let k = 0; k < CURSORS; k++) await page.keyboard.press(`${MOD_CLICK}+d`)
+            await page.keyboard.type('key')
+            await waitViewer(kea, `typed at ${CURSORS} cursors`, (v) => v.ui.unsaved && v.text?.chars === small.length + CURSORS * ('key'.length - 'value'.length))
+            // Esc: one cursor again
+            await page.keyboard.press('Escape')
+            await awayAndBack(SMALL)
+            await dontSave(SMALL)
+            break
+          }
+        }
+      },
+    })
+    expect(leak.cycles.at(-1)).toBe(40)
+    expect(seriesOf(leak, 'renderer.liveEditorView').every((n) => n === 1), `live EditorView instances: ${seriesOf(leak, 'renderer.liveEditorView')}`).toBe(true)
+    // the registry held each document while its session was away, the large one included, and nothing at a checkpoint
+    expect(maxUnsaved, 'unsaved documents at most').toBe(1)
+    expect(maxUnsavedBytes, 'the largest unsaved document counted its text and its last saved text').toBeGreaterThan(2 * large.length)
+    for (const key of ['renderer.viewerUnsaved', 'renderer.viewerUnsavedBytes', 'renderer.viewerSaving', 'renderer.viewerCachedDocs', 'renderer.viewerCachedBytes', 'renderer.viewerDocBytes', 'core.kit.core.viewer.saves', 'core.kit.core.viewer.journal', 'disk.saveJournalEntries', 'disk.newFilesOfSaves'])
+      expect(seriesOf(leak, key).every((n) => n === 0), `${key} at each checkpoint: ${seriesOf(leak, key)}`).toBe(true)
+    expect(fs.readFileSync(path.join(worktree, SMALL), 'utf8') === onDisk[SMALL] && fs.readFileSync(path.join(worktree, LARGE), 'utf8') === onDisk[LARGE], 'both files as last saved').toBe(true)
+    expectCountsFlat(leak, () => true)
+    await expectBytesFlat(kea, renderer, leak, HEAPS, 'L-FV-6')
   })
 })

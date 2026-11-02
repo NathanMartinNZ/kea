@@ -1,0 +1,20 @@
+{
+  "$comment": "A text file’s bytes, the lines the file view shows (decoded, the byte-order mark dropped, split on the file’s line ending) and the text a save sends (the lines joined with that ending), which core encodes back into the same bytes. Shared by app/renderer/src/features/viewer/roundtrip.test.ts (bytes to lines to text) and app/core/src/viewer/roundtrip.test.ts (text to bytes) (U-FV-21).",
+  "cases": [
+    {"name":"LF","hex":"6f6e650a74776f0a","encoding":"utf8","bom":false,"eol":"lf","lines":["one","two",""],"text":"one\ntwo\n"},
+    {"name":"CRLF","hex":"6f6e650d0a74776f0d0a","encoding":"utf8","bom":false,"eol":"crlf","lines":["one","two",""],"text":"one\r\ntwo\r\n"},
+    {"name":"CR","hex":"6f6e650d74776f0d","encoding":"utf8","bom":false,"eol":"cr","lines":["one","two",""],"text":"one\rtwo\r"},
+    {"name":"LF with no final newline","hex":"6f6e650a74776f","encoding":"utf8","bom":false,"eol":"lf","lines":["one","two"],"text":"one\ntwo"},
+    {"name":"CRLF with no final newline","hex":"6f6e650d0a0d0a74776f","encoding":"utf8","bom":false,"eol":"crlf","lines":["one","","two"],"text":"one\r\n\r\ntwo"},
+    {"name":"one line with no line ending","hex":"6f6e65","encoding":"utf8","bom":false,"eol":"lf","lines":["one"],"text":"one"},
+    {"name":"empty","hex":"","encoding":"utf8","bom":false,"eol":"lf","lines":[""],"text":""},
+    {"name":"only line endings","hex":"0d0a0d0a","encoding":"utf8","bom":false,"eol":"crlf","lines":["","",""],"text":"\r\n\r\n"},
+    {"name":"UTF-8 without a byte-order mark","hex":"68c3a96c6c6f0a77c3b6726c6420e29c9320f09f98800a","encoding":"utf8","bom":false,"eol":"lf","lines":["héllo","wörld ✓ 😀",""],"text":"héllo\nwörld ✓ 😀\n"},
+    {"name":"UTF-8 with a byte-order mark","hex":"efbbbf68c3a96c6c6f0d0a77c3b6726c6420e29c930d0a","encoding":"utf8","bom":true,"eol":"crlf","lines":["héllo","wörld ✓",""],"text":"héllo\r\nwörld ✓\r\n"},
+    {"name":"UTF-8: only a byte-order mark","hex":"efbbbf","encoding":"utf8","bom":true,"eol":"lf","lines":[""],"text":""},
+    {"name":"UTF-16 LE","hex":"fffe6800e9000d000a003dd800de200013270d000a00","encoding":"utf16le","bom":true,"eol":"crlf","lines":["hé","😀 ✓",""],"text":"hé\r\n😀 ✓\r\n"},
+    {"name":"UTF-16 LE: only a byte-order mark","hex":"fffe","encoding":"utf16le","bom":true,"eol":"lf","lines":[""],"text":""},
+    {"name":"UTF-16 BE","hex":"feff006800e9000ad83dde0000202713","encoding":"utf16be","bom":true,"eol":"lf","lines":["hé","😀 ✓"],"text":"hé\n😀 ✓"},
+    {"name":"UTF-16 BE with CR","hex":"feff0061000d0062000d","encoding":"utf16be","bom":true,"eol":"cr","lines":["a","b",""],"text":"a\rb\r"}
+  ]
+}

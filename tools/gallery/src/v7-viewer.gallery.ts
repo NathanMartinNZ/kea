@@ -1,6 +1,6 @@
 // V-7 and V-13: the diff tab (unified, split, collapsed regions, binary, the large-diff notice) and the file viewer
-// (TypeScript with folds, change markers and find open; Markdown preview; an image; the binary placeholder; the
-// large-file notice).
+// (TypeScript with folds, change markers and find open; typing with the tab's dot; a place marked where the file changed
+// under the user's edits; a read-only file; Markdown preview; an image; the binary placeholder; the large-file notice).
 
 import fs from 'node:fs'
 import path from 'node:path'
@@ -117,6 +117,33 @@ test('V-13 · file viewer', async ({ run, launch }) => {
   await page.locator('.viewer .kea-goto .kea-bar-input').waitFor({ timeout: STEP_MS })
   await set.shot(kea, 'goto', 'Go to Line (⌃G)', 'File viewer', { rect: TOP })
   await page.keyboard.press('Escape')
+
+  // editing: text typed at the end of a line; the tab's dot stands in its close button's place until it is saved
+  await page.locator('.viewer .cm-content').click({ position: { x: 300, y: 160 } })
+  await page.keyboard.press('End')
+  await page.keyboard.type(' // checked')
+  const edited = await waitViewer(kea, 'unsaved', (v) => v.ui.unsaved)
+  await page.mouse.move(1000, 800)
+  await set.shot(kea, 'editing', 'Typing in a file: the tab’s dot (--text-1) in its close button’s place while the file has unsaved changes; ⌘S saves', 'File viewer', { rect: MAIN })
+  // the file changed on disk on the line the user edited: the place is marked, and the notice line offers its actions
+  const at = edited.text!.selection.from.line
+  const lines = fs.readFileSync(path.join(worktree, LOGIN), 'utf8').split('\n')
+  lines[at - 1] = '  // changed by the agent'
+  fs.writeFileSync(path.join(worktree, LOGIN), lines.join('\n'))
+  await waitViewer(kea, 'the place marked', (v) => /Changed on disk/.test(v.ui.editNotice?.text ?? ''), GIT_MS)
+  await page.mouse.move(1000, 800)
+  await set.shot(kea, 'conflict', 'The file changed on disk where the user edited: the place marked (--warn at --opacity-diff-line), the notice line with Compare, Use the File’s, Keep Yours (--info links)', 'File viewer', { rect: MAIN })
+  await page.evaluate(() => (globalThis as unknown as { __keaProbe: { discardUnsaved(): void } }).__keaProbe.discardUnsaved())
+  await waitViewer(kea, 'nothing unsaved', (v) => !v.ui.unsaved)
+
+  // a file that cannot be written back: "Read-only" after the language, the reason as its tooltip
+  writeFiles(worktree, { 'src/locked.ts': 'export const locked = true\n' })
+  fs.chmodSync(path.join(worktree, 'src/locked.ts'), 0o444)
+  await clickFile(kea, 'src/locked.ts')
+  await waitViewer(kea, 'read-only', (v) => v.ui.path === 'src/locked.ts' && v.ui.readOnly !== null)
+  await page.locator('.viewer .viewer-readonly').hover()
+  await set.shot(kea, 'read-only', 'A file that cannot be written: “Read-only” after the language (--text-3), why in its tooltip', 'File viewer', { rect: TOP })
+  await page.mouse.move(1000, 800)
 
   await clickFile(kea, 'docs/guide.md')
   await waitBody(kea, 'docs/guide.md', 'text')

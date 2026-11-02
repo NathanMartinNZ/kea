@@ -13,8 +13,11 @@
 // File tabs (a session has one per path, and a tab shows its path as a file or as a diff):
 //   · an open without `pin` shows the path in the preview tab — the one unpinned tab, which the next such open
 //     replaces in place; a path that already has a tab shows that tab
-//   · pinning (a double-click, ↵, an open with `pin`) keeps it; at most L.viewerPinnedTabsMax are pinned, and pinning
-//     one more closes the least recently viewed pinned tab
+//   · pinning (a double-click, ↵ in a read-only document, an open with `pin`, an edit that leaves the file unsaved)
+//     keeps it; at most L.viewerPinnedTabsMax are pinned, and pinning one more closes the least recently viewed pinned
+//     tab whose file has no unsaved changes (when every other one has some, the strip keeps one more)
+//   · so a tab whose file has unsaved changes is never the preview and never closed by that cap; Esc leaves it open,
+//     and ⌘W, its close button or a middle click asks first (`features/viewer/review.svelte.ts`)
 //   · a file tab that closes (Esc, ⌘W, a middle click, that cap) hands the pane back to the Agent terminal; in the
 //     split, whose work pane has no Agent tab, to the tab before it (`afterClose`)
 //   · a hidden tab keeps only `{path, mode, scroll, selection, folds}` (`features/viewer/tab.ts`)
@@ -135,13 +138,16 @@ export function fileTabTitle(path: string): string {
   return path.slice(path.lastIndexOf('/') + 1)
 }
 
-/** At most `max` pinned: the least recently viewed pinned tabs go, never `keep`. */
-function capPinned(tabs: readonly FileTab[], keep: string, max: number): readonly FileTab[] {
+/**
+ * At most `max` pinned: the least recently viewed pinned tabs go, never `keep` and never a tab whose file has unsaved
+ * changes (`held`); when every other one is held, the strip keeps one more.
+ */
+function capPinned(tabs: readonly FileTab[], keep: string, max: number, held: (path: string) => boolean): readonly FileTab[] {
   let out = tabs
   for (;;) {
     const pinned = out.filter((t) => t.pinned)
     if (pinned.length <= max) return out
-    const oldest = pinned.filter((t) => t.id !== keep).reduce<FileTab | null>((a, t) => (a === null || t.seen < a.seen ? t : a), null)
+    const oldest = pinned.filter((t) => t.id !== keep && !held(t.path)).reduce<FileTab | null>((a, t) => (a === null || t.seen < a.seen ? t : a), null)
     if (!oldest) return out
     out = out.filter((t) => t !== oldest)
   }
@@ -152,7 +158,7 @@ function capPinned(tabs: readonly FileTab[], keep: string, max: number): readonl
  * which starts its view afresh); otherwise the preview tab is replaced in place, or a tab is added. The tab is the most
  * recently viewed. `o.line` is where to land.
  */
-export function openFileTab(s: FileTabs, o: OpenFile, maxPinned: number = L.viewerPinnedTabsMax): { tabs: FileTabs; id: string } {
+export function openFileTab(s: FileTabs, o: OpenFile, maxPinned: number = L.viewerPinnedTabsMax, held: (path: string) => boolean = () => false): { tabs: FileTabs; id: string } {
   const id = fileTabId(o.path)
   const seq = s.seq + 1
   const goto: TabPosition | null = o.line !== undefined ? { line: o.line, col: o.col ?? 1 } : null
@@ -167,7 +173,7 @@ export function openFileTab(s: FileTabs, o: OpenFile, maxPinned: number = L.view
     const preview = fresh.pinned ? -1 : s.tabs.findIndex((t) => !t.pinned)
     tabs = preview < 0 ? [...s.tabs, fresh] : s.tabs.map((t, i) => (i === preview ? fresh : t))
   }
-  return { tabs: { tabs: capPinned(tabs, id, maxPinned), seq }, id }
+  return { tabs: { tabs: capPinned(tabs, id, maxPinned, held), seq }, id }
 }
 
 /** The tab is on screen: it is the most recently viewed. */
@@ -177,11 +183,14 @@ export function viewFileTab(s: FileTabs, id: string): FileTabs {
   return { tabs: s.tabs.map((t) => (t.id === id ? { ...t, seen: seq } : t)), seq }
 }
 
-/** Pin the preview tab (double-click, ↵). One pinned tab too many closes the least recently viewed other one. */
-export function pinFileTab(s: FileTabs, id: string, maxPinned: number = L.viewerPinnedTabsMax): FileTabs {
+/**
+ * Pin the preview tab (double-click, ↵ in a read-only document, an edit). One pinned tab too many closes the least
+ * recently viewed other one whose file has no unsaved changes (`held`).
+ */
+export function pinFileTab(s: FileTabs, id: string, maxPinned: number = L.viewerPinnedTabsMax, held: (path: string) => boolean = () => false): FileTabs {
   const t = s.tabs.find((x) => x.id === id)
   if (!t || t.pinned) return s
-  return { tabs: capPinned(s.tabs.map((x) => (x === t ? { ...x, pinned: true } : x)), id, maxPinned), seq: s.seq }
+  return { tabs: capPinned(s.tabs.map((x) => (x === t ? { ...x, pinned: true } : x)), id, maxPinned, held), seq: s.seq }
 }
 
 export function closeFileTab(s: FileTabs, id: string): FileTabs {

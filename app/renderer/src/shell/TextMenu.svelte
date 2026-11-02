@@ -1,10 +1,12 @@
 <!--
 The text menu (features/commands/textMenu.ts): a right-click on a text field, a document the viewer shows or other
-selected text opens Cut, Copy, Paste and Select All as they apply there. A right-click another menu took (a terminal,
-a row, a chip: each prevents the event's default) never opens it, nor does one with nothing to offer. Cut, Copy and
-Paste are the Edit menu's roles, which main runs on the element the menu was opened on once it has the keyboard back;
-Select All selects a field's text, or the document's through the viewer. The keyboard's Menu key opens it on a field
-too, where Chromium sends a `contextmenu`. Mounted once by the window. Locatable as `role=menu` "Text menu".
+selected text opens Cut, Copy, Paste and Select All as they apply there: all four in a field or a document that can be
+edited, Copy and Select All in a read-only document. The viewer's document is looked for first, since an editable one
+is a `contenteditable` too. A right-click another menu took (a terminal, a row, a chip: each prevents the event's
+default) never opens it, nor does one with nothing to offer. Cut, Copy and Paste are the Edit menu's roles, which main
+runs on the element the menu was opened on once it has the keyboard back; Select All selects a field's text, or the
+document's through the viewer. The keyboard's Menu key opens it on a field too, where Chromium sends a `contextmenu`.
+Mounted once by the window. Locatable as `role=menu` "Text menu".
 -->
 <script lang="ts">
   import { protocolOs } from '@kea/protocol'
@@ -32,10 +34,11 @@ too, where Chromium sends a `contextmenu`. Mounted once by the window. Locatable
       const selected = input.selectionStart !== null && input.selectionStart !== input.selectionEnd
       return { target: { kind: 'field', editable: !input.readOnly && !input.disabled, hasSelection: selected, secret: input.type === 'password' }, field: input, doc: null }
     }
+    // the viewer's document first: an editable one is a `contenteditable` too
+    const d = viewerTextAt(el)
+    if (d) return { target: { kind: 'document', editable: d.editable, hasSelection: d.hasSelection, secret: false }, field: null, doc: d }
     const editable = el.closest('[contenteditable]')
     if (editable instanceof HTMLElement && editable.isContentEditable) return { target: { kind: 'field', editable: true, hasSelection: pageSelection(), secret: false }, field: editable, doc: null }
-    const d = viewerTextAt(el)
-    if (d) return { target: { kind: 'document', editable: false, hasSelection: d.hasSelection, secret: false }, field: null, doc: d }
     return { target: { kind: 'text', editable: false, hasSelection: pageSelection(), secret: false }, field: null, doc: null }
   }
 

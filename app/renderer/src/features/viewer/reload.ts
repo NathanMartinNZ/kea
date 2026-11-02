@@ -16,6 +16,12 @@ export interface ReloadChange {
   from: number
   to: number
   insert: Text
+  /**
+   * The old lines it replaces, `[fromLine, toLine)` (0-based; equal for lines put in). The positions alone cannot tell
+   * lines put in before a final empty line from lines put in at the end: both are at the end of the text.
+   */
+  fromLine: number
+  toLine: number
 }
 
 export interface Reload {
@@ -28,15 +34,16 @@ export interface Reload {
 /** The change that replaces old lines `[from, to)` (0-based) of `doc` with `lines`; one of the two may be empty, not both. */
 function replaceLines(doc: Text, from: number, to: number, lines: readonly string[]): ReloadChange {
   const n = doc.lines
-  if (to > from && lines.length > 0) return { from: doc.line(from + 1).from, to: doc.line(to).to, insert: Text.of([...lines]) }
+  const range = { fromLine: from, toLine: to }
+  if (to > from && lines.length > 0) return { from: doc.line(from + 1).from, to: doc.line(to).to, insert: Text.of([...lines]), ...range }
   if (to === from) {
     // lines put in: before the old line that follows them, or after the last line
-    if (from < n) return { from: doc.line(from + 1).from, to: doc.line(from + 1).from, insert: Text.of([...lines, '']) }
-    return { from: doc.length, to: doc.length, insert: Text.of(['', ...lines]) }
+    if (from < n) return { from: doc.line(from + 1).from, to: doc.line(from + 1).from, insert: Text.of([...lines, '']), ...range }
+    return { from: doc.length, to: doc.length, insert: Text.of(['', ...lines]), ...range }
   }
   // lines taken out: with the break before the line that follows them, or the break after the line before them
-  if (to < n) return { from: doc.line(from + 1).from, to: doc.line(to + 1).from, insert: Text.empty }
-  return { from: from > 0 ? doc.line(from).to : 0, to: doc.length, insert: Text.empty }
+  if (to < n) return { from: doc.line(from + 1).from, to: doc.line(to + 1).from, insert: Text.empty, ...range }
+  return { from: from > 0 ? doc.line(from).to : 0, to: doc.length, insert: Text.empty, ...range }
 }
 
 /** Code units a line may stand for: everything but 0 and the surrogates. */

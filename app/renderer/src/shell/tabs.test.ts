@@ -145,6 +145,14 @@ describe('file and diff tabs', () => {
     expect(shape(openFileTab(opened(['a', 'b', 'c'], { pin: true }), { path: 'd', mode: 'file', pin: true }, 2).tabs)).toEqual(['c', 'd'])
   })
 
+  it('U-FV-11 · a pinned tab whose file has unsaved changes is never the one closed; when every other pinned tab has some, the strip keeps one more', () => {
+    const three = opened(['a', 'b', 'c'], { pin: true })
+    expect(shape(openFileTab(three, { path: 'd', mode: 'file', pin: true }, 2, (p) => p === 'a' || p === 'b').tabs)).toEqual(['a', 'b', 'd'])
+    expect(shape(openFileTab(three, { path: 'd', mode: 'file', pin: true }, 2, (p) => p !== 'd').tabs)).toEqual(['a', 'b', 'c', 'd'])
+    const s = opened(['preview'], { from: opened(['a', 'b'], { pin: true }) })
+    expect(shape(pinFileTab(s, fileTabId('preview'), 2, (p) => p === 'a'))).toEqual(['a', 'preview'])
+  })
+
   it('U-FV-11 · a tab keeps its view while hidden (scroll, selection, at most L.viewerTabFoldsMax folds); a line to land on lasts until the view is saved; the other mode starts the view afresh in the same tab', () => {
     const view: TabViewState = { scroll: { line: 120, offset: 6, left: 0 }, selection: { anchor: { line: 121, col: 3 }, head: { line: 124, col: 1 } }, folds: [{ from: 10, to: 40 }] }
     const o = openFileTab(NO_FILE_TABS, { path: 'src/a.ts', mode: 'file', line: 42, col: 7 })

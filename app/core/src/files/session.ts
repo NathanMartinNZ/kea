@@ -192,7 +192,10 @@ export class SessionFiles {
 
   finder: FinderIndex | null = null
   private finderDrop: Disposable | null = null
-  /** A file operation or a discard is under way: the next is refused `busy` (one at a time). */
+  /**
+   * A file operation, a discard or a save in the file view (`takeSlot`) is under way: the next of any of them is
+   * refused `busy` (one at a time).
+   */
   private busy = false
   /** The last move or rename in the tree, which Undo takes back; any other file operation clears it. */
   private undoEntry: UndoEntry | null = null
@@ -1190,6 +1193,31 @@ export class SessionFiles {
     }
     this.d.log?.info('file operation', { session: this.id, op: what, ...(res.ok ? {} : { refused: (res as FileOpRefused).refused }) })
     return res
+  }
+
+  /**
+   * A save in the file view is one of the session's file operations: it takes the slot they take. The release, or
+   * null while a file operation, a discard or another save holds it.
+   */
+  takeSlot(): (() => void) | null {
+    if (this.busy) return null
+    this.busy = true
+    let held = true
+    return () => {
+      if (!held) return
+      held = false
+      this.busy = false
+    }
+  }
+
+  /**
+   * A save in the file view wrote one of the session's files. A live watch sees the write; otherwise (poll mode, a
+   * watch released or never started) the tree and the status are read again. In manual mode the status waits for the
+   * Refresh command, as after a discard.
+   */
+  saved(): void {
+    if (this.mode === 'live' && this.watch && !this.unwatched) return
+    this.refreshSoon(false)
   }
 
   /** git's environment in a repository; null in a folder that is not one (no submodule or ignore check there). */

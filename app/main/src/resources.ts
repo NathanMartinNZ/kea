@@ -283,7 +283,7 @@ export type WatchdogAction = 'restart' | 'reload' | 'resetWebgl'
 /**
  * One watchdog trigger: a process found over a limit in a footprint sample, and what is done about it now.
  * `action`: `none` (a soft limit: the report is all), one of the watchdog's actions, `deferred` (a hard limit
- * whose action waits: `why`), or `gaveUp` (the action was taken and its cool-down is over, and the same process is
+ * whose action waits: `why`, among them a window's unsaved files), or `gaveUp` (the action was taken and its cool-down is over, and the same process is
  * still over).
  */
 export type WatchdogTrigger = {
@@ -294,7 +294,7 @@ export type WatchdogTrigger = {
   limit: 'soft' | 'hard'
   limitBytes: number
   action: 'none' | WatchdogAction | 'deferred' | 'gaveUp'
-  why?: 'not idle' | 'cool-down' | 'action under way'
+  why?: 'not idle' | 'cool-down' | 'action under way' | 'unsaved files'
 }
 
 /** The fields of one resources.ndjson line after the logger's `t`, `level`, `proc`, `msg`. */

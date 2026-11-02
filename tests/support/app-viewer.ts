@@ -32,6 +32,14 @@ export interface ViewerState {
     source: boolean
     layout: string
     changes: number
+    /** The document can be edited now. */
+    editable: boolean
+    /** Why it cannot, when it is text that cannot be edited (the header's "Read-only" tooltip). */
+    readOnly: string | null
+    /** It has text that is not on disk (its tab's dot). */
+    unsaved: boolean
+    /** The line under the header about its text, with its actions. */
+    editNotice: { text: string; actions: string[] } | null
   }
   text: {
     lines: number

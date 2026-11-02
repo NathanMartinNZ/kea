@@ -159,10 +159,19 @@ Terminals still running after a crash keep running after Kea is gone; a normal q
    `Ctrl+Shift+Page Up` / `Page Down`). In a narrow window, or with View ▸ Show Agent as a Tab, the agent is the first
    tab instead. `⌘R` runs the dev server (the project's run command, or `start.sh` in the worktree); `⇧⌘O` opens the
    worktree in your editor.
+4. **Edit a file:** a text file opened there can be edited, and `⌘S` saves it (`Ctrl+Shift+S` on Linux, or `Ctrl+S`
+   in the file itself); a file Kea does not edit (no permission, inside `.git`, very large, mixed line endings) says
+   "Read-only", with the reason. A tab with unsaved changes shows a dot. In the file you are editing, `⌘[` / `⌘]`
+   indent less and more instead (`Ctrl+[` / `Ctrl+]` on Linux), and `⌥⌘F` (`Ctrl+Shift+H`) opens find with a replace
+   field. What an agent writes to the file meanwhile is merged under your changes; where you both changed the same
+   lines, Kea marks them and keeps your text. Diffs stay read-only.
 
 By default `⌘Q` closes the window and keeps Kea in the menu bar, so notifications and the count of sessions that need
 you keep working; `⌥⌘Q` quits completely and stops every terminal. On Linux, `Ctrl+Shift+Q` closes the window and Kea
-stays in the tray where the desktop has one; without a tray it stops every terminal and quits.
+stays in the tray where the desktop has one; without a tray it stops every terminal and quits. These keys, and anything
+else that would close a file with unsaved changes (closing the window or the tab, Restart to Update or Restart Kea,
+deleting a session, removing a project), first show each such file in turn and ask Save, Don't Save or Cancel; Cancel
+stops them.
 
 ### Keyboard shortcuts
 
@@ -176,6 +185,8 @@ stays in the tray where the desktop has one; without a tray it stops every termi
 | Next · previous session, most recently used first | `⌃Tab` · `⌃⇧Tab` | `Ctrl+Tab` · `Ctrl+Shift+Tab` |
 | New Terminal · Close Tab | `⌘T` · `⌘W` | `Ctrl+Shift+T` · `Ctrl+Shift+W` |
 | Go to File… | `⌘P` | `Ctrl+Shift+P` |
+| Save the file on screen | `⌘S` | `Ctrl+Shift+S`, or `Ctrl+S` in the file |
+| In a file you are editing: indent less · more | `⌘[` · `⌘]` | `Ctrl+[` · `Ctrl+]` |
 | Show Files · Show Changes | `⇧⌘E` · `⇧⌘G` | `Ctrl+Shift+E` · `Ctrl+Shift+G` |
 | Run or stop · restart the dev server | `⌘R` · `⇧⌘R` | `Ctrl+Shift+R` · `Ctrl+Shift+F5` |
 | Open in Editor | `⇧⌘O` | `Ctrl+Shift+Alt+O` |
@@ -225,6 +236,7 @@ Everything is in `~/.kea`:
 | `sessions/` | Each terminal's state and scrollback |
 | `bin/` | The copy of `kea-helper` that running terminals use |
 | `run/` | Sockets and locks |
+| `save-journal.json` | The temporary files that saves in the file view have under way, so that a save cut short leaves nothing behind; emptied at launch |
 | `logs/`, `reports/` | Logs and status reports |
 
 On macOS, `run/`, `sessions/`, `bin/`, `logs/` and `reports/` are excluded from Time Machine: scrollback can hold
@@ -243,6 +255,9 @@ Electron's window state is in `~/Library/Application Support/Kea` on macOS and `
   and your dev servers use the network as they would in a terminal.
 - **Stop a session because the app went away.** Quitting Kea stops every terminal. After a crash or an update they keep
   running and the new Kea reattaches to them.
+- **Act as a language-aware IDE.** The file view edits and saves text files, with find and replace, comment toggling,
+  closing brackets and indentation that follows the language, but nothing in it understands the code: no completions,
+  go to definition, refactoring or formatting. Open in Editor (`⇧⌘O`) takes the worktree to your own editor.
 
 ## How it works
 

@@ -10,6 +10,8 @@
 // · Where Kea updates itself (macOS), a newer version is downloaded at once; Squirrel's "ready" offers Restart to
 //   Update. A version that is still not running after L.updateInstallAttemptsMax starts is never downloaded again.
 // · A Linux package replaced under the running Kea (`upgraded`) ends checking: Restart Kea is all there is to do.
+// · Restart to Update and Restart Kea go ahead only once the windows have reviewed their unsaved files and none
+//   answered Cancel (`beforeRestart`).
 
 import { compareVersions, L, type UpdateMarks, type UpdatePhase, type UpdateState } from '@kea/protocol'
 import type { UpdaterDriver, UpdaterEvents } from './driver.ts'
@@ -42,8 +44,13 @@ export interface ManagerDeps {
   makeDriver: ((on: UpdaterEvents) => UpdaterDriver) | null
   /** The state changed: tell the windows, retitle the menu. */
   changed(state: UpdateState): void
-  /** Keep the window's drafts for the next start; resolves when they are kept, or cannot be. */
-  beforeRestart(): Promise<void>
+  /**
+   * Before a restart: the windows review their unsaved files, then the window's drafts are kept for the next start.
+   * Resolves whether the restart goes ahead; false, or a rejection, and nothing is done.
+   */
+  beforeRestart(): Promise<boolean>
+  /** Once for each restart `beforeRestart` allowed: whether it was made (false: Kea was going by then, or nothing was ready to install). */
+  afterRestart(started: boolean): void
   /** Restart Kea into the files a package manager put under it (Linux). */
   relaunch(): void
   log: { info(msg: string, data?: Record<string, unknown>): void; warn(msg: string, data?: Record<string, unknown>): void }
@@ -152,18 +159,30 @@ export class UpdateManager {
     void this.run('manual')
   }
 
-  /** Restart to Update (macOS, `ready`) or Restart Kea (Linux, `upgraded`), the window's drafts kept; nothing otherwise. */
+  /**
+   * Restart to Update (macOS, `ready`) or Restart Kea (Linux, `upgraded`), once the windows' review allows it and the
+   * window's drafts are kept; nothing otherwise.
+   */
   restart(): void {
     const k = this.phase.k
     if ((k !== 'ready' && k !== 'upgraded') || this.restarting) return
     this.restarting = true
     void this.d
       .beforeRestart()
-      .catch(() => undefined)
-      .then(() => {
-        if (this.disposed) return
-        if (k === 'ready') this.driver?.install()
-        else this.d.relaunch()
+      .catch(() => false)
+      .then((go) => {
+        if (!go) return
+        let started = false
+        try {
+          if (this.disposed) return
+          if (k === 'ready') started = this.driver?.install() ?? false
+          else {
+            this.d.relaunch()
+            started = true
+          }
+        } finally {
+          this.d.afterRestart(started)
+        }
       })
       .finally(() => (this.restarting = false))
   }
@@ -292,10 +311,12 @@ export class UpdateManager {
         this.set({ k: 'ready', version })
       },
       failed: (reason, step) => {
-        const version = this.phase.k === 'downloading' ? this.phase.version : null
+        const version = this.phase.k === 'downloading' || this.phase.k === 'ready' ? this.phase.version : null
         if (step === 'squirrel' || (step === 'download' && version)) {
-          // the updater cannot install it here: the command does, and About says why
+          // the updater cannot install it here: the command does, and About says why (a version it had ready, its install
+          // failed included: Restart to Update would install nothing now)
           this.how = { ...this.how, mode: 'command', why: `macOS could not install the update: ${reason}` }
+          if (this.phase.k === 'ready') this.phase = { k: 'available', version: this.phase.version }
           this.finish('driver', version ? { k: 'available', version } : { k: 'failed', reason })
           return
         }

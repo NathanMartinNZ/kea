@@ -84,9 +84,10 @@ export function statusWords(s: SessionView): string {
 }
 
 /** What a row's trailing meta shows, in words: the label, a failed teardown, a missing worktree, the server, the time. */
-export function rowMeta(s: SessionView, now: number): string {
+export function rowMeta(s: SessionView, now: number, unsaved = false): string {
   const label = rowLabel(s)
   if (label) return LABEL_WORDS[label] ?? label
+  if (unsaved) return 'Unsaved files'
   if (s.teardownFailed) return 'Teardown failed'
   if (s.worktreeMissing) return 'Worktree missing'
   if (s.serverRunning) return 'Dev server running'
@@ -97,10 +98,10 @@ export function rowMeta(s: SessionView, now: number): string {
  * The row's tooltip: a failed creation's error, else a finished turn's background work. In a compact sidebar (`now`
  * given) it leads with the full title and what the meta slot would show, since the row draws neither whole.
  */
-export function rowTitle(s: SessionView, now?: number): string | undefined {
+export function rowTitle(s: SessionView, now?: number, unsaved = false): string | undefined {
   const note = s.creation?.error ?? (s.lifecycle === 'live' && s.phase === 'ready' && s.background ? 'Background tasks running' : undefined)
   if (now === undefined) return note
-  const meta = s.lifecycle === 'create_failed' ? 'Creation failed' : rowMeta(s, now)
+  const meta = s.lifecycle === 'create_failed' ? 'Creation failed' : rowMeta(s, now, unsaved)
   return [s.title, meta, note].filter((x) => x !== undefined).join(' · ')
 }
 

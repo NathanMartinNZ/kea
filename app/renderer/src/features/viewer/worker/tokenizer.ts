@@ -56,40 +56,49 @@ export class LineTokenizer {
     this.lineMs = o.lineMs
   }
 
-  /** Tokenise `lines[from, to)` from `state`; the state after the last line is what the next chunk starts from. */
-  run(lines: readonly string[], from: number, to: number, state: StateStack): { chunk: TokenChunk; state: StateStack } {
+  /**
+   * Tokenise `lines[from, to)` from `state`; the state after the last line is what the next chunk starts from. `stop` is
+   * told each line's end state as it is reached, and ends the run after that line when it answers true.
+   */
+  run(lines: readonly string[], from: number, to: number, state: StateStack, stop?: (n: number, end: StateStack) => boolean): { chunk: TokenChunk; state: StateStack } {
     const starts = new Uint32Array(to - from + 1)
     const data = new U32()
     let st = state
+    let end = to
     for (let n = from; n < to; n++) {
       starts[n - from] = data.length
       const line = lines[n] as string
-      if (line.length === 0 || line.length > this.lineMax) {
-        // an empty line still moves the grammar's state on (a block comment's blank line); a long one is skipped whole
-        if (line.length === 0) st = this.grammar.tokenizeLine2(line, st, this.lineMs).ruleStack
-        continue
-      }
-      const r = this.grammar.tokenizeLine2(line, st, this.lineMs)
-      st = r.ruleStack
-      const t = r.tokens
-      let last = -1
-      for (let i = 0; i < t.length; i += 2) {
-        const meta = t[i + 1] as number
-        const font = EncodedTokenMetadata.getFontStyle(meta)
-        let style = this.roleOf[EncodedTokenMetadata.getForeground(meta)] ?? 0
-        if (font > 0) {
-          if (font & TM_BOLD) style |= STYLE_BOLD
-          if (font & TM_UNDERLINE) style |= STYLE_UNDERLINE
-          if (font & TM_ITALIC) style |= STYLE_ITALIC
+      if (line.length === 0) {
+        // an empty line still moves the grammar's state on (a block comment's blank line)
+        st = this.grammar.tokenizeLine2(line, st, this.lineMs).ruleStack
+      } else if (line.length <= this.lineMax) {
+        // (a longer one is skipped whole, and leaves the state as it was)
+        const r = this.grammar.tokenizeLine2(line, st, this.lineMs)
+        st = r.ruleStack
+        const t = r.tokens
+        let last = -1
+        for (let i = 0; i < t.length; i += 2) {
+          const meta = t[i + 1] as number
+          const font = EncodedTokenMetadata.getFontStyle(meta)
+          let style = this.roleOf[EncodedTokenMetadata.getForeground(meta)] ?? 0
+          if (font > 0) {
+            if (font & TM_BOLD) style |= STYLE_BOLD
+            if (font & TM_UNDERLINE) style |= STYLE_UNDERLINE
+            if (font & TM_ITALIC) style |= STYLE_ITALIC
+          }
+          // neighbours that look the same are one token
+          if (style === last) continue
+          last = style
+          data.push((((t[i] as number) << STYLE_BITS) | style) >>> 0)
         }
-        // neighbours that look the same are one token
-        if (style === last) continue
-        last = style
-        data.push((((t[i] as number) << STYLE_BITS) | style) >>> 0)
+      }
+      if (stop?.(n, st)) {
+        end = n + 1
+        break
       }
     }
-    starts[to - from] = data.length
-    return { chunk: { from, to, starts, data: data.take() }, state: st }
+    starts[end - from] = data.length
+    return { chunk: { from, to: end, starts: end === to ? starts : starts.slice(0, end - from + 1), data: data.take() }, state: st }
   }
 }
 

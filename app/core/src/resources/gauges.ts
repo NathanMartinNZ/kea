@@ -29,8 +29,8 @@
 //                       its timers (the time-to-live and the startup summary)
 //   core.agents         live agent sessions' signal state, launches waiting to turn live, status-file and transcript
 //                       watches, interrupt and tier-3 timers, hook connections, envelope ids kept for the dedupe
-//   core.viewer         files followed for windows (one each at most), their waiting calls and rate timers, reads in
-//                       flight
+//   core.viewer         files followed for windows (one each at most), their waiting calls and rate timers, reads and
+//                       saves in flight, the new files the save journal names
 //   core.servers        sessions with a dev-server entry, servers alive, `server:` stores registered, port-scan timers,
 //                       scans in flight, start.sh folder watches, sessions watched for auto-start
 //   core.editors        editors and terminal app in the detection cache, a detection under way, launches in flight;

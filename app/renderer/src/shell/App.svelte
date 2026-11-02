@@ -44,6 +44,7 @@ is a `separator` "Resize sidebar" / "Resize file panel" with its width as its va
   import { statusUi } from '../features/status/ui.svelte.ts'
   import { viewingState } from '../features/status/viewing.svelte.ts'
   import { registerViewerCommands } from '../features/viewer/commands.ts'
+  import { orphanUnsavedFiles, takeHandedDocuments } from '../features/viewer/review.svelte.ts'
   import Banners from './Banners.svelte'
   import Divider from './Divider.svelte'
   import { fileTabsState, fileTabStrip } from './fileTabs.svelte.ts'
@@ -82,8 +83,10 @@ is a `separator` "Resize sidebar" / "Resize file panel" with its width as its va
       // what the window remembers per session, project or PTY goes with it
       const unwire = forgetWhatGoes(
         { projects, sessions, terminals: terminalsList },
-        { drafts, mru, pending: pendingSessionId, archivedOpen: () => ui.archivedOpen, setArchivedOpen: (next) => (ui.archivedOpen = next) },
+        { drafts, mru, pending: pendingSessionId, archivedOpen: () => ui.archivedOpen, setArchivedOpen: (next) => (ui.archivedOpen = next), orphanUnsaved: orphanUnsavedFiles },
       )
+      // a window rebuilt in place of another takes the unsaved files it handed over
+      void takeHandedDocuments()
       // The session this window is about to show again is asked now which tab it remembers, so its pane starts on that
       // tab (the pane mounts a frame after core's first snapshot; a session that is gone answers nothing)
       const back = lastSessionId()

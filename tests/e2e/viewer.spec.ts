@@ -19,6 +19,7 @@ import { addProject, agentTerminal, demoRepo, projectRow, selectSession, startSe
 import { changeRows, clickChange, clickFile, clickScope, GIT_MS, panelModes, panelRegion, scopeShown, treeRows, waitChanges } from '../support/app-files.ts'
 import { clickFileTab, fileTab, fileTabs, pinFileTab, viewerShown } from '../support/app-tabs.ts'
 import { changeMarker, commitAll, gitIn, gutterLines, loginSource, png, sessionWorktree, tokenClasses, viewer, viewerCopy, viewerRows, viewerText, waitBody, waitViewer, writeFiles } from '../support/app-viewer.ts'
+import { documentKey, tryToEditDocument } from '../support/app-editing.ts'
 import { expect, test } from './fixtures.ts'
 import { sysKey, textKey } from '../support/keys.ts'
 import { protocolOs } from '../../packages/protocol/src/os/index.ts'
@@ -106,24 +107,6 @@ async function recordClipboard(kea: Kea): Promise<() => Promise<string[]>> {
   return () => page.evaluate(() => (window as unknown as { __keaClipboard: string[] }).__keaClipboard)
 }
 
-/** Everything a person could do to change the text: typing, deleting, a paste, a drop. */
-async function tryToEdit(kea: Kea): Promise<void> {
-  const page = await kea.page()
-  await page.keyboard.type('typed text')
-  await page.keyboard.press('Backspace')
-  await page.keyboard.press('Delete')
-  await page.keyboard.press(textKey('Meta+Backspace'))
-  await page.evaluate(() => {
-    const content = document.querySelector('.viewer .cm-editor:not(.cm-merge-a) .cm-content') as HTMLElement
-    const data = new DataTransfer()
-    data.setData('text/plain', 'pasted text')
-    content.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))
-    content.dispatchEvent(new ClipboardEvent('cut', { clipboardData: new DataTransfer(), bubbles: true, cancelable: true }))
-    content.dispatchEvent(new DragEvent('drop', { dataTransfer: data, bubbles: true, cancelable: true }))
-    content.dispatchEvent(new InputEvent('beforeinput', { inputType: 'insertText', data: 'inserted', bubbles: true, cancelable: true }))
-  })
-}
-
 test('E-FV-1 · a changed file opened from Files shows its text coloured, with line numbers and a change marker on each changed region; File → Diff opens the diff at the same line; opened from Changes it is the diff directly', async ({ run, launch }) => {
   test.setTimeout(120_000)
   const kea = await launch()
@@ -195,7 +178,7 @@ test('E-FV-1 · a changed file opened from Files shows its text coloured, with l
   await expect(page.locator('.viewer .viewer-stat')).toHaveText('+3 −3')
 })
 
-test('E-FV-2 · in the file view a block folds and unfolds, ⌘F finds with a match count, ⌃G goes to a line, ⌥Z wraps, a selection copies, the breadcrumb names the path, nothing typed changes the text, and ⌘L puts the selected lines’ reference at the agent’s prompt without submitting it', async ({ run, launch }) => {
+test('E-FV-2 · in the file view a block folds and unfolds, ⌘F finds with a match count, ⌃G goes to a line, ⌥Z wraps, a selection copies, the breadcrumb names the path, a key typed edits the text and ⌘Z undoes it, and ⌘L puts the selected lines’ reference at the agent’s prompt without submitting it', async ({ run, launch }) => {
   test.setTimeout(120_000)
   const kea = await launch()
   const page = await kea.page()
@@ -273,10 +256,12 @@ test('E-FV-2 · in the file view a block folds and unfolds, ⌘F finds with a ma
   await page.locator('.viewer .cm-content .cm-line').first().click()
   await until('the document has the keyboard again', async () => (await viewerShown(kea))?.focused || undefined)
 
-  // Typing in the file view does nothing
+  // a key typed in the file view edits its text, and ⌘Z takes it out again (what does not take typing is E-FV-16's)
   await goToLine(kea, '5')
-  await tryToEdit(kea)
-  expect(await viewerText(kea)).toBe(source)
+  await page.keyboard.type('x')
+  await until('the key typed at line 5', async () => (await viewerText(kea)) === lines.map((l, i) => (i === 4 ? `x${l}` : l)).join('\n') || undefined)
+  await page.keyboard.press(documentKey('Meta+z'))
+  await until('⌘Z undid it', async () => (await viewerText(kea)) === source || undefined)
 
   // Lines 40–52, ⌘L → the agent, the reference at its prompt, not submitted; the file stays in the work pane beside it
   await selectLines(kea, 40, 52)
@@ -519,7 +504,7 @@ test('E-FV-5 · large files: a 15 MB minified bundle shows at once and says wher
   else test.info().annotations.push({ type: 'timing', description: `the longest frame took ${Math.round(frames.maxGapMs)} ms; not judged on ${harnessOs.system}: ${TIMING_NOT_JUDGED}` })
 })
 
-test('E-FV-6 · a file in a language not used yet shows as plain text first and its colours follow; an unknown type stays plain text; pinning a ninth file tab closes the least recently viewed pinned one; a tab shown again is where it was left', async ({ run, launch }) => {
+test('E-FV-6 · a file in a language not used yet shows as plain text first and its colours follow; an unknown type stays plain text; pinning a ninth file tab (by ↵ in a read-only file, or a double-click on the tab) closes the least recently viewed pinned one; a tab shown again is where it was left', async ({ run, launch }) => {
   test.setTimeout(120_000)
   const kea = await launch()
   const page = await kea.page()
@@ -527,7 +512,10 @@ test('E-FV-6 · a file in a language not used yet shows as plain text first and 
   const files: Record<string, string> = { 'tool.py': python, 'notes.xyz': 'def not_code(n):\n    return "plain"\n' }
   for (let i = 1; i <= 8; i++) files[`pin/f${i}.txt`] = `file ${i}\n`
   files['pin/f9.txt'] = Array.from({ length: 300 }, (_, i) => `line ${i + 1} of file 9`).join('\n')
-  await sessionWith(kea, run, files)
+  const { worktree } = await sessionWith(kea, run, files)
+  // the files pinned by ↵ cannot be written: ↵ pins a preview only in a read-only document (in one that can be edited
+  // it is a newline)
+  for (const i of [1, 3, 5, 7, 9]) fs.chmodSync(path.join(worktree, `pin/f${i}.txt`), 0o444)
 
   // 1. first use: watch the document's DOM for the text and for the first coloured token
   expect((await viewer(kea))?.highlighter.starts ?? 0, 'no highlight worker yet').toBe(0)
@@ -570,7 +558,8 @@ test('E-FV-6 · a file in a language not used yet shows as plain text first and 
   expect([kept.viewerDocBytes, kept.viewerCachedDocs, kept.viewerCachedBytes], 'characters on screen, documents kept, their bytes').toEqual([0, 0, 0])
 
   // 3. eight pinned tabs at most: the ninth closes the least recently viewed pinned one. Each is clicked in Files (the
-  // preview tab) and pinned as a person pins: `↵` in the viewer, or a double-click on the tab
+  // preview tab) and pinned as a person pins: `↵` in a read-only document (it types nothing there), or a double-click
+  // on the tab
   const pinned = async () => (await fileTabs(kea)).filter((t) => t.pinned).map((t) => t.path)
   const openPinned = async (p: string, how: 'enter' | 'double-click') => {
     await clickFile(kea, p)
@@ -578,8 +567,10 @@ test('E-FV-6 · a file in a language not used yet shows as plain text first and 
     expect((await fileTabs(kea)).find((t) => t.path === p), 'a click opens the preview tab').toMatchObject({ pinned: false, selected: true })
     if (how === 'enter') {
       await until('the document has the keyboard', async () => (await viewerShown(kea))?.focused || undefined)
+      expect((await viewer(kea))?.ui.readOnly, `${p} is read-only`).toBe('no permission')
       await page.keyboard.press('Enter')
       await until(`${p} pinned`, async () => (await pinned()).includes(p) || undefined)
+      expect(await viewerText(kea), `↵ typed nothing into ${p}`).toBe(files[p])
     } else await pinFileTab(kea, p)
   }
   for (let i = 1; i <= 8; i++) await openPinned(`pin/f${i}.txt`, i % 2 ? 'enter' : 'double-click')
@@ -827,11 +818,13 @@ test('E-FV-12 · a Markdown file’s long lines wrap when it opens and ⌥Z turn
   await waitViewer(kea, 'code wrap still on', (v) => v.ui.path === CODE && v.text?.wrap === true && v.ui.wrap)
 })
 
-test('E-KB-7 · the text menu: a right-click on a field offers Cut, Copy, Paste and Select All with their keys, and its picks act on that field; on the viewer’s code it offers Copy, disabled while nothing is selected, and Select All, which selects the whole file; one menu at a time', async ({ run, launch }) => {
+test('E-KB-7 · the text menu: a right-click on a field offers Cut, Copy, Paste and Select All with their keys, and its picks act on that field; on the viewer’s code it offers the same in a file that can be edited and Copy and Select All in a read-only one, Cut and Copy disabled while nothing is selected, Select All selecting the whole file; one menu at a time', async ({ run, launch }) => {
   const kea = await launch()
   const page = await kea.page()
   const code = 'export function add(a, b) {\n  return a + b\n}\n'
-  await sessionWith(kea, run, { 'src/calc.js': code })
+  const locked = 'export const LOCKED = true\n'
+  const { worktree } = await sessionWith(kea, run, { 'src/calc.js': code, 'src/locked.js': locked })
+  fs.chmodSync(path.join(worktree, 'src/locked.js'), 0o444)
   const menu = page.getByRole('menu', { name: 'Text menu' })
   const item = (name: string) => menu.getByRole('menuitem', { name })
   const roles = (role: string) => kea.logLines('main').filter((l) => typeof l.msg === 'string' && l.msg.startsWith('edit role') && l.role === role).length
@@ -864,21 +857,42 @@ test('E-KB-7 · the text menu: a right-click on a field offers Cut, Copy, Paste 
   await expect(filter).toBeFocused()
   await page.keyboard.press('Escape')
 
-  // ── the viewer’s code ──
+  // ── the viewer’s code, in a file that can be edited: what a field offers ──
   await clickFile(kea, 'src/calc.js')
-  await waitBody(kea, 'src/calc.js', 'text')
+  const editable = await waitBody(kea, 'src/calc.js', 'text')
+  expect(editable.ui.editable).toBe(true)
   const content = page.locator('.viewer .cm-editor .cm-content').first()
+  await content.click({ button: 'right', position: { x: 4, y: 4 } })
+  await expect(menu).toBeVisible()
+  expect((await menu.getByRole('menuitem').allInnerTexts()).map((t) => t.replace(/\s+/g, ''))).toEqual([`Cut${key('X')}`, `Copy${key('C')}`, `Paste${key('V')}`, `SelectAll${key('A')}`])
+  await expect(item('Cut')).toHaveAttribute('aria-disabled', 'true')
+  await expect(item('Copy')).toHaveAttribute('aria-disabled', 'true')
+  await expect(item('Paste')).not.toHaveAttribute('aria-disabled', 'true')
+  await item('Select All').click()
+  await expect(menu).toHaveCount(0)
+  await until('the whole file selected', async () => (await viewerCopy(kea)) === code || undefined)
+  const viewerCopies = roles('copy')
+  await content.click({ button: 'right', position: { x: 4, y: 4 } })
+  await expect(item('Cut')).not.toHaveAttribute('aria-disabled', 'true')
+  await item('Copy').click()
+  await until('main ran the copy', () => roles('copy') === viewerCopies + 1 || undefined)
+  await expect(content).toBeFocused()
+
+  // ── a read-only file's code: Copy, disabled while nothing is selected, and Select All ──
+  await clickFile(kea, 'src/locked.js')
+  const readOnly = await waitBody(kea, 'src/locked.js', 'text')
+  expect(readOnly.ui.readOnly).toBe('no permission')
   await content.click({ button: 'right', position: { x: 4, y: 4 } })
   await expect(menu).toBeVisible()
   expect((await menu.getByRole('menuitem').allInnerTexts()).map((t) => t.replace(/\s+/g, ''))).toEqual([`Copy${key('C')}`, `SelectAll${key('A')}`])
   await expect(item('Copy')).toHaveAttribute('aria-disabled', 'true')
   await item('Select All').click()
   await expect(menu).toHaveCount(0)
-  await until('the whole file selected', async () => (await viewerCopy(kea)) === code || undefined)
-  const viewerCopies = roles('copy')
+  await until('the whole file selected', async () => (await viewerCopy(kea)) === locked || undefined)
+  const readOnlyCopies = roles('copy')
   await content.click({ button: 'right', position: { x: 4, y: 4 } })
   await item('Copy').click()
-  await until('main ran the copy', () => roles('copy') === viewerCopies + 1 || undefined)
+  await until('main ran the copy', () => roles('copy') === readOnlyCopies + 1 || undefined)
   await expect(content).toBeFocused()
 })
 
@@ -1038,7 +1052,7 @@ test('E-DF-3 · a diff: unified and side by side, unchanged regions collapsed be
 
   // read-only — typing, deleting, a paste and a drop change nothing; there is nothing to accept or revert
   await page.keyboard.press('Alt+ArrowDown')
-  await tryToEdit(kea)
+  await tryToEditDocument(page)
   expect(await viewerText(kea)).toBe(changed.join('\n'))
   expect(await page.locator('.viewer .cm-chunkButtons, .viewer .cm-merge-revert').count()).toBe(0)
 

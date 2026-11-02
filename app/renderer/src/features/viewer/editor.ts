@@ -16,6 +16,9 @@ import { changeGutter } from './gutter.ts'
 import { indentGuides, indentUnitOf } from './guides.ts'
 import { tokenHighlighting, tokenStore } from './highlight.ts'
 import type { ViewPolicy } from './policy.ts'
+import { editing, fileLineEnding, type EditingOptions } from './editing.ts'
+import { undoHistory } from './history.ts'
+import { marks } from './marks.ts'
 import { readOnly } from './readonly.ts'
 import type { TabPosition, TabViewState } from './tab.ts'
 import type { TokenStore } from './tokens.ts'
@@ -35,7 +38,7 @@ const EDITS = new Set<unknown>([insertNewlineAndIndent, deleteCharBackward, dele
 /**
  * The keyboard of a read-only document: CodeMirror's standard keys for moving and selecting (`⌘A` included), without
  * the ones that edit — so `↵` is left to the tab strip (it pins a preview). `Esc` closes the find bar when it is open,
- * and is otherwise the strip's too (it closes the tab).
+ * and is otherwise the strip's too (it closes the tab). An editable document has `editing.ts`'s keys instead.
  */
 export const NAVIGATION_KEYS: readonly KeyBinding[] = [
   {
@@ -56,15 +59,22 @@ let hooks: EditorHooks | null = null
 /** One listener for every state: it speaks to whoever owns the document on screen. */
 const listener = EditorView.updateListener.of((u) => hooks?.update(u))
 
+/** A read-only document's own part: refused changes and the navigation keys. */
+export function readOnlyDocument(): Extension {
+  return [readOnly(), keymap.of(NAVIGATION_KEYS)]
+}
+
 /**
  * What every text document of the viewer has, file or diff. `label`: what the text is, said to assistive technology
- * (the document is a read-only text box, and a text box without a name is only "edit text").
+ * (a text box without a name is only "edit text"). A diff's sides join their lines with the file's line ending; a file
+ * document has none of its own (`fileLineEnding` gives a copy the file's), so text pasted into it splits into lines
+ * whatever its endings, and its read-only part is in a compartment (`fileState`).
  */
-export function baseExtensions(o: { eol: LineEnding; store: TokenStore | null; guides: number | null; label: string }): Extension[] {
+export function baseExtensions(o: { eol: LineEnding; store: TokenStore | null; guides: number | null; label: string; file?: boolean }): Extension[] {
   return [
-    readOnly(),
+    o.file ? [] : readOnlyDocument(),
     EditorView.contentAttributes.of({ 'aria-label': o.label }),
-    EditorState.lineSeparator.of(lineBreakOf(o.eol)),
+    o.file ? fileLineEnding(o.eol) : EditorState.lineSeparator.of(lineBreakOf(o.eol)),
     drawSelection(),
     highlightActiveLine(),
     highlightActiveLineGutter(),
@@ -73,7 +83,6 @@ export function baseExtensions(o: { eol: LineEnding; store: TokenStore | null; g
     tokenHighlighting(),
     o.store ? tokenStore.of(o.store) : [],
     bars(),
-    keymap.of(NAVIGATION_KEYS),
     listener,
   ]
 }
@@ -89,6 +98,8 @@ export interface FileDoc {
   wrap: boolean
   /** The git gutter's lines as far as they are known. */
   changes: LineChanges | null
+  /** The document can be edited: `editing.ts`'s options; null: read-only. */
+  edit: EditingOptions | null
 }
 
 /** A file's document, with what its tab kept: the selection and the folds; the scroll is `restoreScroll`'s. */
@@ -102,12 +113,29 @@ export function fileState(d: FileDoc, kept: TabViewState, goto: TabPosition | nu
       changeGutter(d.changes),
       lineNumbers(),
       d.policy.folding ? folding() : [],
-      baseExtensions({ eol: d.eol, store: d.store, guides: d.policy.plain ? null : indentUnitOf(doc, EMPTY.tabSize), label: d.path }),
+      editability.of(d.edit ? editing(d.edit) : readOnlyDocument()),
+      // the places marked where the file changed under the user's edits, and the undo history (Use the File's undo
+      // puts the marks back, so both are in the same state)
+      marks(),
+      undoHistory(),
+      baseExtensions({ eol: d.eol, store: d.store, guides: d.policy.plain ? null : indentUnitOf(doc, EMPTY.tabSize), label: d.path, file: true }),
       wrapping.of(d.wrap && d.policy.wrap ? EditorView.lineWrapping : []),
     ],
   })
   if (!d.policy.folding || kept.folds.length === 0) return state
   return state.update({ effects: restoreFolds(state, kept) }).state
+}
+
+const editability = new Compartment()
+
+/** Make the file's document editable (`edit`) or read-only (null), keeping its text, selection and undo history. */
+export function setEditable(view: EditorView, edit: EditingOptions | null): void {
+  view.dispatch({ effects: editability.reconfigure(edit ? editing(edit) : readOnlyDocument()) })
+}
+
+/** Whether a state is set up as editable (its read-only facet is off). */
+export function isEditable(state: EditorState): boolean {
+  return !state.readOnly
 }
 
 export function setWrap(view: EditorView, on: boolean): void {
@@ -144,7 +172,7 @@ export function reveal(view: EditorView, pos: number): void {
 
 // ── the one file-view editor ───────────────────────────────────────────────────────────────────────
 
-const EMPTY = EditorState.create({ doc: '', extensions: [readOnly()] })
+const EMPTY = EditorState.create({ doc: '', extensions: [readOnlyDocument()] })
 let file: EditorView | null = null
 let created = 0
 

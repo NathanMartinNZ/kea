@@ -7,15 +7,25 @@
 // for every process's report (`resourceReports`: Copy diagnostics and the dev HUD); the native pieces of the window's
 // UI: the folder picker (`pickFolder`), `reveal`, `openSettingsFile` and `pathForFile` for dropped files; the
 // first-quit sheet main asks for and its answer, and a session main asks the window to show; main's update state and
-// the window's update actions (`onUpdateState`, `checkUpdates`, `restartToUpdate`, `updateNoticeShown`). Ports and
-// main's messages arrive by window.postMessage from the preload, because contextBridge cannot carry MessagePorts.
+// the window's update actions (`onUpdateState`, `checkUpdates`, `restartToUpdate`, `updateNoticeShown`); main's review
+// of the window's unsaved files before anything closes them, answered by the host `setReviewHost` installs (the bridge
+// acknowledges each request at once, and answers proceed itself while no host is installed), the window's unsaved
+// count, and the unsaved files a window rebuilt on Wayland hands over (`takeDocuments`). Ports and main's messages
+// arrive by window.postMessage from the preload, because contextBridge cannot carry MessagePorts.
 
-import { asCollectedResources, isCommandId, zUpdateState, zWindowHandoff, zWindowMenuNode, type CollectedResources, type CommandInvocation, type EditRole, type MenuState, type ResourceReport, type UpdateState, type WindowHandoff, type WindowMenuNode } from '@kea/protocol'
+import { asCollectedResources, isCommandId, isReviewReason, zHandedDocuments, zUpdateState, zWindowHandoff, zWindowMenuNode, type CollectedResources, type CommandInvocation, type EditRole, type HandedDocuments, type MenuState, type ResourceReport, type ReviewReason, type UpdateState, type WindowHandoff, type WindowMenuNode } from '@kea/protocol'
+
+export type { HandedDocuments, ReviewReason }
 
 interface PreloadApi {
   platform: { version: string; arch: string; perf: boolean }
   handedOver: unknown
   handOver(reqId: number, state: WindowHandoff): void
+  giveDocuments(reqId: number, documents: HandedDocuments | null): void
+  takeDocuments(reqId: number): void
+  reviewAck(reqId: number): void
+  answerReview(reqId: number, answer: 'proceed' | 'cancel'): void
+  setUnsavedCount(n: number): void
   hello(): void
   requestStream(ptyId: string, reqId: number): void
   setMenuState(state: MenuState): void
@@ -52,6 +62,7 @@ const rpcListeners = new Set<(port: MessagePort) => void>() // bounded: the app'
 const resetListeners = new Set<() => void>() // bounded: one per attached terminal view
 const commandListeners = new Set<(c: CommandInvocation) => void>() // bounded: the command registry
 const wakeListeners = new Set<() => void>() // bounded: the terminal views module
+const historyListeners = new Set<(step: 'undo' | 'redo') => void>() // bounded: the viewer's commands
 const gpuResetListeners = new Set<() => void>() // bounded: the terminal views module
 const screenReaderListeners = new Set<(on: boolean) => void>() // bounded: the terminal views module
 /** Whether a screen reader runs, as main last said; false until it says. */
@@ -67,26 +78,34 @@ const updateListeners = new Set<(s: UpdateState) => void>() // bounded: the wind
 let updateState: UpdateState | null = null
 let nextReq = 1
 let lastRpc: MessagePort | null = null
+/** A port to core is held and core has not gone away since. */
+let coreUp = false
 let reporter: (() => ResourceReport) | null = null
 /** What this window hands the one main rebuilds in its place (the composer's drafts). */
 let handoffSource: (() => WindowHandoff) | null = null
 /** Settings › Notifications' question to main, while it is out (one at a time: a newer one replaces it). */
 let notificationAsk: { reqId: number; done(denied: boolean): void } | null = null
+/** What answers main's review of the window's unsaved files (the viewer's); null: the bridge answers proceed. */
+let reviewHost: ReviewHost | null = null
+/** The question for the unsaved files handed to a window rebuilt on Wayland, asked once. */
+let documentsTake: { reqId: number; done(d: HandedDocuments | null): void } | null = null
 
 window.addEventListener('message', (e: MessageEvent) => {
   if (e.source !== window || e.origin !== window.location.origin) return
-  const d = e.data as { kea?: string; reqId?: number; error?: string; id?: unknown; args?: unknown } | null
+  const d = e.data as { kea?: string; reqId?: number; error?: string; id?: unknown; args?: unknown; step?: unknown } | null
   if (!d || typeof d.kea !== 'string') return
   switch (d.kea) {
     case 'rpc': {
       const port = e.ports[0]
       if (!port) return
       lastRpc = port
+      coreUp = true
       for (const l of rpcListeners) l(port)
       for (const l of [...coreListeners]) l(true)
       return
     }
     case 'coreAway':
+      coreUp = false
       for (const l of [...coreListeners]) l(false)
       return
     case 'stream': {
@@ -116,6 +135,11 @@ window.addEventListener('message', (e: MessageEvent) => {
     case 'wake':
       for (const l of [...wakeListeners]) l()
       return
+    case 'history': {
+      const step = d.step
+      if (step === 'undo' || step === 'redo') for (const l of [...historyListeners]) l(step)
+      return
+    }
     case 'windowMenu': {
       const m = d as { at?: { x?: unknown; y?: unknown }; items?: unknown }
       const items = zWindowMenuNode.array().safeParse(m.items)
@@ -179,6 +203,54 @@ window.addEventListener('message', (e: MessageEvent) => {
       if (typeof d.reqId === 'number' && handoffSource) window.kea.handOver(d.reqId, handoffSource())
       return
     }
+    case 'review': {
+      // acknowledged at once, before the host runs: main decides without a window that does not acknowledge in time
+      const reason = (d as { reason?: unknown }).reason
+      if (typeof d.reqId !== 'number' || !isReviewReason(reason)) return
+      window.kea.reviewAck(d.reqId)
+      if (!reviewHost) {
+        window.kea.answerReview(d.reqId, 'proceed')
+        return
+      }
+      try {
+        reviewHost.review(d.reqId, reason)
+      } catch (err) {
+        // nothing is closed when the review cannot run
+        console.warn('unsaved files review failed', err)
+        window.kea.answerReview(d.reqId, 'cancel')
+      }
+      return
+    }
+    case 'reviewDecided': {
+      const outcome = (d as { outcome?: unknown }).outcome
+      if (typeof d.reqId === 'number' && (outcome === 'proceed' || outcome === 'cancel')) reviewHost?.decided(d.reqId, outcome)
+      return
+    }
+    case 'closeDone': {
+      if (typeof d.reqId === 'number') reviewHost?.closeDone(d.reqId, (d as { went?: unknown }).went === true)
+      return
+    }
+    case 'lowMemory':
+      reviewHost?.lowMemory()
+      return
+    case 'giveDocuments': {
+      if (typeof d.reqId !== 'number') return
+      let documents: HandedDocuments | null = null
+      try {
+        documents = reviewHost?.giveDocuments() ?? null
+      } catch (err) {
+        console.warn('unsaved files not handed over', err)
+      }
+      window.kea.giveDocuments(d.reqId, documents)
+      return
+    }
+    case 'handedDocuments': {
+      const take = documentsTake
+      if (!take || take.reqId !== d.reqId) return
+      const r = zHandedDocuments.safeParse((d as { documents?: unknown }).documents)
+      take.done(r.success ? r.data : null)
+      return
+    }
     case 'resources': {
       // a gauge that throws costs only its own rows (NaN, features/resources/rows.ts); only a reporter that is missing or
       // fails as a whole sends nothing, and main lists this renderer as missing (`no answer`) after its deadline
@@ -232,6 +304,12 @@ export function onWake(cb: () => void): () => void {
   return () => wakeListeners.delete(cb)
 }
 
+/** The Edit menu's Undo or Redo was chosen (or its key was not the page's). Returns an unsubscribe function. */
+export function onHistory(cb: (step: 'undo' | 'redo') => void): () => void {
+  historyListeners.add(cb)
+  return () => historyListeners.delete(cb)
+}
+
 /**
  * Main's memory watchdog found the GPU process over its hard limit: the window gives back what it holds there. Returns
  * an unsubscribe function.
@@ -258,6 +336,11 @@ export function onScreenReader(cb: (on: boolean) => void): () => void {
 export function onCoreConnection(cb: (up: boolean) => void): () => void {
   coreListeners.add(cb)
   return () => coreListeners.delete(cb)
+}
+
+/** Whether Kea's core is connected now (`onCoreConnection` tells each change after). */
+export function coreConnected(): boolean {
+  return coreUp
 }
 
 /** Tell main which commands this window can run now; it rebuilds the menu bar. */
@@ -428,4 +511,53 @@ export function restartToUpdate(): void {
 /** The line saying Kea checks for updates was in view, or About's Updates block was opened. */
 export function updateNoticeShown(): void {
   window.kea.updateNoticeShown()
+}
+
+/**
+ * What answers main's review of this window's unsaved files (the viewer's). The bridge has acknowledged each request
+ * before `review` runs; the host answers with `answerReview` once the user has, with no deadline.
+ */
+export interface ReviewHost {
+  /** Review every unsaved file before `reason`'s action, then `answerReview(reqId, …)`. */
+  review(reqId: number, reason: ReviewReason): void
+  /**
+   * Main decided request `reqId` without this window (its acknowledgement came late, or it stopped responding): after
+   * cancel it does not review; after proceed it waits for `closeDone`.
+   */
+  decided(reqId: number, outcome: 'proceed' | 'cancel'): void
+  /** The action of a request this window answered proceed (or was counted so) is over; `went` false: it did not happen. */
+  closeDone(reqId: number, went: boolean): void
+  /** The memory watchdog held back this window's reload for its unsaved files. */
+  lowMemory(): void
+  /** Main rebuilds this window on Wayland: its unsaved files for the new one, or null when it holds none. */
+  giveDocuments(): HandedDocuments | null
+}
+
+/** Install (or remove, with null) what answers main's reviews. With none, the bridge answers proceed and gives no files. */
+export function setReviewHost(h: ReviewHost | null): void {
+  reviewHost = h
+}
+
+/** The answer to main's review request `reqId`, once the user has answered. */
+export function answerReview(reqId: number, answer: 'proceed' | 'cancel'): void {
+  window.kea.answerReview(reqId, answer)
+}
+
+/** How many files this window holds unsaved, on each change. */
+export function setUnsavedCount(n: number): void {
+  window.kea.setUnsavedCount(n)
+}
+
+/**
+ * The unsaved files handed to this window when main rebuilt it in place of another (on Wayland), checked; null for
+ * every other window. Asked for once, after the page has loaded (a later call gives null); the old window goes once
+ * they are taken.
+ */
+export function takeDocuments(): Promise<HandedDocuments | null> {
+  if (documentsTake) return Promise.resolve(null)
+  const reqId = nextReq++
+  return new Promise((done) => {
+    documentsTake = { reqId, done }
+    window.kea.takeDocuments(reqId)
+  })
 }

@@ -9,8 +9,8 @@
 //
 // A new `app.asar` whose tree says the running version (the same release installed again) changes nothing; a missing
 // one means Kea was removed. Once upgraded, no child starts again: a refused respawn restarts the whole of Kea into
-// the new files, once per target version (`--kea-relaunched=<version>` on the new start's command line), and never
-// once Kea was removed.
+// the new files, once per target version (`--kea-relaunched=<version>` on the new start's command line), never once
+// Kea was removed, and never while a window holds unsaved files: Restart Kea is offered instead, and reviews them.
 
 import fs from 'node:fs'
 import { createRequire } from 'node:module'
@@ -33,6 +33,8 @@ export interface UpgradeDeps {
   removed(): void
   /** Restart Kea into the files on disk, for `target`. */
   relaunch(target: string): void
+  /** A window holds unsaved files: Kea does not restart by itself (the update state offers Restart Kea instead). */
+  unsaved(): boolean
   log: { info(msg: string, data?: Record<string, unknown>): void; warn(msg: string, data?: Record<string, unknown>): void }
 }
 
@@ -84,12 +86,19 @@ export class UpgradeGuard {
     this.mark(this.d.treeVersion())
   }
 
-  /** A respawn was refused: restart Kea into the new files, unless it was removed or already restarted for them. */
+  /**
+   * A respawn was refused: restart Kea into the new files, unless it was removed, already restarted for them, or a
+   * window holds unsaved files (Restart Kea, which the update state offers once Kea was upgraded, reviews them first).
+   */
   respawnRefused(): void {
     if (this.state === 'removed') return
     const target = this.d.treeVersion() ?? 'unknown'
     if (this.d.relaunchedFor === target) {
       this.d.log.warn('not restarting again for the same version', { target })
+      return
+    }
+    if (this.d.unsaved()) {
+      this.d.log.warn('not restarting by itself: a window has unsaved files, and Restart Kea is offered', { target })
       return
     }
     this.d.log.info("restarting Kea into the files that replaced it", { target })

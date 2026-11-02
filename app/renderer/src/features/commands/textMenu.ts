@@ -1,7 +1,7 @@
-// The text menu: a right-click on a text field opens Cut, Copy, Paste and Select All; on a document the viewer shows,
-// Copy and Select All; on other selected text in the window, Copy. Its items are the Edit menu's roles, not commands of
-// the table, each with the key a field has for it on this system (`⌘X`, `Ctrl+X`). Pure, so a test can give either
-// system; `shell/TextMenu.svelte` finds the target and runs the pick.
+// The text menu: a right-click on a text field, or on a document the viewer shows that can be edited, opens Cut, Copy,
+// Paste and Select All; on a read-only document, Copy and Select All; on other selected text in the window, Copy. Its
+// items are the Edit menu's roles, not commands of the table, each with the key a field has for it on this system
+// (`⌘X`, `Ctrl+X`). Pure, so a test can give either system; `shell/TextMenu.svelte` finds the target and runs the pick.
 
 import type { KeyLabels, System } from '@kea/protocol'
 import type { MenuItem } from '@kea/ui'
@@ -12,7 +12,7 @@ export type TextRole = 'cut' | 'copy' | 'paste' | 'selectAll'
 export interface TextTarget {
   /** A field (`input`, `textarea`, an editable element), a document the viewer shows, or other text in the window. */
   kind: 'field' | 'document' | 'text'
-  /** The field takes typing: neither read-only nor disabled. */
+  /** The field or document takes typing: neither read-only nor disabled. */
   editable: boolean
   /** Text is selected there. */
   hasSelection: boolean
@@ -37,6 +37,10 @@ export function textMenuItems(t: TextTarget, system: System, keys: KeyLabels): M
     const typing = t.editable ? undefined : 'This field is read-only'
     return [item('cut', typing ?? copyReason), item('copy', copyReason), item('paste', typing), item('selectAll')]
   }
-  if (t.kind === 'document') return [item('copy', copyReason), item('selectAll')]
+  if (t.kind === 'document') {
+    // an editable document offers what a field does
+    if (t.editable) return [item('cut', copyReason), item('copy', copyReason), item('paste'), item('selectAll')]
+    return [item('copy', copyReason), item('selectAll')]
+  }
   return t.hasSelection ? [item('copy')] : []
 }

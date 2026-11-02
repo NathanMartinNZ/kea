@@ -171,6 +171,19 @@ test('V-2 · sidebar states', async ({ run, launch }) => {
   await set.shot(kea, 'filter', 'Typing in the sidebar filters by title or branch', 'Sidebar', { rect: ROWS })
   await page.keyboard.press('Escape')
 
+  // a session with a file of unsaved changes says "unsaved" in its row's meta while another session is on screen
+  write(await cwdOf(kea, s.api), { 'src/client.js': 'export const client = () => fetch("/api")\n' })
+  await selectSession(kea, s.api)
+  await page.evaluate((id) => (globalThis as unknown as { __keaProbe: { run(c: string, a: unknown): boolean } }).__keaProbe.run('viewer.open', { sessionId: id, path: 'src/client.js', mode: 'file', pin: true }), s.api)
+  await page.locator('.viewer .cm-content').click()
+  await page.keyboard.press('End')
+  await page.keyboard.type(' // retry')
+  await selectSession(kea, s.auth)
+  await sessionRow(page, s.api).locator('[data-unsaved]').waitFor({ timeout: STEP_MS })
+  await page.mouse.move(1000, 700)
+  await set.shot(kea, 'unsaved', 'A session with unsaved files in this window: “unsaved” in its meta, after an attention label and before the dev-server dot and the time', 'Sidebar', { rect: ROWS })
+  await page.evaluate(() => (globalThis as unknown as { __keaProbe: { discardUnsaved(): void } }).__keaProbe.discardUnsaved())
+
   // the row menus
   await sessionRow(page, s.billing).click({ button: 'right' })
   await page.getByRole('menu', { name: 'Session menu' }).waitFor({ timeout: STEP_MS })

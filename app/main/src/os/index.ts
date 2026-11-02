@@ -1,7 +1,7 @@
 // main's OS layer: the capabilities that differ by system and that main owns. Callers import this file only;
 // `select.ts` picks `darwin.ts` or `linux.ts` once, at start. Nothing here imports Electron at run time (types only),
 // so the decisions stay unit-testable: a capability that acts on Electron is handed the object it acts on.
-import type { App, BrowserWindowConstructorOptions, MenuItemConstructorOptions, Notification, Tray } from 'electron'
+import type { App, BrowserWindow, BrowserWindowConstructorOptions, MenuItemConstructorOptions, Notification, Tray } from 'electron'
 import type { NotAvailable, PlatformLine, PlatformReport, ReleaseFileKind, System } from '@kea/protocol'
 import type { MakeUpdater } from '../updates/driver.ts'
 import type { UpdateHow } from '../updates/how.ts'
@@ -28,9 +28,10 @@ export interface WindowChrome {
 }
 
 /**
- * Where "Open Kea" comes from: the tray's menu, a notification's click, a second launch, Kea's own menu or palette.
+ * Where "Open Kea" comes from: the tray's menu, a notification's click, a second launch, Kea's own menu or palette, or a
+ * review of unsaved files, which brings the window holding them forward.
  */
-export type OpenVia = 'tray' | 'notification' | 'secondInstance' | 'menu'
+export type OpenVia = 'tray' | 'notification' | 'secondInstance' | 'menu' | 'review'
 
 /**
  * How "Open Kea" brings back the window that is open: `focus` restores a minimized one, shows and focuses it (macOS,
@@ -45,6 +46,11 @@ export interface Raise {
   /** The display server of this run, from the environment and Chromium's switches (`switchValue`: Electron's `app.commandLine.getSwitchValue`). */
   display(env: NodeJS.ProcessEnv, switchValue: (name: string) => string): DisplayServer
   how(o: { display: DisplayServer; minimized: boolean; via: OpenVia }): RaiseHow
+}
+
+/** `edited`: the window's close button shows that it holds unsaved files (macOS's dot in the red traffic light). */
+export interface Edited {
+  set(win: BrowserWindow, edited: boolean): void
 }
 
 /** The parts of the menu bar main builds from the command table (menu.ts), for this system to lay out. */
@@ -251,6 +257,7 @@ export interface MainOs {
   readonly system: System
   readonly windowChrome: WindowChrome | NotAvailable
   readonly raise: Raise
+  readonly edited: Edited | NotAvailable
   readonly menu: MenuChrome | NotAvailable
   readonly notify: Notify | NotAvailable
   readonly badge: Badge | NotAvailable

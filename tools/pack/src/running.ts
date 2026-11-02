@@ -5,10 +5,11 @@
 // ever matched: not another Kea.app elsewhere, not a holder (those run from `<KEA_HOME>/bin/`, never from the bundle),
 // not a process that merely names the bundle in its arguments.
 //
-// Quitting is the quit Kea already has: SIGTERM to its main process, which Electron turns into `app.quit()`, so main's
-// `before-quit` runs the full quit (ptyhost writes its last checkpoints; holders and agents run on). The
-// signal goes only to a main process of this bundle, after its pid, start time and executable were read again. Then
-// the bundle must empty: the install goes on only once no process at all runs from it.
+// Quitting is the quit Kea already has: SIGTERM to its main process, which main turns into `app.quit()`, so its
+// `before-quit` runs the full quit once the windows have reviewed their unsaved files (ptyhost writes its last
+// checkpoints; holders and agents run on). The signal goes only to a main process of this bundle, after its pid, start
+// time and executable were read again. Then the bundle must empty: the install goes on only once no process at all
+// runs from it.
 
 import fs from 'node:fs'
 import path from 'node:path'

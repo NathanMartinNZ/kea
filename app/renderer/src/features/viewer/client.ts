@@ -7,13 +7,14 @@
 // · `setVisible(false)` — no file or diff tab on screen — starts the idle timer; when it fires the worker is
 //   terminated, and the next request starts a fresh one.
 // · When the worker says it holds more grammars than the limit it is terminated at once and the requests still
-//   running are sent again to a fresh worker, from their first line (their marks went with the old one).
+//   running are sent again to a fresh worker, from their first line (their marks, and an edited document's line
+//   states, went with the old one).
 // · A worker error ends the worker and fails the requests it had: their documents stay plain text.
 
 import { L } from '@kea/protocol/limits'
 import { createWorkerLifecycle, type WorkerState } from './lifecycle.ts'
 import type { TokenChunkData } from './tokens.ts'
-import type { FromWorker, ToWorker } from './worker/protocol.ts'
+import type { EditRun, FromWorker, ToWorker } from './worker/protocol.ts'
 
 /** What the client needs of a Worker (the tests' stand-in implements it). */
 export interface WorkerLike {
@@ -36,9 +37,13 @@ export interface HighlightJob {
   /** The first line that may differ from the text last sent under `doc`. */
   from: number
   budgetMs: number | null
+  /** A document the user edits (worker/protocol.ts `EditRun`). */
+  edit?: EditRun
   onChunk(chunk: TokenChunkData): void
   /** `stoppedAt`: `budgetMs` ran out after that many lines; null: all of it. `failed`: it stays plain text. */
   onDone(r: { stoppedAt: number | null; failed: string | null }): void
+  /** The request was sent again, from its first line, to a fresh worker: the chunks that follow start a new run. */
+  onRestart?(): void
 }
 
 export interface HighlightHandle {
@@ -120,7 +125,7 @@ export class HighlightClient {
   }
 
   private send(id: number, job: HighlightJob, from: number): void {
-    this.worker?.postMessage({ t: 'tokenize', id, doc: job.doc, lang: job.lang, text: job.text, from, budgetMs: job.budgetMs })
+    this.worker?.postMessage({ t: 'tokenize', id, doc: job.doc, lang: job.lang, text: job.text, from, budgetMs: job.budgetMs, ...(job.edit ? { edit: job.edit } : {}) })
   }
 
   /** What a change of state means for the worker and the timer. */
@@ -191,6 +196,9 @@ export class HighlightClient {
     if (this.jobs.size === 0) return
     this.fsm.send({ t: 'request' })
     if (!this.visible) this.fsm.send({ t: 'hidden' })
-    for (const [id, job] of this.jobs) this.send(id, job, 0)
+    for (const [id, job] of this.jobs) {
+      job.onRestart?.()
+      this.send(id, job, 0)
+    }
   }
 }

@@ -149,6 +149,27 @@ kbd {
   background: var(--surface-3);
 }
 
+/* a file tab with unsaved changes: a dot in the close button's place, the close button over it while the tab is hovered */
+.tab.unsaved:not(:hover) .tab-close {
+  position: relative;
+  visibility: visible;
+}
+
+.tab.unsaved:not(:hover) .tab-close > * {
+  visibility: hidden;
+}
+
+.tab.unsaved:not(:hover) .tab-close::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  width: var(--size-dot);
+  height: var(--size-dot);
+  margin: auto;
+  border-radius: 50%;
+  background: var(--text-1);
+}
+
 .tab-note {
   align-self: center;
   flex: none;

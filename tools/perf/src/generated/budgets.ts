@@ -32,6 +32,7 @@ export const BUDGETS = {
   "P-FV-3": {"metric":"scroll a 100 000-line file","min":58,"unit":"fps","max_frame_ms":32},
   "P-FV-4": {"metric":"open a 21 MB file (plain-text mode)","max":150,"unit":"ms"},
   "P-FV-7": {"metric":"typing while a 5 MB file is tokenised (P-TERM-1 still met)","p50":8,"p99":20,"unit":"ms"},
+  "P-FV-8": {"metric":"typing in an editable file near the full-feature size: keydown → the character drawn; → its line recoloured","p50":8,"p99":20,"max_recoloured":100,"unit":"ms"},
   "P-WT-1": {"metric":"delete snapshot of a dirty worktree","max":2000,"unit":"ms"},
   "P-UI-1": {"metric":"⌘N → composer interactive","max":16,"unit":"ms"},
   "P-UI-2": {"metric":"⌘⇧P → palette interactive","max":16,"unit":"ms"},

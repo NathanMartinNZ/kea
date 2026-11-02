@@ -11,6 +11,7 @@ import { call } from '../../lib/rpc.ts'
 import { watch } from '../../lib/reactive.svelte.ts'
 import { failed, sessions, ui, type Sheet } from '../sessions/state.svelte.ts'
 import { openSettings } from '../settings/state.svelte.ts'
+import { unsavedView } from '../viewer/unsaved.svelte.ts'
 import { diskUi, setBusy, setSelected } from './state.svelte.ts'
 
 const titleOf = (id: string): string => sessions.get(id)?.title ?? 'the session'
@@ -85,11 +86,14 @@ export async function archiveSessions(ids: readonly string[]): Promise<void> {
   if (asked) comeBack()
 }
 
-/** The normal confirmation for each, in turn; Cancel leaves that session as it is. */
+/**
+ * The normal confirmation for each, in turn; Cancel leaves that session as it is. A session with unsaved files in this
+ * window is left out (the view says so): its files are asked about where it is deleted on its own.
+ */
 export async function deleteSessions(ids: readonly string[]): Promise<void> {
   let asked = false
   for (const id of ids) {
-    if (!sessions.get(id)) continue
+    if (!sessions.get(id) || unsavedView.sessions.has(id)) continue
     asked = true
     if (!(await ask({ kind: 'delete', sessionId: id }))) return leave()
   }

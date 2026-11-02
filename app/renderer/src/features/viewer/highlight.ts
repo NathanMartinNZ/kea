@@ -1,12 +1,14 @@
 // Syntax colours in the editor: the highlight worker's tokens drawn as mark decorations, for the lines on
 // screen only. A document's `TokenStore` is given to its editor state through a facet; when the worker's chunks arrive
 // the owner dispatches `tokensArrived`, and the decorations of the viewport are rebuilt. Lines the worker has not
-// reached yet are plain text that colours in place.
+// reached yet are plain text that colours in place. In a document the user can edit, the lines they edit keep their
+// colours until fresh ones arrive (editTokens.ts asks for them).
 
-import { Facet, RangeSetBuilder, StateEffect, type Extension } from '@codemirror/state'
+import { Facet, RangeSetBuilder, StateEffect, type ChangeSet, type Extension, type Text } from '@codemirror/state'
 import { Decoration, EditorView, ViewPlugin, type DecorationSet, type ViewUpdate } from '@codemirror/view'
-import { STYLE_PLAIN, syntaxCss, tokenClass } from './syntax.ts'
-import { tokenStart, tokenStyle, type TokenStore } from './tokens.ts'
+import { STYLE_BITS, STYLE_PLAIN, syntaxCss, tokenClass } from './syntax.ts'
+import { tokenStart, tokenStyle, type ShiftedLines, type TokenStore } from './tokens.ts'
+import type { LineEdit } from './worker/protocol.ts'
 
 /** The document's tokens (one store per document; null: none, plain text). */
 export const tokenStore = Facet.define<TokenStore, TokenStore | null>({ combine: (v) => v[0] ?? null })
@@ -76,9 +78,116 @@ function build(view: EditorView, cols: Columns | null): { set: DecorationSet; cl
   return { set: b.finish(), clipped }
 }
 
+/** Changes that share lines: old lines `[from, to)` became new lines `[newFrom, newTo)`; `at` holds each change's fromA, toA, fromB, toB. */
+interface Group {
+  from: number
+  to: number
+  newFrom: number
+  newTo: number
+  at: number[]
+}
+
+function groupsOf(changes: ChangeSet, a: Text, b: Text): Group[] {
+  const out: Group[] = []
+  changes.iterChangedRanges((fromA, toA, fromB, toB) => {
+    const from = a.lineAt(fromA).number - 1
+    const g = out.at(-1)
+    // a change that starts on the line the one before it ends on (two cursors in one line) edits the same lines
+    if (g && from < g.to) {
+      g.to = Math.max(g.to, a.lineAt(toA).number)
+      g.newTo = b.lineAt(toB).number
+      g.at.push(fromA, toA, fromB, toB)
+      return
+    }
+    out.push({ from, to: a.lineAt(toA).number, newFrom: b.lineAt(fromB).number - 1, newTo: b.lineAt(toB).number, at: [fromA, toA, fromB, toB] })
+  })
+  return out
+}
+
+const editsOf = (groups: readonly Group[]): LineEdit[] => groups.map((g) => ({ from: g.from, to: g.to, lines: g.newTo - g.newFrom }))
+
+/** The line edits `changes` made, turning `a` into `b`: numbered in `a`, ascending and apart. */
+export function lineEdits(changes: ChangeSet, a: Text, b: Text): LineEdit[] {
+  return editsOf(groupsOf(changes, a, b))
+}
+
+/**
+ * The store follows the document `changes` turned `a` into `b`: unchanged lines keep their tokens under their new
+ * numbers (tokens.ts `follow`). With `keep`, the edited lines keep the colours of their unchanged text, moved to its new
+ * columns; text put in takes the colour before it.
+ */
+export function followEdits(store: TokenStore, changes: ChangeSet, a: Text, b: Text, keep = false): void {
+  const groups = groupsOf(changes, a, b)
+  store.follow(editsOf(groups), keep ? shiftedLines(store, groups, a, b) : null)
+}
+
+/** The edited lines' kept colours, read from the store before it follows the edits. */
+function shiftedLines(store: TokenStore, groups: readonly Group[], a: Text, b: Text): ShiftedLines | null {
+  const lines: number[] = []
+  const starts: number[] = []
+  const data: number[] = []
+  for (const g of groups) {
+    // the unchanged text in the group's lines: [new line, new column, old line, old column, length], in order
+    const pieces: number[] = []
+    const k = g.at.length / 4
+    const fromA = g.at[0] as number
+    pieces.push(g.newFrom, 0, g.from, 0, fromA - a.line(g.from + 1).from)
+    for (let i = 0; i + 1 < k; i++) {
+      const toA = g.at[4 * i + 1] as number
+      const toB = g.at[4 * i + 3] as number
+      const oldLine = a.lineAt(toA)
+      const newLine = b.lineAt(toB)
+      pieces.push(newLine.number - 1, toB - newLine.from, oldLine.number - 1, toA - oldLine.from, (g.at[4 * i + 4] as number) - toA)
+    }
+    const toA = g.at[4 * k - 3] as number
+    const toB = g.at[4 * k - 1] as number
+    const oldLast = a.line(g.to)
+    pieces.push(g.newTo - 1, toB - b.line(g.newTo).from, g.to - 1, toA - oldLast.from, oldLast.to - toA)
+    let line = -1
+    let last = -1
+    for (let p = 0; p < pieces.length; p += 5) {
+      const [newLine, newCol, oldLine, oldCol, len] = pieces.slice(p, p + 5) as [number, number, number, number, number]
+      if (newLine !== line) {
+        line = newLine
+        last = -1
+      }
+      if (len <= 0) continue
+      const t = store.line(oldLine)
+      if (!t) {
+        // text whose colours are not known yet stays plain, not the colour before it
+        if (lines.at(-1) === newLine && last !== STYLE_PLAIN) data.push(((newCol << STYLE_BITS) | STYLE_PLAIN) >>> 0)
+        last = STYLE_PLAIN
+        continue
+      }
+      if (lines.at(-1) !== newLine) {
+        lines.push(newLine)
+        starts.push(data.length)
+      }
+      // the token that covers the piece's first column, then those that start inside it
+      let i = t.from
+      let style = STYLE_PLAIN
+      while (i < t.to && tokenStart(t.data[i] as number) <= oldCol) style = tokenStyle(t.data[i++] as number)
+      for (let col = newCol; ; ) {
+        if (style !== last) data.push(((col << STYLE_BITS) | style) >>> 0)
+        last = style
+        if (i >= t.to) break
+        const v = t.data[i++] as number
+        if (tokenStart(v) >= oldCol + len) break
+        col = tokenStart(v) - oldCol + newCol
+        style = tokenStyle(v)
+      }
+    }
+  }
+  if (lines.length === 0) return null
+  starts.push(data.length)
+  return { lines, chunk: { from: 0, to: lines.length, starts: Uint32Array.from(starts), data: Uint32Array.from(data) } }
+}
+
 const plugin = ViewPlugin.fromClass(
   class {
     decorations: DecorationSet
+    /** The store's lines when the decorations on screen were built. */
+    lines = 0
     private drawn: number
     /** The scroller's horizontal position and width as last measured (never read during an update). */
     private left = 0
@@ -99,6 +208,7 @@ const plugin = ViewPlugin.fromClass(
       this.decorations = r.set
       this.clipped = r.clipped
       this.drawn = view.state.facet(tokenStore)?.version ?? 0
+      this.lines = view.state.facet(tokenStore)?.lines ?? 0
     }
 
     /** Read the scroller once the layout is done; redraw when other columns are on screen than the ones drawn for. */
@@ -123,16 +233,8 @@ const plugin = ViewPlugin.fromClass(
 
     update(u: ViewUpdate): void {
       const store = u.state.facet(tokenStore)
-      if (store && u.docChanged) {
-        // the store follows the document: unchanged lines keep their tokens under their new numbers (tokens.ts `edit`)
-        const edits: [number, number, number][] = []
-        u.changes.iterChangedRanges((fromA, toA, fromB, toB) => {
-          const a = u.startState.doc
-          edits.push([a.lineAt(fromA).number - 1, a.lineAt(toA).number, u.state.doc.lineAt(toB).number])
-        })
-        // last change first, so each one's line numbers are still the old document's
-        for (const [from, oldTo, newTo] of edits.reverse()) store.edit(from, oldTo, newTo)
-      }
+      // in a document the user can edit, the lines they edit keep their colours until the worker's arrive
+      if (store && u.docChanged) followEdits(store, u.changes, u.startState.doc, u.state.doc, !u.state.readOnly)
       const version = store?.version ?? 0
       // other columns came on screen, or the document was set up anew (word wrap switched: then nothing is left out)
       const moved = u.transactions.some((tr) => tr.reconfigured || tr.effects.some((e) => e.is(columnsMoved)))
@@ -163,4 +265,9 @@ export function installSyntaxStyles(doc: Document = document): void {
   sheet = new CSSStyleSheet()
   sheet.replaceSync(syntaxCss())
   doc.adoptedStyleSheets = [...doc.adoptedStyleSheets, sheet]
+}
+
+/** The lines whose tokens the decorations on screen were built from: what is drawn, not only stored. Null without colours. */
+export function drawnTokenLines(view: EditorView): number | null {
+  return view.plugin(plugin)?.lines ?? null
 }

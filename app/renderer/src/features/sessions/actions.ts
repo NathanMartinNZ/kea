@@ -62,16 +62,21 @@ export function askRemoveProject(id: string): void {
   ui.sheet = { kind: 'removeProject', projectId: id, removal: null }
 }
 
-/** Remove; refused while sessions keep the project, or run without `stopSessions`: the sheet shows core's answer. */
-export async function removeProject(id: string, stopSessions: boolean): Promise<void> {
+/**
+ * Remove; refused while sessions keep the project, or run without `stopSessions`: the sheet shows core's answer.
+ * Resolves whether the project was removed.
+ */
+export async function removeProject(id: string, stopSessions: boolean): Promise<boolean> {
   try {
     const r = await call('projects.remove', { id, ...(stopSessions ? { stopSessions: true } : {}) })
     const { removed, ...removal } = r
     if (removed) ui.sheet = null
     else ui.sheet = { kind: 'removeProject', projectId: id, removal }
+    return removed
   } catch (e) {
     ui.sheet = null
     failed("Couldn't remove the project", e)
+    return false
   }
 }
 

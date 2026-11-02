@@ -1,6 +1,6 @@
 // The window's side of the file tree's operations: the calls to core, one at a time from this window (`panel.busy`,
 // which the commands read), and what follows each answer (`edit.ts` `afterPlan`): the result selected, the open folders
-// and the window's keys moved with a folder, file tabs following their file, the note for a result ignored files hide,
+// and the window's keys moved with a folder, file tabs and their unsaved documents following their file, the note for a result ignored files hide,
 // and Undo's title. Refusals become toasts, but the name field's own (`name`, `exists`), which it shows in place.
 
 import type { FileOpRefused, FileOpResult } from '@kea/protocol'
@@ -8,7 +8,9 @@ import { call } from '../../lib/rpc.ts'
 import { moveFileTabs } from '../../shell/fileTabs.svelte.ts'
 import { commands } from '../commands/registry.ts'
 import { showToast } from '../sessions/state.svelte.ts'
-import { afterPlan, nextAfter, opMessage, parentOf } from './edit.ts'
+import { moveDocuments } from '../viewer/controller.svelte.ts'
+import { dropUnsavedUnder, withDiscards } from '../viewer/review.svelte.ts'
+import { afterPlan, movedPath, nextAfter, opMessage, parentOf } from './edit.ts'
 import { filesModel } from './model.ts'
 import { panel } from './state.svelte.ts'
 
@@ -43,7 +45,9 @@ function clipGoes(sessionId: string, from: string): void {
 export function applyAnswer(sessionId: string, r: Extract<FileOpResult, { ok: true }>, o: { began: boolean; open?: boolean }): void {
   const plan = afterPlan(r, { sessionId, shown: filesModel.sessionId, showIgnored: filesModel.showIgnored, began: o.began, inPanel: keyboardInPanel(), from: r.from })
   if (plan.tabs) {
-    moveFileTabs(sessionId, plan.tabs.from, plan.tabs.to)
+    const { from, to } = plan.tabs
+    moveDocuments(sessionId, (p) => movedPath(p, from, to))
+    moveFileTabs(sessionId, from, to)
     clipGoes(sessionId, plan.tabs.from)
   }
   if (!plan.same) return
@@ -71,9 +75,23 @@ export async function create(sessionId: string, dir: string, name: string, kind:
   return r
 }
 
+/**
+ * A rename or move onto `to`. A file already there with unsaved changes (one deleted on disk) is asked about first:
+ * Don't Save lets its text go once the move is made; Cancel makes no move (null).
+ */
+async function onto(sessionId: string, to: string, op: () => Promise<FileOpResult | null>): Promise<FileOpResult | null> {
+  const out: { r: FileOpResult | null } = { r: null }
+  await withDiscards({ kind: 'under', sessionId, path: to }, async () => {
+    out.r = await op()
+    return out.r?.ok === true
+  })
+  return out.r
+}
+
 /** Rename… committed. */
 export async function rename(sessionId: string, path: string, name: string, began: boolean): Promise<FileOpResult | null> {
-  const r = await once(() => call('files.rename', { sessionId, path, name })).catch((e: unknown) => (failedCall("Couldn't rename", e), null))
+  const to = parentOf(path) ? `${parentOf(path)}/${name}` : name
+  const r = await onto(sessionId, to, () => once(() => call('files.rename', { sessionId, path, name })).catch((e: unknown) => (failedCall("Couldn't rename", e), null)))
   if (r?.ok) applyAnswer(sessionId, r, { began })
   return r
 }
@@ -81,7 +99,10 @@ export async function rename(sessionId: string, path: string, name: string, bega
 /** A move or a copy in the tree (a drag, Paste). */
 export async function move(sessionId: string, path: string, toDir: string, copy: boolean, began: boolean): Promise<FileOpResult | null> {
   const what = copy ? "Couldn't copy" : "Couldn't move"
-  const r = await once(() => call('files.move', { sessionId, path, toDir, copy })).catch((e: unknown) => (failedCall(what, e), null))
+  const name = path.slice(path.lastIndexOf('/') + 1)
+  const go = () => once(() => call('files.move', { sessionId, path, toDir, copy })).catch((e: unknown) => (failedCall(what, e), null))
+  // a copy beside a file of the same name is named as a copy: it never takes a path that has a file
+  const r = copy ? await go() : await onto(sessionId, toDir ? `${toDir}/${name}` : name, go)
   if (!r) return null
   if (!r.ok) refused(what, r)
   else applyAnswer(sessionId, r, { began })
@@ -109,6 +130,8 @@ export async function trash(sessionId: string, path: string, dir: boolean, began
   if (!r) return
   if (!r.ok) return refused("Couldn't move it to the Trash", r)
   clipGoes(sessionId, path)
+  // the sheet said its unsaved changes would be lost: they go, with their tabs
+  dropUnsavedUnder(sessionId, path, true)
   if (filesModel.sessionId !== sessionId) return
   filesModel.setUndo(r.undo)
   const next = index >= 0 ? nextAfter(filesModel.rows, index, path) : null
