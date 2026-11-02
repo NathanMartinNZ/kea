@@ -34,10 +34,13 @@ fn unit_of(pid: i32) -> String {
     path.rsplit('/').next().unwrap().to_owned()
 }
 
-/// Waits until `pid` runs the program named `comm`: a holder's child is the holder's own copy, not dumpable,
-/// until its `execve`, so its `environ` cannot be read before that.
+/// Waits until `pid` runs the program named `comm` and its `environ` reads: a holder's child is the holder's own copy,
+/// not dumpable, until its `execve`, and a process part way through an `execve` reads as an empty `environ`.
 fn wait_exec(pid: i32, comm: &str) {
-    wait_until("the agent's exec", T, || std::fs::read_to_string(format!("/proc/{pid}/comm")).is_ok_and(|c| c.trim() == comm));
+    wait_until(&format!("the exec of {comm}"), T, || {
+        std::fs::read_to_string(format!("/proc/{pid}/comm")).is_ok_and(|c| c.trim() == comm)
+            && std::fs::read(format!("/proc/{pid}/environ")).is_ok_and(|e| !e.is_empty())
+    });
 }
 
 /// Does `pid`'s environment (as its `execve` set it) have `var`?
@@ -117,6 +120,7 @@ fn i_plt_1_a_holder_in_its_own_scope_outlives_kea_s_scope_stopped_and_kea_killed
         let scope = holder_scope(&h);
         assert_eq!(unit_of(h.pid), scope, "the holder is in its own scope");
         assert_eq!(unit_of(h.child), scope, "and its agent with it");
+        wait_exec(kea_pid, "sleep");
         assert!(environ_has(kea_pid, "INVOCATION_ID"), "systemd-run gives a scope's command an INVOCATION_ID");
         wait_exec(h.child, "cat");
         assert!(!environ_has(h.child, "INVOCATION_ID"), "the holder removed it before starting the agent");
