@@ -1,5 +1,5 @@
 use super::*;
-use crate::limits::HOOK_TIMEOUT_S;
+use crate::limits::{HOOK_TIMEOUT_S, STATUSLINE_STDIN_MAX_BYTES};
 use serde_json::json;
 use std::io::{BufRead, BufReader};
 use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
@@ -528,6 +528,108 @@ fn r_agt_1_oversize_and_malformed_stdin() {
     assert_eq!(lines[1]["malformed"], true);
 }
 
+/// A status line projection: two windows of an account's usage and an id, nothing else (the names are made up: the
+/// helper knows no agent's).
+fn statusline_proj() -> Value {
+    json!({"keep": ["id", "usage.short.pct", "usage.short.at", "usage.long.pct", "usage.long.at"], "count": [], "summarise": []})
+}
+
+/// What an agent hands its status line: the usage, and much the projection drops (paths, cost, a large blob).
+fn statusline_payload(blob: usize) -> String {
+    json!({
+        "id": "s-9", "cwd": "/private/where", "cost": {"total": 1.5}, "model": {"name": "m"},
+        "usage": {"short": {"pct": 25, "at": 1_794_426_600u64, "extra": "x"}, "long": {"pct": 67.5, "at": 1_794_618_000u64}},
+        "blob": "z".repeat(blob),
+    })
+    .to_string()
+}
+
+// test: R-AGT-4
+#[test]
+fn r_agt_4_statusline_projects_and_marks_its_envelope() {
+    let h = home();
+    let listener = UnixListener::bind(h.home.join("run/core.sock")).unwrap();
+    let core = core_answering(listener, Some(ACK));
+    let input = statusline_payload(1000);
+    let out = run_statusline(&args(&h.home, &statusline_proj()), &mut input.as_bytes(), STATUSLINE_STDIN_MAX_BYTES);
+    assert_eq!(out, Outcome::Delivered);
+    let v: Value = serde_json::from_str(&core.join().unwrap()).unwrap();
+    assert_eq!(v["statusline"], true, "core tells a status line's envelope from a hook's by this");
+    assert_eq!((v["keaSessionId"].as_str(), v["adapter"].as_str()), (Some(SESSION), Some("fake-agent")));
+    assert_eq!(v["id"].as_str().map(str::len), Some(16));
+    assert_eq!(v["payload"], json!({"id": "s-9", "usage": {"short": {"pct": 25, "at": 1_794_426_600u64}, "long": {"pct": 67.5, "at": 1_794_618_000u64}}}), "only the projection's fields");
+    assert!(v.get("malformed").is_none() && v.get("oversize").is_none());
+    assert!(spool_lines(&h.home).is_empty());
+    // A hook's envelope carries no such mark.
+    let a = parse_args(&args(&h.home, &proj_json())).unwrap();
+    let line = envelope(&a, &Stamp { id: "0123456789abcdef".into(), mono: 1, received_at: 2 }, Some(&json!({"event": "Stop"})), None);
+    assert!(!line.contains("statusline"));
+}
+
+// test: R-AGT-4
+#[test]
+fn r_agt_4_statusline_stdin_is_capped_and_drained() {
+    let h = home();
+    let a = args(&h.home, &statusline_proj());
+    let sock = h.home.join("run/core.sock");
+    let listener = UnixListener::bind(&sock).unwrap();
+    let to_core = |input: &mut dyn Read| {
+        let core = core_answering(listener.try_clone().unwrap(), Some(ACK));
+        let out = run_statusline(&a, &mut &mut *input, STATUSLINE_STDIN_MAX_BYTES);
+        (out, serde_json::from_str::<Value>(&core.join().unwrap()).unwrap())
+    };
+    // Over the status line's cap: drained, dropped, marked; the agent's pipe never breaks (read_stdin reads to EOF).
+    let big = statusline_payload(STATUSLINE_STDIN_MAX_BYTES as usize);
+    assert!(big.len() as u64 > STATUSLINE_STDIN_MAX_BYTES);
+    let mut r = std::io::Cursor::new(big.as_bytes());
+    let (out, v) = to_core(&mut r);
+    assert_eq!(out, Outcome::Delivered);
+    assert_eq!(r.position() as usize, big.len(), "stdin read to its end");
+    assert_eq!((&v["payload"], &v["oversize"], &v["statusline"]), (&json!({}), &json!(true), &json!(true)));
+    // At the cap: read whole.
+    let fits = statusline_payload(0);
+    assert!((fits.len() as u64) < STATUSLINE_STDIN_MAX_BYTES);
+    let (out, v) = to_core(&mut fits.as_bytes());
+    assert_eq!(out, Outcome::Delivered);
+    assert_eq!(v["payload"]["usage"]["short"]["pct"], 25);
+    assert_eq!(v["statusline"], true);
+    assert!(spool_lines(&h.home).is_empty());
+}
+
+// test: R-AGT-4
+#[test]
+fn r_agt_4_statusline_is_never_spooled_while_core_is_away() {
+    let h = home();
+    let a = args(&h.home, &statusline_proj());
+    let hook = args(&h.home, &proj_json());
+    let spool_path = h.home.join("sessions").join(SESSION).join("spool.ndjson");
+    let statusline = |a: &[OsString]| run_statusline(a, &mut statusline_payload(0).as_bytes(), STATUSLINE_STDIN_MAX_BYTES);
+    // No socket at all: the usage report is dropped and no spool is made for it.
+    assert_eq!(statusline(&a), Outcome::Dropped);
+    assert!(!spool_path.exists(), "a status line makes no spool");
+    // A hook's envelope still spools; the status line runs that follow leave its spool as it is, whether nobody listens
+    // on the socket or core takes the line and never answers.
+    assert_eq!(run(&hook, &mut &br#"{"event":"PreTool"}"#[..], HOOK_STDIN_MAX_BYTES), Outcome::Spooled);
+    let before = std::fs::read(&spool_path).unwrap();
+    assert_eq!(statusline(&a), Outcome::Dropped);
+    let sock = h.home.join("run/core.sock");
+    stale_socket(&sock);
+    assert_eq!(statusline(&a), Outcome::Dropped);
+    std::fs::remove_file(&sock).unwrap();
+    let core = core_answering(UnixListener::bind(&sock).unwrap(), None);
+    assert_eq!(statusline(&a), Outcome::Dropped);
+    assert!(core.join().unwrap().contains("\"statusline\":true"), "core was offered the line");
+    assert_eq!(std::fs::read(&spool_path).unwrap(), before, "the spool is untouched");
+    // So the session's own events keep the spool's room: the next hook goes in after the first.
+    std::fs::remove_file(&sock).unwrap();
+    assert_eq!(run(&hook, &mut &br#"{"event":"Notify"}"#[..], HOOK_STDIN_MAX_BYTES), Outcome::Spooled);
+    let events: Vec<_> = spool_lines(&h.home).iter().map(|l| (l["payload"]["event"].as_str().map(str::to_owned), l.get("statusline").is_none())).collect();
+    assert_eq!(events, [(Some("PreTool".to_owned()), true), (Some("Notify".to_owned()), true)]);
+    // Bad arguments: dropped, like a hook's.
+    let bad: Vec<OsString> = ["fake-agent", "--session", "../x", "--home", h.home.to_str().unwrap(), "--project", &statusline_proj().to_string()].iter().map(Into::into).collect();
+    assert_eq!(statusline(&bad), Outcome::Dropped);
+}
+
 #[test]
 fn r_agt_2_sources_name_no_agent_fields() {
     // Built from pieces so this test does not trip over itself.
@@ -546,6 +648,11 @@ fn r_agt_2_sources_name_no_agent_fields() {
         ["agent", "type"].join("_"),
         ["prompt", "id"].join("_"),
         ["session", "title"].join("_"),
+        ["rate", "limits"].join("_"),
+        ["five", "hour"].join("_"),
+        ["seven", "day"].join("_"),
+        ["used", "percentage"].join("_"),
+        ["resets", "at"].join("_"),
         ["cla", "ude"].concat(),
         ["co", "dex"].concat(),
         ["command", "code"].concat(),

@@ -1,22 +1,27 @@
-// Dropping on a terminal: files from other apps and rows from the file tree become text at the prompt, typed
-// for the person and never submitted. Pure: `TerminalArea.svelte` takes the drop and sends the text.
+// Dropping on a terminal: files from other apps and rows of the file tree or the Changes view become text at the
+// prompt, typed for the person and never submitted. Pure: `TerminalArea.svelte` takes the drop and sends the text.
 //
-//   files from other apps  their absolute paths, shell-escaped, each followed by a space
-//   a row of the file tree its path relative to the session's working directory, shell-escaped; dropped with `⌥` held
-//                          on the agent's terminal, a file mention instead: `@path`, or the form the session's agent
-//                          reads when the name has a space or would otherwise be cut short (`@"my file.ts"`). The form
-//                          is the agent's, so core's adapter says it (`agents.mention`; nothing agent-specific lives
-//                          here). On any other terminal (a shell, the dev server) `⌥` changes nothing: a mention
-//                          means nothing to a shell, and unescaped it would be read as a command line
+//   files from other apps  their absolute paths, shell-escaped, each followed by a space, on every terminal
+//   a row, on the agent's  a mention of the file or folder in the session's agent's own form: `@path`, or the form it
+//   terminal               reads when the name has a space or would otherwise be cut short (`@"my file.ts"`); a folder
+//                          is bare, with no trailing `/`. The form is the agent's, so core's adapter says it
+//                          (`agents.mention`; nothing agent-specific lives here). With `⌥` held: the path relative to
+//                          the session's working directory, shell-escaped
+//   a row, on any other    that shell-escaped path, `⌥` or not (a shell, the dev server): a mention means nothing
+//   terminal               to a shell, and unescaped it would be read as a command line
 //
-// A name is data from disk, and a repository or an agent chooses it. Nothing here returns a text with a raw control
-// character: the shell's form writes one in ANSI-C quotes, and a mention, which has no such form, is refused
-// with a reason for the person.
+// A row's path is relative to its own session's working directory, so a row dropped on a terminal of another session
+// (or on the plain shells, which have none) types nothing and says why. A name is data from disk, and a repository or
+// an agent chooses it. Nothing here returns a text with a raw control character: the shell's form writes one in ANSI-C
+// quotes, and a mention, which has no such form, is refused with a reason for the person.
 
 import { hasControlCharacter, isTypedText, protocolOs } from '@kea/protocol'
 import { pathsForShell, shellEscape } from './shellEscape.ts'
 
-/** The drag type a file-tree row carries: JSON `{ sessionId, path }`, the path relative to the working directory. */
+/**
+ * The drag type a row of the file tree or the Changes view carries: JSON `{ sessionId, path }`, the path relative to
+ * the working directory.
+ */
 export const PATH_DRAG_TYPE = 'application/x-kea-path'
 
 export interface DraggedPath {
@@ -47,16 +52,22 @@ export interface Dropped {
 }
 
 /** Why a file gets no mention: its name has no form the agent reads back as that file. */
-export const MENTION_REFUSED = `This file’s name cannot be written as a mention the agent reads back (a control character, or a quote in a name that needs quotes). Drop it without ${protocolOs.keys.altName} for its path.`
+export const MENTION_REFUSED = `This file’s name cannot be written as a mention the agent reads back (a control character, or a quote in a name that needs quotes). Drop it with ${protocolOs.keys.altName} held for its path.`
+
+/** Why a row types nothing on a terminal of another session: its path is relative to another working directory. */
+export const OTHER_SESSION = 'That file belongs to another session.'
 
 /**
  * What a drop does. `files`: the dropped files' absolute paths. `agent`: the terminal dropped on is the session's
- * agent terminal, the only one a mention is for. A mention's text is the agent's to say: `mention` is the path core is
- * asked about (`agents.mention`), and `mentionText` makes the answer what is typed.
+ * agent terminal, the only one a mention is for. `sessionId`: the session the terminal belongs to, null for the plain
+ * shells. A mention's text is the agent's to say: `mention` is the path core is asked about (`agents.mention`), and
+ * `mentionText` makes the answer what is typed.
  */
-export function dropText(d: { row: DraggedPath | null; files: readonly string[]; alt: boolean; agent: boolean }): Dropped | { mention: string } {
-  if (d.row && d.alt && d.agent) return hasControlCharacter(d.row.path) ? { text: '', refused: MENTION_REFUSED } : { mention: d.row.path }
-  return { text: pathsForShell(d.row ? [d.row.path] : d.files.filter((p) => p !== '')), refused: null }
+export function dropText(d: { row: DraggedPath | null; files: readonly string[]; alt: boolean; agent: boolean; sessionId: string | null }): Dropped | { mention: string } {
+  if (!d.row) return { text: pathsForShell(d.files.filter((p) => p !== '')), refused: null }
+  if (d.row.sessionId !== d.sessionId) return { text: '', refused: OTHER_SESSION }
+  if (d.agent && !d.alt) return hasControlCharacter(d.row.path) ? { text: '', refused: MENTION_REFUSED } : { mention: d.row.path }
+  return { text: pathsForShell([d.row.path]), refused: null }
 }
 
 /**
@@ -69,9 +80,9 @@ export function mentionText(answer: string | null): Dropped {
 }
 
 /**
- * What a dragged row of the file tree carries: the path for Kea's own terminals, and plain text for other apps. The
- * plain text is the path, except for a name with a control character, which another app's terminal would type as
- * keys: that one goes as the shell's quoted form.
+ * What a dragged row of the file tree or the Changes view carries: the path for Kea's own terminals, and plain text
+ * for other apps. The plain text is the path, except for a name with a control character, which another app's
+ * terminal would type as keys: that one goes as the shell's quoted form.
  */
 export function dragPayload(sessionId: string, path: string): Record<typeof PATH_DRAG_TYPE | 'text/plain', string> {
   return { [PATH_DRAG_TYPE]: JSON.stringify({ sessionId, path }), 'text/plain': hasControlCharacter(path) ? shellEscape(path) : path } as Record<typeof PATH_DRAG_TYPE | 'text/plain', string>

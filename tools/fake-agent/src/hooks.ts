@@ -1,9 +1,15 @@
 // Hooks, fired the way Claude Code fires them: the hook list comes from `--settings`; each matching `type: "command"`
 // hook is exec'd as `command` + `args` (no shell), gets the JSON payload on stdin, and the agent waits for it to exit
 // (synchronous delivery) within its `timeout` seconds. Payloads follow fixtures/hooks/claude/.
+//
+// A `statusLine` in `--settings` runs as Claude 2.1.322 runs one: its `command` through `/bin/sh -c`, once at start
+// (no `rate_limits` yet) and after each reply (Stop, StopFailure), the payload of fixtures/statusline/claude/ on stdin.
+// The reply's `rate_limits` come from FAKE_AGENT_RATE_LIMITS (inline JSON, or a file read at each run, so a test can
+// change them between replies); without it, a payload has none (an API key's).
 
 import { spawn } from 'node:child_process'
 import { readFileSync } from 'node:fs'
+import { FAKE_CLAUDE_VERSION } from './argv.ts'
 import type { Json } from './scenario.ts'
 
 /** Claude's default timeout for a command hook when the settings give none, in seconds. */
@@ -64,6 +70,25 @@ export function parseClaudeSettings(value: string, readFile: (p: string) => stri
     })
   }
   return config
+}
+
+/** `--settings`' status line command (inline JSON or a file, like `parseClaudeSettings`), or null when it sets none. */
+export function parseStatusLine(value: string, readFile: (p: string) => string = (p) => readFileSync(p, 'utf8')): string | null {
+  let raw: unknown
+  try {
+    raw = JSON.parse(value.trimStart().startsWith('{') ? value : readFile(value))
+  } catch {
+    return null
+  }
+  const line = raw !== null && typeof raw === 'object' ? (raw as Record<string, unknown>).statusLine : undefined
+  if (line === null || typeof line !== 'object') return null
+  const o = line as Record<string, unknown>
+  return o.type === 'command' && typeof o.command === 'string' && o.command !== '' ? o.command : null
+}
+
+/** The status line `--settings` set (Claude kills one that runs too long; its default hook timeout stands in here). */
+export interface StatusLineConfig {
+  command: string
 }
 
 /**
@@ -220,6 +245,9 @@ export function mergeFields(payload: Record<string, unknown>, fields: Record<str
   return payload
 }
 
+/** Events after which Claude runs its status line again: a reply ended. */
+const STATUS_LINE_AFTER = new Set(['Stop', 'StopFailure'])
+
 /** Builds Claude-shaped payloads and runs the configured hooks for them. */
 export class ClaudeHooks implements HookSink {
   private toolSeq = 0
@@ -227,13 +255,46 @@ export class ClaudeHooks implements HookSink {
   private readonly config: HookConfig
   private readonly info: ClaudeSessionInfo
   private readonly env: NodeJS.ProcessEnv
+  private readonly statusLine: StatusLineConfig | null
+  /** A reply has ended: from now on a status line payload carries `rate_limits` (FAKE_AGENT_RATE_LIMITS's, if any). */
+  private replied = false
   /** A SessionStart that reported another session id (/clear): later payloads carry it, and so does the status file. */
   onSessionId: ((id: string) => void) | null = null
 
-  constructor(config: HookConfig, info: ClaudeSessionInfo, env: NodeJS.ProcessEnv) {
+  constructor(config: HookConfig, info: ClaudeSessionInfo, env: NodeJS.ProcessEnv, statusLine: StatusLineConfig | null = null) {
     this.config = config
     this.info = { ...info }
     this.env = env
+    this.statusLine = statusLine
+  }
+
+  /** The status line's stdin, as 2.1.322 shapes it (fixtures/statusline/claude/2.1.322/). */
+  statusLinePayload(): Record<string, unknown> {
+    const i = this.info
+    const p: Record<string, unknown> = {
+      session_id: i.sessionId,
+      transcript_path: i.transcriptPath,
+      cwd: i.cwd,
+      effort: { level: i.effort ?? 'medium' },
+      model: { id: i.model, display_name: i.model },
+      workspace: { current_dir: i.cwd, project_dir: i.cwd, added_dirs: [] },
+      version: this.env.FAKE_AGENT_CLI_VERSION || FAKE_CLAUDE_VERSION,
+      output_style: { name: 'default' },
+      cost: { total_cost_usd: 0, total_duration_ms: 0, total_api_duration_ms: 0, total_lines_added: 0, total_lines_removed: 0 },
+      exceeds_200k_tokens: false,
+    }
+    const limits = this.replied ? rateLimits(this.env.FAKE_AGENT_RATE_LIMITS) : null
+    if (limits) p.rate_limits = limits
+    return p
+  }
+
+  /** Run the status line, if `--settings` set one: through `/bin/sh -c`, as Claude does, its payload on stdin. */
+  async runStatusLine(): Promise<HookRun | null> {
+    if (!this.statusLine) return null
+    const input = JSON.stringify(this.statusLinePayload())
+    const args = ['-c', this.statusLine.command]
+    const r = await runCommand('/bin/sh', args, { cwd: this.info.cwd, env: this.env, input, timeoutMs: DEFAULT_HOOK_TIMEOUT_SEC * 1000 })
+    return { ...r, command: '/bin/sh', args }
   }
 
   /** The JSON Claude would send for this event. */
@@ -327,6 +388,22 @@ export class ClaudeHooks implements HookSink {
       const r = await runCommand(h.command, args, { cwd: this.info.cwd, env, input, timeoutMs: h.timeoutSec * 1000 })
       runs.push({ ...r, command: h.command, args })
     }
+    // the status line: once at start, then after each reply
+    if (event === 'SessionStart' || STATUS_LINE_AFTER.has(event)) {
+      if (STATUS_LINE_AFTER.has(event)) this.replied = true
+      const line = await this.runStatusLine()
+      if (line) runs.push(line)
+    }
     return { payload, runs }
+  }
+}
+
+/** FAKE_AGENT_RATE_LIMITS: inline JSON, or a file holding it (read at each run); null when unset or unreadable. */
+function rateLimits(value: string | undefined): unknown {
+  if (!value) return null
+  try {
+    return JSON.parse(value.trimStart().startsWith('{') ? value : readFileSync(value, 'utf8')) as unknown
+  } catch {
+    return null
   }
 }

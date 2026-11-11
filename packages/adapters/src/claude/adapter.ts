@@ -4,21 +4,18 @@
 
 import path from 'node:path'
 import { commandName } from '../kit/env.ts'
-import type { AgentAdapter, Env } from '../types.ts'
-import { AUTH_LOGIN, COMMAND, CONFIG_DIR_NAME, ENV_CONFIG_DIR, INSTALL_COMMAND, STATUS_DIR, TRANSCRIPTS_DIR } from './contract.ts'
+import type { AgentAdapter } from '../types.ts'
+import { configDir } from './config.ts'
+import { AUTH_LOGIN, COMMAND, INSTALL_COMMAND, STATUS_DIR, TRANSCRIPTS_DIR } from './contract.ts'
 import { detect, options } from './detect.ts'
 import { buildLaunch, buildResume, helperPaths } from './launch.ts'
-import { ClaudeSignals } from './mapping.ts'
+import { ClaudeSignals, usageEvents } from './mapping.ts'
 import { CLAUDE_SETTINGS } from './settings.ts'
+import { usageLimitsOn } from './statusline.ts'
 import { fileMention } from './mention.ts'
 import { reconcile, watchTranscript } from './transcript.ts'
 
-/** The config directory the agent uses in `env`: CLAUDE_CONFIG_DIR, else `~/.claude`. */
-export function configDir(env: Readonly<Env>): string | null {
-  const dir = env[ENV_CONFIG_DIR]
-  if (dir && path.isAbsolute(dir)) return dir
-  return env.HOME && path.isAbsolute(env.HOME) ? path.join(env.HOME, CONFIG_DIR_NAME) : null
-}
+export { configDir }
 
 export const claude: AgentAdapter = {
   id: CLAUDE_SETTINGS.id,
@@ -55,4 +52,10 @@ export const claude: AgentAdapter = {
   watchTranscript,
   reconcile,
   fileMention,
+  usage: {
+    enabled: usageLimitsOn,
+    // two logins are two config folders; with neither CLAUDE_CONFIG_DIR nor HOME known, the one default account
+    account: (env) => configDir(env) ?? '',
+    map: usageEvents,
+  },
 }

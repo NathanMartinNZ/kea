@@ -23,6 +23,8 @@
 //                 first such reading from an agent that keeps its trust per repository confirms the repo's
 //                 (`projects.trust_confirmed`). The trust dialog holds hooks back and writes no status file
 //   conditions    account-level failures open or join the agent's condition (conditions.ts)
+//   usage         an account's usage limits (`account.usage`) are the account's reading (usage.ts), never a session's
+//                 input: they move no phase and stay out of the journal and the recent-signal ring
 
 import { Emitter, type Logger } from '@kea/kit'
 import {
@@ -55,6 +57,7 @@ import { Reports, type ReportsOptions } from './reports.ts'
 import { SessionMachine, type Applied, type SignalRecord } from './machine.ts'
 import type { StatusNotice } from './notices.ts'
 import { initialStatus, type Effect, type ReconcileResult, type StatusState, type TableEvent } from './table.ts'
+import { Usage } from './usage.ts'
 
 /** One input from an adapter: an envelope's or a signal's normalised events and where they came from. */
 export interface StatusInput {
@@ -255,6 +258,8 @@ export class StatusEngine {
   /** `status`: SessionStatus by session id, live sessions only. */
   readonly store = new KeyedStore<SessionStatus>(STATUS_STORE)
   readonly conditions: Conditions
+  /** The accounts' usage readings (`status.usage`), expired on the conditions' check. */
+  readonly usage: Usage
   readonly reports: Reports
   /** N1…N5 and withdrawals, for the notification policy (which tells main what to post). */
   readonly notices = new Emitter<StatusNotice>({ name: 'status.notices' })
@@ -276,7 +281,8 @@ export class StatusEngine {
     this.o = o
     this.now = o.now ?? Date.now
     this.mono = o.mono ?? (() => process.hrtime.bigint())
-    this.conditions = new Conditions({ db: o.db, log: o.log, now: this.now, notify: (n) => this.notices.fire(n) })
+    this.usage = new Usage({ now: this.now, changed: (agent) => this.conditions.usageChanged(agent) })
+    this.conditions = new Conditions({ db: o.db, log: o.log, now: this.now, notify: (n) => this.notices.fire(n), usage: this.usage })
     this.reports = new Reports({ ...o.report, home: o.home, db: o.db, log: o.log, version: o.version, commit: o.commit, now: this.now, mono: this.mono, flush: () => o.batch.flush() })
     for (const v of o.sessions.values()) {
       this.lifecycles.set(v.id, v.lifecycle)
@@ -300,8 +306,11 @@ export class StatusEngine {
    * heuristics with their own tier. False when the session is not live (nothing applied).
    */
   ingest(input: StatusInput): boolean {
-    const applied = this.apply(input.sessionId, { source: input.source, events: [...input.events], mono: input.mono, at: input.at, spooled: input.spooled === true, raw: input.raw })
-    if (applied && input.spooled !== true && input.events.some((e) => e.t === 'tool.finished')) this.toolFinished.fire(input.sessionId)
+    // the account's usage is no session's input: the agent service reports it to `usage`, and here it changes nothing
+    const events = input.events.filter((e) => e.t !== 'account.usage')
+    if (events.length === 0 && input.events.length > 0) return this.tracks.has(input.sessionId)
+    const applied = this.apply(input.sessionId, { source: input.source, events, mono: input.mono, at: input.at, spooled: input.spooled === true, raw: input.raw })
+    if (applied && input.spooled !== true && events.some((e) => e.t === 'tool.finished')) this.toolFinished.fire(input.sessionId)
     return applied
   }
 
@@ -420,7 +429,7 @@ export class StatusEngine {
   }
 
   /** The `core.status` gauge. */
-  get resourceCounts(): { sessions: number; ringEntries: number; timers: number; lifecycles: number; conditions: number; listeners: number } {
+  get resourceCounts(): { sessions: number; ringEntries: number; timers: number; lifecycles: number; conditions: number; usage: number; listeners: number } {
     let ringEntries = 0
     let timers = this.viewTimer ? 1 : 0
     for (const t of this.tracks.values()) {
@@ -429,7 +438,7 @@ export class StatusEngine {
       if (t.unconfirmedTimer) timers++
     }
     const c = this.conditions.resourceCounts
-    return { sessions: this.tracks.size, ringEntries, timers: timers + c.conditionTimers, lifecycles: this.lifecycles.size, conditions: c.conditions, listeners: this.notices.listenerCount }
+    return { sessions: this.tracks.size, ringEntries, timers: timers + c.conditionTimers, lifecycles: this.lifecycles.size, conditions: c.conditions, usage: this.usage.size, listeners: this.notices.listenerCount }
   }
 
   dispose(): void {
@@ -442,6 +451,7 @@ export class StatusEngine {
     this.tracks.clear()
     this.lifecycles.clear()
     this.conditions.dispose()
+    this.usage.dispose()
     this.store.dispose()
     this.notices.dispose()
   }

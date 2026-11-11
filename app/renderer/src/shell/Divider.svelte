@@ -1,6 +1,7 @@
 <!--
 A divider between two columns, or between the work pane and the agent pane (`agent`): a 1 px line with a
-`--size-divider-hit` hit area. Drag to resize (persisted once, at the drag's end), double-click to reset, ← → to step
+`--size-divider-hit` hit area, centred on the line; the agent pane's lies over the agent pane's own padding, from its
+line, so the work pane's right edge (the file view's change ruler, a scrollbar) takes presses. Drag to resize (persisted once, at the drag's end), double-click to reset, ← → to step
 when focused. Locatable as `separator` "Resize sidebar" / "Resize file panel" / "Resize agent pane" with its column's or
 pane's width as its value. While the split is drawn the side dividers stop where the main column would no longer hold
 it, and say why; no mode changes while any divider is dragged (`layoutState.resizing`).
@@ -69,6 +70,7 @@ it, and say why; no mode changes while any divider is dragged (`layoutState.resi
   with a value is a splitter, an interactive widget in WAI-ARIA; Svelte's role table counts every separator as static) -->
 <div
   class="divider"
+  class:beside={column === 'agent'}
   role="separator"
   aria-orientation="vertical"
   aria-label={label}

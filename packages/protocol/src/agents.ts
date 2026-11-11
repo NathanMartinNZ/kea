@@ -93,6 +93,11 @@ export const zHookEnvelope = z.object({
   malformed: z.literal(true).optional(),
   /** stdin was over L.hookStdinMaxBytes: drained and dropped, the payload is `{}`. */
   oversize: z.literal(true).optional(),
+  /**
+   * The agent's status line, not a hook (`kea-helper statusline`, stdin capped at L.statuslineStdinMaxBytes): the
+   * account's usage for its adapter to map, which changes no session's status.
+   */
+  statusline: z.literal(true).optional(),
 })
 export type HookEnvelope = z.infer<typeof zHookEnvelope>
 

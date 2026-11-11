@@ -8,6 +8,8 @@ over a flat list in `changesOrder` (conflicts first, then by path), drawn only w
   double-click      Open in Editor at the first changed line (`openChangeInEditor`), as `⌘↵` does via the key scope
   ↑ ↓ Home End PageUp PageDown, typing a name
   right-click · ⇧F10    the `file ⌃` menu for the row
+  drag              onto a terminal, as a row of the file tree (`dragPayload`); only copied, never moved. A deleted
+                    file's row has nothing to drag
 
 States: nothing changed → "No changes yet."; more changes than Kea tracks → that, and a manual Refresh; git did not
 answer → the last status that worked, said so.
@@ -19,6 +21,7 @@ answer → the last status that worked, said so.
   import { menuTrigger, MoreIcon } from '@kea/ui'
   import { SIZE_PX } from '@kea/ui/tokens'
   import { commands } from '../commands/registry.ts'
+  import { dragPayload } from '../terminal/drop.ts'
   import { branchLine, branchText, changeRow, LETTER_NAMES, midPath, totalsText } from './changes.ts'
   import { openChangeInEditor } from './commands.ts'
   import { isTypeKey, listKey, typeAhead } from './keys.ts'
@@ -172,6 +175,14 @@ answer → the last status that worked, said so.
     panel.menu = { kind: 'changes', target: { sessionId, path: '', dir: true }, at: { x: r.right, y: r.bottom }, trigger: menuTrigger('changes-actions') }
   }
 
+  function onDragStart(e: DragEvent): void {
+    const hit = rowAt(e)
+    if (!hit || hit.entry.code === 'D' || !e.dataTransfer) return void e.preventDefault()
+    // the row's path for Kea's terminals, and as text for other apps (never with a raw control character)
+    for (const [type, data] of Object.entries(dragPayload(sessionId, hit.entry.path))) e.dataTransfer.setData(type, data)
+    e.dataTransfer.effectAllowed = 'copy'
+  }
+
   const keepFocus = (e: MouseEvent) => e.preventDefault()
 </script>
 
@@ -227,6 +238,7 @@ answer → the last status that worked, said so.
   onscroll={onScroll}
   onclick={onClick}
   ondblclick={onDblClick}
+  ondragstart={onDragStart}
   oncontextmenu={onContextMenu}
   onkeydown={onKeyDown}
   {@attach measure}
@@ -243,6 +255,7 @@ answer → the last status that worked, said so.
           data-index={index}
           data-path={row.path}
           data-git={row.letter}
+          draggable={row.struck ? undefined : 'true'}
         >
           <span class="fp-letter" role="img" aria-label={LETTER_NAMES[row.letter] ?? row.letter} data-tip={LETTER_NAMES[row.letter]}>{row.letter}</span>
           <span class="ch-name{row.struck ? ' struck' : ''}">{row.name}</span>

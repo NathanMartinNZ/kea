@@ -39,6 +39,11 @@ export const zAgentEvent = z.discriminatedUnion('t', [
   /** `rate_limit`, `auth`, `billing` are account-level. `resetsAt`: wall ms. */
   z.object({ t: z.literal('turn.failed'), error: z.string(), kind: zFailureKind, resetsAt: z.number().optional() }),
   z.object({ t: z.literal('compacting'), active: z.boolean() }),
+  /**
+   * The account's usage limits as the agent reported them (Claude's status line, on unless turned off): each window's share used and
+   * when it resets. Belongs to the account, not the session: core keeps one reading per account (`status.usage`).
+   */
+  z.object({ t: z.literal('account.usage'), windows: z.array(z.lazy(() => zUsageWindow)).max(2) }),
   z.object({ t: z.literal('session.ended'), reason: z.string().optional() }),
   z.object({
     t: z.literal('meta'),
@@ -67,6 +72,7 @@ export const AGENT_EVENT_TYPES = [
   'turn.interrupted',
   'turn.failed',
   'compacting',
+  'account.usage',
   'session.ended',
   'meta',
 ] as const satisfies readonly AgentEventType[]
@@ -135,6 +141,31 @@ export const zAccountCondition = z.object({
   sessionIds: z.array(zSessionId),
 })
 export type AccountCondition = z.infer<typeof zAccountCondition>
+
+// ── usage limits ─────────────────────────────────────────────────────────────────────────────────────────
+
+export const USAGE_STORE = 'status.usage'
+
+/** A usage limit's window: `session` the rolling five hours, `week` the rolling seven days. */
+export const USAGE_WINDOWS = ['session', 'week'] as const
+export type UsageWindowId = (typeof USAGE_WINDOWS)[number]
+
+/** One window as an agent reports it: the share used (0–100) and when it resets (wall ms). */
+export const zUsageWindow = z.object({ id: z.enum(USAGE_WINDOWS), usedPct: z.number().min(0).max(100), resetsAt: z.number().int() })
+export type UsageWindow = z.infer<typeof zUsageWindow>
+
+/**
+ * One account's reading, keyed by `account` (the agent and its config folder, so two Claude logins are two
+ * readings). Each window carries when it was last seen (wall ms); `seenAt` is the latest of them. A window past its
+ * `resetsAt` is dropped, and so is a reading no event has refreshed for `usage_stale_ms`.
+ */
+export const zUsageReading = z.object({
+  account: z.string(),
+  agent: z.string(),
+  windows: z.array(zUsageWindow.extend({ seenAt: z.number().int() })).max(USAGE_WINDOWS.length),
+  seenAt: z.number().int(),
+})
+export type UsageReading = z.infer<typeof zUsageReading>
 
 /** The label of a row an account condition holds (and the footer line's words). */
 export function conditionLabel(kind: AccountKind): string {

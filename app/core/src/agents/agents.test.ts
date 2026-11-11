@@ -61,7 +61,20 @@ const testAdapter: AgentAdapter = {
 }
 
 function setup(
-  o: { registry?: AdapterRegistry; hr?: () => bigint; now?: () => number; phase?: (id: string) => string | undefined; typed?: string[]; reconciled?: [string, unknown][]; settings?: Record<string, unknown>; files?: [string, unknown][]; intake?: boolean; argvs?: () => string[][]; spoolLockFlag?: number } = {},
+  o: {
+    registry?: AdapterRegistry
+    hr?: () => bigint
+    now?: () => number
+    phase?: (id: string) => string | undefined
+    typed?: string[]
+    reconciled?: [string, unknown][]
+    settings?: Record<string, unknown>
+    files?: [string, unknown][]
+    intake?: boolean
+    argvs?: () => string[][]
+    spoolLockFlag?: number
+    usage?: { reports: unknown[]; cleared: string[] }
+  } = {},
 ) {
   const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'kea-agents-')))
   dirs.push(home)
@@ -92,6 +105,7 @@ function setup(
       reconcile: (id, r) => (o.reconciled?.push([id, r]), true),
       userTyped: (id) => (o.typed?.push(id), true),
       state: (id) => (o.phase?.(id) ? ({ phase: o.phase(id) } as ReturnType<StatusEngine['state']>) : undefined),
+      usage: { report: (r) => void o.usage?.reports.push(r), clear: (agent) => void o.usage?.cleared.push(agent) },
     },
     batch: { queue: () => undefined },
     intake: o.intake ?? false,
@@ -397,6 +411,42 @@ describe('the agent service', () => {
     expect([mention('s-claude', 'docs/résumé'), mention('s-cmd', 'docs/résumé'), mention('s-shell', 'docs/résumé')]).toEqual(['@"docs/résumé"', '@docs/résumé', '@docs/résumé'])
     expect([mention('s-claude', 'pkg/@scope/x.js'), mention('s-cmd', 'pkg/@scope/x.js'), mention('s-shell', 'pkg/@scope/x.js')]).toEqual(['@pkg/@scope/x.js', '@"pkg/@scope/x.js"', '@"pkg/@scope/x.js"'])
     expect(mention('nobody', 'README.md')).toBeNull()
+  })
+
+  it('U-ST-25 · a status line’s envelope is the account’s usage: its adapter maps it into the reading of the agent’s config folder, never a session’s input, from the socket or a spool; nothing while the setting is off, and the readings go when it is turned off', async () => {
+    const usage = { reports: [] as unknown[], cleared: [] as string[] }
+    const { svc, sessions, inputs, home, settings } = setup({ usage, settings: { agents: { claude: { usageLimits: true, env: { CLAUDE_CONFIG_DIR: '/cfg/claude' } } } } })
+    await svc.start()
+    const id = '01USAGE0000000000000000000'
+    sessions.set(id, view(id, { lifecycle: 'live' }))
+    const T = Date.now()
+    // the projected payload of a reply's status line, and of the one at start (no windows yet)
+    const after = { session_id: '11111111-2222-4333-8444-555555555555', rate_limits: { five_hour: { used_percentage: 25, resets_at: 1_794_426_600 }, seven_day: { used_percentage: 67, resets_at: 1_794_618_000 } } }
+    const line = (payload: Record<string, unknown>, o: Partial<Envelope> = {}): Envelope => ({ keaSessionId: id, adapter: 'claude', mono: 1, receivedAt: T, payload, statusline: true, ...o })
+    svc.envelope(line({ session_id: '11111111-2222-4333-8444-555555555555' }))
+    svc.envelope(line(after))
+    const report = { agent: 'claude', account: '/cfg/claude', windows: [{ id: 'session', usedPct: 25, resetsAt: 1_794_426_600_000 }, { id: 'week', usedPct: 67, resetsAt: 1_794_618_000_000 }], at: T }
+    expect(usage.reports).toEqual([report])
+    expect(inputs, 'no session input: the usage moves no status').toEqual([])
+    // another adapter's, an unknown session's, a malformed or oversize one: nothing
+    svc.envelope(line(after, { adapter: 'commandcode' }))
+    svc.envelope(line(after, { keaSessionId: '01NOSUCHSESSION00000000000' }))
+    svc.envelope(line({}, { malformed: true }))
+    svc.envelope(line({}, { oversize: true }))
+    expect(usage.reports).toHaveLength(1)
+    // spooled while core was away: drained with the session's next envelope, the reading takes it by its own time
+    const spool = path.join(home, 'sessions', id, 'spool.ndjson')
+    fs.mkdirSync(path.dirname(spool), { recursive: true })
+    fs.writeFileSync(spool, `${JSON.stringify(line(after, { id: '00000000000000e5', receivedAt: T - 5000 }))}\n`)
+    svc.envelope({ keaSessionId: id, adapter: 'claude', mono: 2, receivedAt: T, payload: { hook_event_name: 'Notification', notification_type: 'idle_prompt' } })
+    expect(usage.reports.at(-1)).toEqual({ ...report, at: T - 5000 })
+    expect(inputs.every((i) => i.events.every((e: AgentEvent) => e.t !== 'account.usage'))).toBe(true)
+    // the setting goes off: the readings go, and status lines of sessions started before are ignored
+    await settings.set('agents.claude.usageLimits', false)
+    expect(usage.cleared).toEqual(['claude'])
+    const n = usage.reports.length
+    svc.envelope(line(after))
+    expect(usage.reports).toHaveLength(n)
   })
 
   it('U-AGT-21 · an envelope that comes twice, through core’s socket and through the spool (a busy or hung core read the line after the helper had spooled it), is applied once, whichever copy comes first; envelopes without an id still apply', () => {

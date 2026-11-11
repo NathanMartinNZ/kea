@@ -519,3 +519,78 @@ describe('sessions with an agent', () => {
     for (const f of files) expect(f).toMatch(/^projects\/[^/]+\/[0-9a-f-]{36}\.jsonl$/)
   })
 })
+
+describe('Claude’s usage limits through its status line (fake agent, real kea-helper statusline)', () => {
+  const FIVE_HOURS = 5 * 3600
+  const WEEK = 7 * 86_400
+  const SHORT_TURNS = `version: 1
+steps:
+  - print: "READY\\r\\n"
+onLine:
+  - hook: UserPromptSubmit
+  - transcript: { record: assistant, text: "ok" }
+  - hook: Stop
+  - print: "LINE-DONE\\r\\n"
+`
+
+  it('I-AGT-13 · with the setting on, the agent runs the status line Kea injected through /bin/sh and kea-helper statusline hands its usage to core: no reading at start, one for the account after a reply, carrying only the projection; a second session of the same account moves the same reading, a window it leaves out keeping its value; no session’s status moves for it; turning the setting off clears it', async () => {
+    const s = await agents({ settings: { agents: { claude: { usageLimits: true } } } })
+    const r = fixture()
+    const p = await s.project(r.root)
+    const now = Math.floor(Date.now() / 1000)
+    const limits = path.join(s.userHome, 'rate-limits.json')
+    fs.writeFileSync(limits, JSON.stringify({ five_hour: { used_percentage: 42, resets_at: now + FIVE_HOURS }, seven_day: { used_percentage: 67, resets_at: now + WEEK } }))
+    s.shim({ FAKE_AGENT_SCENARIO: s.scenario('usage.yaml', SHORT_TURNS), FAKE_AGENT_RATE_LIMITS: limits })
+    const usage = s.c.core.status.usage
+    const lines = (id: string) => s.envelopes.filter((e) => e.keaSessionId === id && e.statusline === true)
+
+    const v = await s.create(p.id, '')
+    await agentUp(s, v.id)
+    // the launch carries Kea's status line beside its hooks; at start the agent reports no window yet
+    const argv = s.c.core.terminals.sessionRecords(v.id).find((x) => x.kind === 'agent')!.argv
+    const inline = JSON.parse(argv[argv.indexOf('--settings') + 1]!) as { hooks: object; statusLine: { type: string; command: string } }
+    expect(inline.statusLine.type).toBe('command')
+    expect(inline.statusLine.command).toContain(`'statusline' 'claude' '--session' '${v.id}'`)
+    await until('the status line at start reached core', () => lines(v.id).length >= 1)
+    expect(usage.size).toBe(0)
+
+    s.type(v.id, 'go\r')
+    await s.until(v.id, 'the reply finished', (x) => x.phase === 'ready')
+    await until('the reading', () => usage.size === 1)
+    const account = `claude:${path.join(s.userHome, '.claude')}`
+    expect(usage.store.get(account)).toMatchObject({
+      agent: 'claude',
+      windows: [
+        { id: 'session', usedPct: 42, resetsAt: (now + FIVE_HOURS) * 1000 },
+        { id: 'week', usedPct: 67, resetsAt: (now + WEEK) * 1000 },
+      ],
+    })
+    // only the projection reached core: the usage and the session id, no path, cost or model
+    for (const e of lines(v.id)) for (const k of Object.keys(e.payload)) expect(['session_id', 'rate_limits'], `payload key ${k}`).toContain(k)
+    expect(fs.existsSync(spoolPath(s.h.home, v.id)), 'the socket took every line').toBe(false)
+    // the usage is no session's input: no journal row, and the session sits ready
+    const journal = s.c.core.db.all<{ event: string }>('SELECT event FROM status_events WHERE session_id = ? ORDER BY id', v.id)
+    expect(journal.map((j) => j.event)).not.toContain('account.usage')
+    expect(s.view(v.id)!.phase).toBe('ready')
+
+    // a second session of the same account: the same reading moves; the week, absent from its report, keeps its value
+    fs.writeFileSync(limits, JSON.stringify({ five_hour: { used_percentage: 50, resets_at: now + FIVE_HOURS } }))
+    const w = await s.create(p.id, '')
+    await agentUp(s, w.id)
+    s.type(w.id, 'go\r')
+    await s.until(w.id, 'its reply finished', (x) => x.phase === 'ready')
+    await until('the reading moved', () => usage.store.get(account)?.windows[0]?.usedPct === 50)
+    expect(usage.size).toBe(1)
+    expect(usage.store.get(account)!.windows.map((x) => [x.id, x.usedPct])).toEqual([
+      ['session', 50],
+      ['week', 67],
+    ])
+
+    // the setting off: the reading goes, and the running sessions' status lines are ignored
+    await s.c.core.settings.set('agents.claude.usageLimits', false)
+    expect(usage.size).toBe(0)
+    s.type(v.id, 'again\r')
+    await until('another status line reached core', () => lines(v.id).length >= 3)
+    expect(usage.size).toBe(0)
+  })
+})

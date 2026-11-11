@@ -24,10 +24,13 @@ fake-agent's own options may appear anywhere before `--`; each also has an env v
 | `--log <file>` | `FAKE_AGENT_LOG` | JSONL event log for tests (below) |
 | — | `FAKE_AGENT_CLI_VERSION` | The version `--version` prints (and Claude's status file carries): default `2.1.296` for claude, `1.79.2` for commandcode; an older one stands in for an outdated CLI |
 | — | `FAKE_AGENT_LOGGED_IN` | `0`: `claude auth status` / `cmd status --json` says signed out (exit 1) |
+| — | `FAKE_AGENT_RATE_LIMITS` | Claude's `rate_limits` for the status line after each reply: inline JSON, or a file read at each run (a test changes it between replies); unset, a payload has none |
 
 **`--as claude`** reads what Kea passes: `--session-id <uuid>` (validated like the real CLI), `--model`, `--effort`,
 `--permission-mode` (the real choices; `manual` is reported as `default`), `--settings <inline JSON or file>` (only
-`hooks` is read), `--resume <id>`, `--help`, `--version` (`2.1.296 (Claude Code)`), `auth status` (JSON `{loggedIn}`,
+`hooks` and `statusLine` are read: a status line's `command` runs through `/bin/sh -c` as Claude 2.1.322 runs it, once
+at start and after each `Stop` or `StopFailure`, with the payload of `fixtures/statusline/claude/` on stdin; `rate_limits`
+only after the first reply), `--resume <id>`, `--help`, `--version` (`2.1.296 (Claude Code)`), `auth status` (JSON `{loggedIn}`,
 exit 0 or 1); other flags are kept as extra args (variadic ones like `--add-dir a b` keep their values); the prompt is
 everything after `--`, else the positionals.
 

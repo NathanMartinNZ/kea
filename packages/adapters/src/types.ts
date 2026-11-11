@@ -170,6 +170,19 @@ export interface SessionSignals {
   readonly ignored: { unknownStatus: number; unknownWait: number; foreignSession: number; unparsable: number; unknownEvent: number }
 }
 
+/**
+ * What an adapter reports of its account's usage limits (`account.usage`), from a status line it adds to the agent's
+ * launch when its setting is on. Core keeps one reading per account and drops them all when the setting goes off.
+ */
+export interface UsageSource {
+  /** Whether the agent's settings turn the reports on (core ignores reports while they are off). */
+  enabled(settings: Pick<AgentSettingsLike, string>): boolean
+  /** The account a report belongs to in the agent's environment: its config folder, so two logins are two readings. */
+  account(env: Readonly<Env>): string
+  /** A status line payload, projected by kea-helper's `statusline` → `account.usage`, or nothing. */
+  map(payload: Record<string, unknown>): AgentEvent[]
+}
+
 /** `AgentAdapter.trustGated`: false (no trust question holds anything back), or whose answer the trust is. */
 export type TrustGate = false | 'repo' | 'launch'
 
@@ -265,6 +278,8 @@ export interface AgentAdapter {
    * Null: no form does, and nothing is typed. Absent: the generic form (kit/mention.ts).
    */
   fileMention?(path: string): string | null
+  /** The account's usage limits it can report (a status line, on unless turned off); absent for an adapter that reports none. */
+  usage?: UsageSource
 }
 
 export type { AgentInfo }

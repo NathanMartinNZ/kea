@@ -435,7 +435,7 @@ pub const SPOOL_HARD_BYTES: u64 = 4194304;
 pub const SPOOL_LOCK_RETRY_MS: u64 = 50;
 /// where core takes a spool without the hook's lock (Linux), the hook writes its line again into a fresh spool while the one it wrote to was taken meanwhile, at most this many times (count)
 pub const SPOOL_REWRITES_MAX: u64 = 3;
-/// inline --settings JSON cap (bytes)
+/// inline --settings JSON cap; also the most read of one of the person's agent settings files when looking for a status line of their own (a larger file counts as having one) (bytes)
 pub const SETTINGS_INLINE_MAX_BYTES: u64 = 2097152;
 /// reconcile reads at most this much of a transcript (bytes)
 pub const TRANSCRIPT_TAIL_BYTES: u64 = 262144;
@@ -767,3 +767,11 @@ pub const PACKAGE_SETTLE_MS: u64 = 3000;
 pub const CHILD_BUILD_MISMATCH_EXIT: u64 = 78;
 /// composer drafts written for a restart Kea makes itself are read by the next start only if younger than this; an older file is deleted unread (ms)
 pub const HANDOFF_FILE_MAX_AGE_MS: u64 = 120000;
+/// a usage limit's window this full shows in the warning colour (ratio)
+pub const USAGE_WARN_RATIO: f64 = 0.8;
+/// a usage limit's window this full shows in the danger colour (ratio)
+pub const USAGE_DANGER_RATIO: f64 = 0.95;
+/// a usage reading no session has refreshed for this long is hidden: use outside Kea (the web app, another machine) may have moved it (ms)
+pub const USAGE_STALE_MS: u64 = 21600000;
+/// status line stdin above this is drained and dropped; a payload is about 1.5 KB (bytes)
+pub const STATUSLINE_STDIN_MAX_BYTES: u64 = 65536;

@@ -73,6 +73,12 @@ input[type='checkbox'] {
   -webkit-app-region: no-drag;
 }
 
+/* the agent pane's: from its line over the agent pane's padding, so the work pane's right edge (the file view's change
+   ruler, a scrollbar) takes presses */
+.divider.beside {
+  transform: none;
+}
+
 .divider:focus-visible {
   outline-offset: -2px;
 }
@@ -229,16 +235,13 @@ input[type='checkbox'] {
   color: var(--text-3);
 }
 
-/* The hand is for what reads as text yet is clicked: a link, and the text-like buttons (the branch chip, the config
-   summary, the diff stat, the dev server's URL chip). Controls drawn as buttons, tabs, rows and menu items keep the
-   arrow; selectable text has the I-beam. */
+/* a button drawn as a link (the hand is every button's, styles.css) */
 .link-button {
   padding: 0;
   margin: 0 0 0 var(--space-2);
   border: 0;
   background: transparent;
   color: var(--info);
-  cursor: pointer;
 }
 
 .link-button:hover {
@@ -352,7 +355,7 @@ textarea.field {
   border-radius: var(--radius-md);
   color: var(--text-2);
   white-space: nowrap;
-  cursor: default;
+  cursor: pointer;
 }
 
 .sb-row:hover,
@@ -581,7 +584,7 @@ textarea.field {
   padding-left: var(--space-1);
 }
 
-/* a long title, branch and summary are cut before the header loses the area it drags by */
+/* the project's name, then a long title, branch and summary are cut before the header loses the area it drags by */
 .main-header .header-spacer {
   min-width: var(--size-header);
 }
@@ -601,6 +604,25 @@ textarea.field {
 .header-right > .server-control {
   min-width: var(--size-server-control);
   justify-content: flex-end;
+}
+
+/* the session's project before its title, cut first: from no width of its own it takes only the room the title,
+   branch and summary leave, up to its whole name */
+.header-project {
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: max-content;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-2);
+}
+
+/* the breadcrumb's `›`, with the breadcrumb's room on each side (the cluster's gap less --space-1) */
+.header-sep {
+  flex: none;
+  margin: 0 calc(var(--space-1) * -1);
+  color: var(--text-3);
 }
 
 .session-title {
@@ -633,7 +655,6 @@ textarea.field {
   font-family: var(--font-mono);
   font-size: var(--type-mono-size);
   white-space: nowrap;
-  cursor: pointer;
 }
 
 .branch-chip:hover {
@@ -660,7 +681,6 @@ textarea.field {
   border: 0;
   background: transparent;
   font: inherit;
-  cursor: pointer;
 }
 
 .config-summary:hover,
@@ -902,6 +922,11 @@ textarea.field {
 
 .composer-toggle.locked {
   color: var(--text-3);
+}
+
+/* the toggle and its word are one control */
+.composer-toggle:not(.locked) {
+  cursor: pointer;
 }
 
 .composer-branch {
@@ -1492,6 +1517,45 @@ code.sheet-row-title,
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* the usage meter at the right end of the status row (in one column, of the strip): it takes only the room the row
+   leaves, so the words on the left never move, and lays its parts on one line in order; a part with no room wraps to a
+   second line, out of sight, so the last part (the weekly) gives way first, then the whole meter (an empty first item
+   keeps the first line) */
+.usage-meter {
+  flex: 1 1 0;
+  min-width: 0;
+  align-self: center;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-content: flex-start;
+  height: var(--type-mono-line);
+  overflow: hidden;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: var(--type-mono-size);
+  line-height: var(--type-mono-line);
+  font-variant-numeric: tabular-nums;
+  white-space: pre;
+}
+
+/* as tall as the meter, so the first line is too and a part that wraps is out of sight */
+.usage-fit {
+  height: 100%;
+}
+
+.tabstrip > .usage-meter {
+  padding: 0 var(--space-3);
+}
+
+.usage-value[data-level='warn'] {
+  color: var(--warn);
+}
+
+.usage-value[data-level='danger'] {
+  color: var(--danger);
 }
 
 /* the pane with the keyboard, or that last had it: a line under its strip or status row */

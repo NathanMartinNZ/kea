@@ -1,11 +1,12 @@
 <!--
-The main header on a session: left, the session title (double-click renames), the branch chip (mono, ⎇; a click copies
-it and says "Copied" for L.branchCopiedMs) and the config summary in `--text-3`, whose click opens the session popover
-(the launch config and "Why this status?"); right, the overflow `⋯` with the commands marked `header ⋯`, after the
-header's three slots in this order: the diff stat (`features/files/DiffStat.svelte`), the dev-server control
-(`features/server/ServerControl.svelte`) and the open-in-editor split button (`features/editor/EditorButton.svelte`);
-each is its feature's own component and renders nothing when it has nothing to show. Mounted per session
-(MainHeader.svelte keys it), following that session's row.
+The main header on a session: left, the session's project in `--text-2` and a `›` (the project's name is cut first when
+room runs short, and stays while the title is renamed), the session title (double-click renames), the branch chip
+(mono, ⎇; a click copies it and says "Copied" for L.branchCopiedMs) and the config summary in `--text-3`, whose click
+opens the session popover (the launch config and "Why this status?"); right, the overflow `⋯` with the commands marked
+`header ⋯`, after the header's three slots in this order: the diff stat (`features/files/DiffStat.svelte`), the
+dev-server control (`features/server/ServerControl.svelte`) and the open-in-editor split button
+(`features/editor/EditorButton.svelte`); each is its feature's own component and renders nothing when it has nothing
+to show. Mounted per session (MainHeader.svelte keys it), following that session's row.
 -->
 <script lang="ts">
   import { untrack } from 'svelte'
@@ -18,7 +19,7 @@ each is its feature's own component and renders nothing when it has nothing to s
   import ServerControl from '../features/server/ServerControl.svelte'
   import { copyText } from '../features/sessions/actions.ts'
   import { menuItems } from '../features/sessions/sheets.ts'
-  import { sessions, ui } from '../features/sessions/state.svelte.ts'
+  import { projects, sessions, ui } from '../features/sessions/state.svelte.ts'
   import { closePopover, openPopover, statusUi } from '../features/status/ui.svelte.ts'
   import RenameField from './RenameField.svelte'
 
@@ -29,6 +30,13 @@ each is its feature's own component and renders nothing when it has nothing to s
     () => sessions.get(id),
   )
   const s = $derived(row.current)
+  // the session's project's name, followed live (a renamed project shows at once); nothing is drawn while unknown
+  const projectId = () => sessions.get(id)?.projectId ?? ''
+  const project = new External(
+    (cb) => projects.subscribeRow(projectId(), cb),
+    () => projects.get(projectId()),
+  )
+  const projectName = $derived(s ? project.current?.name : undefined)
   const renaming = $derived(ui.renaming === id)
   let copied = $state(false)
   let timer: ReturnType<typeof setTimeout> | null = null
@@ -57,6 +65,9 @@ each is its feature's own component and renders nothing when it has nothing to s
 
 {#if s}
   <div class="header-cluster header-left">
+    {#if projectName}
+      <span class="header-project" data-tip={projectName}>{projectName}</span><span class="header-sep" aria-hidden="true">›</span>
+    {/if}
     {#if renaming}
       <RenameField {s} />
     {:else}

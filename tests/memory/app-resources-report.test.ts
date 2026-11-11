@@ -9,15 +9,16 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { tryLock, type Disposable } from '@kea/kit'
-import { AGENTS_STORE, BANNERS_STORE, COMMANDS, CONDITIONS_STORE, isCommandId, KEYBINDINGS_STORE, L, PROJECTS_STORE, SESSIONS_STORE, SETTINGS_GHOSTTY_STORE, SETTINGS_STATUS_STORE, SETTINGS_STORE, TERMINALS_STORE } from '@kea/protocol'
+import { AGENTS_STORE, BANNERS_STORE, COMMANDS, CONDITIONS_STORE, isCommandId, KEYBINDINGS_STORE, L, PROJECTS_STORE, SESSIONS_STORE, SETTINGS_GHOSTTY_STORE, SETTINGS_STATUS_STORE, SETTINGS_STORE, TERMINALS_STORE, USAGE_STORE } from '@kea/protocol'
 import { KeaRun, PROMPT, STEP_MS, until, type Kea } from '../support/app.ts'
 
 /**
  * The core stores a window follows at rest (app/renderer: the sessions state, the settings mirror with Ghostty's config
- * beside it in features/settings/store.ts, the banner strip, the key bindings in features/commands/bindings.svelte.ts).
- * One more while Settings › Disk is open and one more while Settings › Advanced is open; this test opens neither.
+ * beside it in features/settings/store.ts, the banner strip, the account conditions and usage readings in
+ * features/status/state.ts, the key bindings in features/commands/bindings.svelte.ts). One more while Settings › Disk is
+ * open and one more while Settings › Advanced is open; this test opens neither.
  */
-const WINDOW_STORES = [TERMINALS_STORE, PROJECTS_STORE, SESSIONS_STORE, SETTINGS_STORE, SETTINGS_STATUS_STORE, SETTINGS_GHOSTTY_STORE, BANNERS_STORE, CONDITIONS_STORE, AGENTS_STORE, KEYBINDINGS_STORE]
+const WINDOW_STORES = [TERMINALS_STORE, PROJECTS_STORE, SESSIONS_STORE, SETTINGS_STORE, SETTINGS_STATUS_STORE, SETTINGS_GHOSTTY_STORE, BANNERS_STORE, CONDITIONS_STORE, USAGE_STORE, AGENTS_STORE, KEYBINDINGS_STORE]
 
 type Report = Record<string, number | Record<string, number>>
 type Line = {

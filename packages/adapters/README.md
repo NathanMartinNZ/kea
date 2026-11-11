@@ -23,6 +23,8 @@ agent's flags, paths or payload fields.
 - **Signals:** `signals()` gives the per-session state that turns a hook or mod payload into events, and reads the
   agent's own status file where it has one. `watchTranscript()` and `reconcile()` read the transcript: live, for what
   hooks cannot give, and after a restart, to recover the session's status, title and cost.
+- **Usage:** `usage`, for an agent that can report its account's usage limits: whether its setting turns the reports
+  on, which account (config folder) a report belongs to, and the payload → `account.usage` mapping.
 - **Housekeeping:** `identify()` recognises an argv the adapter started, `helperPaths()` names the `kea-helper` a
   running command calls, `watchRoots()` and `ownsTranscript()` keep file watching and transcript reads inside the
   agent's own config folder, and `fileMention()` says how to mention a file at the agent's prompt.
@@ -54,7 +56,10 @@ only when it lies in the agent's own config folder, and a file is read only when
   | `adapter.ts` | The adapter, assembled from the parts above |
 
   Claude Code reports through hooks injected with `--settings`, and its status file (`payloads.ts` holds the hook
-  payload schemas the fixture tests check). Command Code reports through a session mod, `commandcode/kea-mod.ts`:
+  payload schemas the fixture tests check). With its usage meter turned on, the same `--settings` also carries a
+  status line (`statusline.ts`): Claude runs its command through a shell, so it is the one shell string Kea builds,
+  every word single-quoted, and it runs `kea-helper statusline`. None is added when the user's own Claude settings
+  define a status line, which Kea's would replace. `config.ts` finds Claude's config folder. Command Code reports through a session mod, `commandcode/kea-mod.ts`:
   Command Code loads that file itself, in its own process, so it imports nothing from Kea and only Node's own
   modules. The build copies it beside core, and core writes it into a folder under `KEA_HOME` that the launch names.
   `commandcode/mod-harness.ts` drives the mod the way Command Code does, for tests only.

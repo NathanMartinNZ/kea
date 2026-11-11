@@ -1109,7 +1109,7 @@ why = "where core takes a spool without the hook's lock (Linux), the hook writes
 [settings_inline_max_bytes]
 value = 2097152
 unit = "bytes"
-why = "inline --settings JSON cap"
+why = "inline --settings JSON cap; also the most read of one of the person's agent settings files when looking for a status line of their own (a larger file counts as having one)"
 
 [transcript_tail_bytes]
 value = 262144
@@ -1963,3 +1963,23 @@ why = "the exit code of a core, ptyhost or finder worker started from another bu
 value = 120000
 unit = "ms"
 why = "composer drafts written for a restart Kea makes itself are read by the next start only if younger than this; an older file is deleted unread"
+
+[usage_warn_ratio]
+value = 0.8
+unit = "ratio"
+why = "a usage limit's window this full shows in the warning colour"
+
+[usage_danger_ratio]
+value = 0.95
+unit = "ratio"
+why = "a usage limit's window this full shows in the danger colour"
+
+[usage_stale_ms]
+value = 21600000
+unit = "ms"
+why = "a usage reading no session has refreshed for this long is hidden: use outside Kea (the web app, another machine) may have moved it"
+
+[statusline_stdin_max_bytes]
+value = 65536
+unit = "bytes"
+why = "status line stdin above this is drained and dropped; a payload is about 1.5 KB"

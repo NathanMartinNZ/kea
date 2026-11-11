@@ -82,7 +82,7 @@ test('V-6 · terminal chrome', async ({ run, launch }) => {
   await page.mouse.wheel(0, -600)
   await page.getByRole('button', { name: 'Jump to bottom' }).waitFor({ timeout: STEP_MS })
   await page.mouse.move(1000, 400)
-  await set.shot(kea, 'jump', 'Scrolled up: "Jump to bottom" over the terminal’s corner, and the 8 px overlay scrollbar', 'Terminal', { rect: MAIN })
+  await set.shot(kea, 'jump', 'Scrolled up: "Jump to bottom" over the terminal’s corner, and the window’s scrollbar thumb (--size-scrollbar, --text-1 at --opacity-scrollbar)', 'Terminal', { rect: MAIN })
 
   // the detached overlay: stopped by you, then crashed with its exit code
   await kea.clickTab(agent)

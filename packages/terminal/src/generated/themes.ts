@@ -4,7 +4,7 @@
 export const THEMES = {
   "kea-dark": {
     background: "#0C0D0B",
-    foreground: "#DADDD3",
+    foreground: "#D2D5CB",
     cursor: "#F5793A",
     cursorAccent: "#0C0D0B",
     selectionBackground: "#343A30",

@@ -13,7 +13,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { FakeAgent } from './agent.ts'
 import { argvHash, ArgvError, FAKE_CLAUDE_VERSION, FAKE_COMMANDCODE_VERSION, type FakeOptions, parseArgv, type ParsedArgv, reportedPermissionMode } from './argv.ts'
-import { ClaudeHooks, type HookSink, hooksDisabledBy, parseClaudeSettings, SettingsError } from './hooks.ts'
+import { ClaudeHooks, type HookSink, hooksDisabledBy, parseClaudeSettings, parseStatusLine, SettingsError } from './hooks.ts'
 import { EventLog } from './log.ts'
 import { ModHost } from './mods.ts'
 import { defaultScenario, loadScenarioFile, type Scenario, ScenarioError } from './scenario.ts'
@@ -141,7 +141,9 @@ async function main(): Promise<void> {
     const own = !(configDir === real || configDir.startsWith(`${real}/.claude`))
     hooksOff = hooksDisabledBy({ configDir: own ? configDir : null, cwd, inline: agent.settings })
     if (hooksOff) config = {}
-    hooks = new ClaudeHooks(config, { sessionId, transcriptPath: loc.path, cwd, permissionMode, model, effort: agent.effort ?? CLAUDE_DEFAULT_EFFORT, source: agent.resume ? 'resume' : 'startup' }, process.env)
+    // `disableAllHooks` turns a custom status line off too
+    const statusLine = agent.settings !== null && !hooksOff ? parseStatusLine(agent.settings) : null
+    hooks = new ClaudeHooks(config, { sessionId, transcriptPath: loc.path, cwd, permissionMode, model, effort: agent.effort ?? CLAUDE_DEFAULT_EFFORT, source: agent.resume ? 'resume' : 'startup' }, process.env, statusLine ? { command: statusLine } : null)
   } else {
     // a mod runs in the agent's process and reads the agent's home (kea-mod.ts looks there for the session's file):
     // here that is the fake home, and never the account's real one (fake-agent reads nothing under ~/.commandcode)

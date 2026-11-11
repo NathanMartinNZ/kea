@@ -1,4 +1,4 @@
-//! kea-helper: the PTY holder, the agent hook relay, and the footprint, port and process probes.
+//! kea-helper: the PTY holder, the agent hook and status line relay, and the footprint, port and process probes.
 //! The contract is `README.md` next to this crate. The helper knows nothing about any agent.
 
 use std::ffi::OsString;
@@ -28,6 +28,7 @@ pub const USAGE: &str = "usage: kea-helper pty --id <ptyId> --session <sessionId
 (--client-req <requirement> | --client-exe <path> | --client-exe-unchecked <path>) \
 [--ring-bytes N] [--kea-version V] [--no-detach] -- <file> <args…>
        kea-helper hook <adapter> --session <keaSessionId> --home <KEA_HOME> --project <projection JSON>
+       kea-helper statusline <adapter> --session <keaSessionId> --home <KEA_HOME> --project <projection JSON>
        kea-helper footprint <pid…>
        kea-helper ports <pid…>
        kea-helper procs [--args] [<pid>…]";
@@ -39,6 +40,7 @@ pub fn run(args: &[OsString]) -> i32 {
         Some("pty") => launch::pty_main(rest),
         Some(launch::DAEMON_SUBCOMMAND) => holder::daemon_main(rest),
         Some("hook") => hook::main(rest),
+        Some("statusline") => hook::statusline_main(rest),
         Some("footprint") => footprint::main(rest),
         Some("ports") => ports::main(rest),
         Some("procs") => procs::main(rest),

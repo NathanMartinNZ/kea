@@ -33,6 +33,7 @@ const SAMPLE: Record<TableEventType, TableEvent> = {
   'turn.interrupted': { t: 'turn.interrupted' },
   'turn.failed': { t: 'turn.failed', error: 'overloaded', kind: 'overloaded' },
   compacting: { t: 'compacting', active: true },
+  'account.usage': { t: 'account.usage', windows: [{ id: 'session', usedPct: 100, resetsAt: T0 + 9 }] },
   'session.ended': { t: 'session.ended', reason: 'clear' },
   meta: { t: 'meta', model: 'm' },
   'pty.spawned': { t: 'pty.spawned' },
@@ -66,6 +67,8 @@ const EXPECTED: Record<(typeof TABLE_EVENTS)[number], Partial<Record<Phase, Phas
   'turn.interrupted': all('ready'),
   'turn.failed': all('failed'),
   compacting: same(),
+  // the account's usage belongs to no session: it moves no phase (the engine hands it to the usage reading)
+  'account.usage': {},
   'session.ended': same(),
   meta: {},
   'user.viewed': { ready: 'ready', failed: 'failed' },

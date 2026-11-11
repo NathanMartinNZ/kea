@@ -1,9 +1,10 @@
 // The window's copies of what status shows beyond the `sessions` store: core's `status.conditions` store (one footer
-// line, one menu line and one count per account condition), and the display names of the `agents` store
+// line, one menu line and one count per account condition), its `status.usage` store (the usage meter: one reading of
+// the usage limits per agent account, empty while the setting is off), and the display names of the `agents` store
 // (`Claude Code · limited until 15:00`), read from the composer's copy (one subscription per window). Frame-coalesced
 // like the sessions feature's copies; plain data.
 
-import { attentionGroup, CONDITIONS_STORE, heldSessions, type AccountCondition, type SessionView } from '@kea/protocol'
+import { attentionGroup, CONDITIONS_STORE, heldSessions, USAGE_STORE, type AccountCondition, type SessionView, type UsageReading } from '@kea/protocol'
 import { FrameStore, nextFrame } from '../../lib/frameStore.ts'
 import { subscribe } from '../../lib/rpc.ts'
 import { agents, installAgents } from '../composer/agents.ts'
@@ -12,6 +13,9 @@ export { agents }
 
 /** `status.conditions`: one row per agent with an account condition. */
 export const conditions = new FrameStore<AccountCondition>({ schedule: nextFrame, structure: (c) => JSON.stringify(c) })
+
+/** `status.usage`: one row per agent account with a reading; any change to a row reaches the list's subscribers. */
+export const usage = new FrameStore<UsageReading>({ schedule: nextFrame, structure: (r) => JSON.stringify(r) })
 
 /** An agent's display name (`Claude Code`), else its id. */
 export function agentName(id: string): string {
@@ -42,10 +46,11 @@ export function installStatusState(): void {
   if (installed) return
   installed = true
   subscribe<AccountCondition>(CONDITIONS_STORE, (d, c) => conditions.push(d, c))
+  subscribe<UsageReading>(USAGE_STORE, (d, c) => usage.push(d, c))
   installAgents()
 }
 
-/** The copies' rows and listeners, for the resource report: the conditions copy, and the agents copy status follows. */
+/** The copies' rows and listeners, for the resource report: the conditions and usage copies, and the agents copy status follows. */
 export function statusResources(): { rows: number; listeners: number } {
-  return { rows: conditions.size + agents.size, listeners: conditions.subscribers + agents.subscribers }
+  return { rows: conditions.size + usage.size + agents.size, listeners: conditions.subscribers + usage.subscribers + agents.subscribers }
 }

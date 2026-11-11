@@ -54,4 +54,9 @@ describe("main's OS layer", () => {
     expect(unavailable(linux).length).toBeGreaterThan(0)
     for (const u of unavailable(linux)) expect(u.reason, u.capability).toMatch(/^[A-Z][^\n]*\.$/)
   })
+
+  it('U-PLT-66 · a click on an inactive window acts on what it lands on, so the keyboard goes where the user clicked rather than back to what had it before', () => {
+    const o = need(darwin.windowChrome).options({ trafficLights: { x: 16, y: 18 }, overlay: { color: '#000000', symbolColor: '#ffffff', height: 44 } })
+    expect(o).toEqual({ titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 16, y: 18 }, acceptFirstMouse: true })
+  })
 })

@@ -436,7 +436,7 @@ export const L = {
   spoolLockRetryMs: 50,
   /** where core takes a spool without the hook's lock (Linux), the hook writes its line again into a fresh spool while the one it wrote to was taken meanwhile, at most this many times (count) */
   spoolRewritesMax: 3,
-  /** inline --settings JSON cap (bytes) */
+  /** inline --settings JSON cap; also the most read of one of the person's agent settings files when looking for a status line of their own (a larger file counts as having one) (bytes) */
   settingsInlineMaxBytes: 2097152,
   /** reconcile reads at most this much of a transcript (bytes) */
   transcriptTailBytes: 262144,
@@ -768,6 +768,14 @@ export const L = {
   childBuildMismatchExit: 78,
   /** composer drafts written for a restart Kea makes itself are read by the next start only if younger than this; an older file is deleted unread (ms) */
   handoffFileMaxAgeMs: 120000,
+  /** a usage limit's window this full shows in the warning colour (ratio) */
+  usageWarnRatio: 0.8,
+  /** a usage limit's window this full shows in the danger colour (ratio) */
+  usageDangerRatio: 0.95,
+  /** a usage reading no session has refreshed for this long is hidden: use outside Kea (the web app, another machine) may have moved it (ms) */
+  usageStaleMs: 21600000,
+  /** status line stdin above this is drained and dropped; a payload is about 1.5 KB (bytes) */
+  statuslineStdinMaxBytes: 65536,
 } as const
 
 export type LimitName = keyof typeof L
@@ -991,7 +999,7 @@ export const LIMIT_META: Record<LimitName, { unit: string; why: string; whyLinux
   spoolHardBytes: { unit: "bytes", why: "above this nothing is spooled" },
   spoolLockRetryMs: { unit: "ms", why: "a drain that finds a helper appending to the spool (its lock held) tries once more after this long" },
   spoolRewritesMax: { unit: "count", why: "where core takes a spool without the hook's lock (Linux), the hook writes its line again into a fresh spool while the one it wrote to was taken meanwhile, at most this many times" },
-  settingsInlineMaxBytes: { unit: "bytes", why: "inline --settings JSON cap" },
+  settingsInlineMaxBytes: { unit: "bytes", why: "inline --settings JSON cap; also the most read of one of the person's agent settings files when looking for a status line of their own (a larger file counts as having one)" },
   transcriptTailBytes: { unit: "bytes", why: "reconcile reads at most this much of a transcript" },
   permissionDedupeMs: { unit: "ms", why: "Notification(permission_prompt) ignored this soon after a PermissionRequest" },
   ccPermissionQueuedMs: { unit: "ms", why: "Command Code tool_queued without tool_running this long → permission" },
@@ -1157,4 +1165,8 @@ export const LIMIT_META: Record<LimitName, { unit: string; why: string; whyLinux
   packageSettleMs: { unit: "ms", why: "after a change in Kea's resources folder, main waits this long with no further change before it compares app.asar with the one it started with: a package manager replaces the files in about a second" },
   childBuildMismatchExit: { unit: "count", why: "the exit code of a core, ptyhost or finder worker started from another build than main's (a package replaced under a running Kea): distinct from the codes core and ptyhost use for other ends, and from Node's own" },
   handoffFileMaxAgeMs: { unit: "ms", why: "composer drafts written for a restart Kea makes itself are read by the next start only if younger than this; an older file is deleted unread" },
+  usageWarnRatio: { unit: "ratio", why: "a usage limit's window this full shows in the warning colour" },
+  usageDangerRatio: { unit: "ratio", why: "a usage limit's window this full shows in the danger colour" },
+  usageStaleMs: { unit: "ms", why: "a usage reading no session has refreshed for this long is hidden: use outside Kea (the web app, another machine) may have moved it" },
+  statuslineStdinMaxBytes: { unit: "bytes", why: "status line stdin above this is drained and dropped; a payload is about 1.5 KB" },
 }

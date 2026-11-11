@@ -13,7 +13,7 @@ import type { Locator, Page } from '@playwright/test'
 import { protocolOs } from '@kea/protocol'
 import { until, type Kea } from '../support/app.ts'
 import { agentEvents, claudeByDefault, fakeAgentTerminal, startFakeSession } from '../support/app-fake-agent.ts'
-import { changeRow, changeRows, changesList, clickChange, clickFile, diffStatText, finder, finderRows, fsmonitorHint, fsmonitorProblem, fsmonitorRuns, GIT_MS, gitConfig, panelModes, panelRegion, showMode, SlowGit, stopFsmonitorDaemon, TrashWorld, tree, treeRow, treeRows, treeText, waitChanges, waitTree } from '../support/app-files.ts'
+import { changeRow, changeRowInView, changeRows, changesList, clickChange, clickFile, diffStatText, finder, finderRows, fsmonitorHint, fsmonitorProblem, fsmonitorRuns, GIT_MS, gitConfig, panelModes, panelRegion, showMode, SlowGit, stopFsmonitorDaemon, TrashWorld, tree, treeRow, treeRows, treeText, waitChanges, waitTree } from '../support/app-files.ts'
 import { clipboard, EditorWorld, recordClipboard } from '../support/app-server.ts'
 import { addProject, agentTerminal, demoRepo, menuCommands, projectRow, selectSession, startSession, waitLive } from '../support/app-sessions.ts'
 import { fileTabs, pinFileTab, viewerShown } from '../support/app-tabs.ts'
@@ -55,7 +55,7 @@ const NESTED = { 'packages/app/src/main.ts': 'export const main = 1\n', 'package
 /** Folders no test opens in the tree before something reveals a file in them. */
 const DEEP = { 'lib/top.ts': 'export const top = 0\n', 'lib/deep/other.ts': 'export const other = 1\n', 'lib/deep/inner/leaf.ts': 'export const leaf = 2\n' }
 
-test('E-FT-2 · the file tree with real clicks and keys: folders open and close (a single-child chain as one row), a click shows a file in the preview tab, the arrows, typing a name, Space and Enter walk it, ⌘↵ and a double-click open the editor; a file written, changed or deleted on disk shows with its letter, its folder’s dot and the header’s count; ignored files stay hidden until asked for; the row’s menu runs the `file ⌃` commands; the viewer’s breadcrumb reveals a folder that was closed, and a file in folders the tree never loaded, from Changes too; and the tree comes back as it was after another session was shown', async ({ run, launch }) => {
+test('E-FT-2 · the file tree with real clicks and keys: folders open and close (a single-child chain as one row), a click shows a file in the preview tab, the arrows, typing a name, Space and Enter walk it, ⌘↵ and a double-click open the editor; a file written, changed or deleted on disk shows with its letter, its folder’s dot and the header’s count; ignored files stay hidden until asked for, then show in a dimmer grey; the row’s menu runs the `file ⌃` commands; the viewer’s breadcrumb reveals a folder that was closed, and a file in folders the tree never loaded, from Changes too; and the tree comes back as it was after another session was shown', async ({ run, launch }) => {
   const editors = new EditorWorld(run)
   editors.editor('vscode')
   // ignored files are shown by default; this test starts from the panel hiding them
@@ -148,6 +148,18 @@ test('E-FT-2 · the file tree with real clicks and keys: folders open and close 
   await page.getByRole('menu', { name: 'Changes actions' }).locator('[data-command="files.refresh"]').click()
   await showMode(kea, 'Files')
   await waitTree(kea, 'node_modules is listed', (rows) => rows.find((r) => r.path === 'node_modules')?.ignored === true)
+  // its name, glyph and chevron in the dimmest grey, set back from the plain rows; a step up once it is chosen
+  const ignoredRow = treeRow(page, 'node_modules')
+  const parts = ['.ft-name', '.ft-glyph', '.ft-chevron']
+  const dim = await tokenColour(kea, '--text-4')
+  for (const p of parts) await expect(ignoredRow.locator(p), p).toHaveCSS('color', dim)
+  // chosen by typing its name in the tree, which leaves it closed (a click would open it, and its chain would become
+  // one row; ⌘⇧E would hide the panel, which has the keyboard after the click on its mode)
+  await tree(page).focus()
+  await page.keyboard.type('node')
+  await waitTree(kea, 'node_modules is selected', (rows) => rows.find((r) => r.path === 'node_modules')?.selected === true)
+  const chosen = await tokenColour(kea, '--text-3')
+  for (const p of parts) await expect(ignoredRow.locator(p), `${p}, selected`).toHaveCSS('color', chosen)
   expect(await runCommand('files.toggleIgnored')).toBe(true)
   await waitTree(kea, 'node_modules is hidden again', (rows) => !rows.some((r) => r.path === 'node_modules'))
 
@@ -467,7 +479,7 @@ test('E-FT-7 · ⌘P while the viewer is on screen: ⌥↵ with a file tab on sc
   expect(await shape()).toEqual(['src/math.js diff', 'src/counter.js file preview *'])
 })
 
-test('E-FT-5 · a row of the file tree dragged onto the terminal types its path there, shell-escaped and not submitted; dragged with ⌥ held it types `@path`, quoted for a name with a space', async ({ run, launch }) => {
+test('E-FT-5 · a row of the file tree dragged onto the agent’s terminal types its mention there, quoted for a name with a space, and not submitted; dragged with ⌥ held it types its path, shell-escaped', async ({ run, launch }) => {
   const kea = await launch()
   const { id } = await sessionWith(kea, run, { 'docs/my notes.md': 'notes\n' })
   const page = await kea.page()
@@ -477,22 +489,129 @@ test('E-FT-5 · a row of the file tree dragged onto the terminal types its path 
   await waitTree(kea, 'docs is open', (rows) => rows.some((r) => r.path === 'docs/my notes.md'))
   const area = page.locator('.agent-pane .terminal-area')
 
-  await treeRow(page, 'docs/my notes.md').dragTo(area)
-  const typed = await kea.waitScreen('the path at the prompt', (s) => s.includes('docs/my\\ notes.md'))
-  expect(typed.trimEnd().endsWith('docs/my\\ notes.md'), `not submitted\n${typed}`).toBe(true)
-
-  await page.keyboard.down('Alt')
   await treeRow(page, 'README.md').dragTo(area)
-  await page.keyboard.up('Alt')
   const mention = await kea.waitScreen('the mention at the prompt', (s) => s.includes('@README.md'))
-  expect(mention.trimEnd().endsWith('docs/my\\ notes.md @README.md'), `the mention follows the path, a space apart\n${mention}`).toBe(true)
+  expect(mention.trimEnd().endsWith('@README.md'), `not submitted\n${mention}`).toBe(true)
   // a name with a space: the agent's quoted form, which reads back as that file (`@docs/my notes.md` would name `docs/my`)
-  await page.keyboard.down('Alt')
   await treeRow(page, 'docs/my notes.md').dragTo(area)
-  await page.keyboard.up('Alt')
   const quoted = await kea.waitScreen('the quoted mention at the prompt', (s) => s.includes('@"docs/my notes.md"'))
   expect(quoted.trimEnd().endsWith('@README.md @"docs/my notes.md"'), `after the first mention, a space apart\n${quoted}`).toBe(true)
+
+  // with ⌥ held: the path relative to the session's folder, shell-escaped
+  await page.keyboard.down('Alt')
+  await treeRow(page, 'docs/my notes.md').dragTo(area)
+  await page.keyboard.up('Alt')
+  const typed = await kea.waitScreen('the path at the prompt', (s) => s.includes('docs/my\\ notes.md'))
+  expect(typed.trimEnd().endsWith('@"docs/my notes.md" docs/my\\ notes.md'), `the path follows the mention, a space apart\n${typed}`).toBe(true)
   await expect(tree(page)).toBeVisible()
+})
+
+/**
+ * Dispatch a drag of one file from another app over the element `selector`, then its drop there: whether the element
+ * took the drag and the drop (their default prevented before they reach its parent, so the window's handler, which
+ * adds a dropped folder as a project, leaves them alone) and the drop effect it set last (`none`: refused; `unset`:
+ * none set). Outside a real drag Chromium ignores a drop effect set on a script's DataTransfer, so the object records it.
+ */
+async function dragFileOnto(page: Page, selector: string): Promise<{ over: boolean; drop: boolean; effect: string }> {
+  return page.evaluate((sel) => {
+    const el = document.querySelector(sel)
+    const parent = el?.parentElement
+    if (!el || !parent) throw new Error(`nothing at ${sel}`)
+    const dt = new DataTransfer()
+    dt.items.add(new File(['x'], 'dropped.txt', { type: 'text/plain' }))
+    let set = 'unset'
+    Object.defineProperty(dt, 'dropEffect', { get: () => set, set: (v: string) => void (set = v) })
+    const taken: Record<string, boolean> = {}
+    const seen = (e: Event): void => {
+      taken[e.type] = e.defaultPrevented
+    }
+    parent.addEventListener('dragover', seen)
+    parent.addEventListener('drop', seen)
+    const r = el.getBoundingClientRect()
+    const at: DragEventInit = { clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, bubbles: true, cancelable: true, dataTransfer: dt }
+    el.dispatchEvent(new DragEvent('dragenter', at))
+    el.dispatchEvent(new DragEvent('dragover', at))
+    const effect = set
+    el.dispatchEvent(new DragEvent('drop', at))
+    parent.removeEventListener('dragover', seen)
+    parent.removeEventListener('drop', seen)
+    return { over: taken.dragover ?? false, drop: taken.drop ?? false, effect }
+  }, selector)
+}
+
+test('E-TERM-23 · a file and a folder of the file tree dragged onto the fake agent’s terminal type the agent’s mentions, the folder’s bare with no trailing slash, never submitted; the drop-target ring is drawn while the drag is over the terminal, not once it leaves, and not after the drop; with ⌥ held a folder types its path, shell-escaped; the work pane with no terminal refuses a dragged file, which the window never takes', async ({ run, launch }) => {
+  claudeByDefault(run)
+  const kea = await launch()
+  const page = await kea.page()
+  await kea.pretendFocused(true)
+  const repo = demoRepo(run)
+  writeFiles(repo.root, { 'my docs/a.md': 'a\n' })
+  commitAll(repo.root, 'Add docs')
+  await addProject(kea, repo.root)
+  // the agent draws its prompt and waits there: a submitted line would be answered and logged
+  const { id, log } = await startFakeSession(kea, 'drop', 'wait for me', ['steps:', '  - frame: ["✻ fake-agent · {{model}}", "", "> "]', 'onLine:', '  - print: "SUBMITTED {{line}}\\r\\n"'].join('\n'))
+  await fakeAgentTerminal(kea, id)
+  await waitTree(kea, 'the root is listed', (rows) => ['README.md', 'src', 'my docs'].every((p) => rows.some((r) => r.path === p)))
+  const area = page.locator('.agent-pane .terminal-area')
+  const ring = area.locator('.terminal-drop')
+
+  // the work pane shows no terminal: a dragged file is taken only to be refused, so it never becomes a project
+  await expect(page.locator('.work-pane .work-empty')).toBeVisible()
+  expect(await dragFileOnto(page, '.work-pane .terminal-area')).toEqual({ over: true, drop: true, effect: 'none' })
+  await expect(page.locator('.work-pane .terminal-drop')).toHaveCount(0)
+  // the agent's terminal takes the same drag as a copy (a file with no place on disk types nothing), and no ring stays
+  expect(await dragFileOnto(page, '.agent-pane .terminal-area')).toEqual({ over: true, drop: true, effect: 'copy' })
+  await expect(ring).toHaveCount(0)
+
+  // a file, dragged by hand: the ring while the drag is over the terminal, none while it is over the header, back when
+  // it returns, none after the drop
+  const box = (await area.boundingBox())!
+  const header = (await page.locator('.main-header').boundingBox())!
+  await treeRow(page, 'README.md').hover()
+  await page.mouse.down()
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 8 })
+  await expect(ring).toBeVisible()
+  await page.mouse.move(header.x + header.width / 2, header.y + header.height / 2, { steps: 4 })
+  await expect(ring).toHaveCount(0)
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 4 })
+  await expect(ring).toBeVisible()
+  await page.mouse.up()
+  await expect(ring).toHaveCount(0)
+  const file = await kea.waitScreen('the file’s mention at the agent’s prompt', (s) => s.includes('@README.md'))
+  expect(file.trimEnd().endsWith('> @README.md'), `at the prompt, nothing after it\n${file}`).toBe(true)
+
+  // a folder: its bare mention, with no trailing slash, after the file's
+  await treeRow(page, 'src').dragTo(area)
+  const folder = await kea.waitScreen('the folder’s mention at the agent’s prompt', (s) => s.includes('@README.md @src'))
+  expect(folder.trimEnd().endsWith('> @README.md @src'), `a space apart, no trailing slash\n${folder}`).toBe(true)
+  await expect(ring).toHaveCount(0)
+
+  // with ⌥ held: the folder's path, shell-escaped
+  await page.keyboard.down('Alt')
+  await treeRow(page, 'my docs').dragTo(area)
+  await page.keyboard.up('Alt')
+  const typed = await kea.waitScreen('the folder’s path at the agent’s prompt', (s) => s.includes('my\\ docs'))
+  expect(typed.trimEnd().endsWith('> @README.md @src my\\ docs'), `the path follows the mentions, a space apart\n${typed}`).toBe(true)
+  await expect(ring).toHaveCount(0)
+  expect(agentEvents(log).filter((e) => e.t === 'line'), 'nothing submitted').toEqual([])
+})
+
+test('E-FT-14 · a row of the Changes view dragged onto the agent’s terminal types its mention there, not submitted; a deleted file’s row cannot be dragged', async ({ run, launch }) => {
+  const kea = await launch()
+  const { id, worktree } = await sessionWith(kea, run)
+  const page = await kea.page()
+  await agentTerminal(kea, id)
+  fs.writeFileSync(path.join(worktree, 'README.md'), 'changed\n')
+  fs.rmSync(path.join(worktree, 'package.json'))
+  const row = await changeRowInView(kea, 'README.md')
+  await waitChanges(kea, 'the deletion listed', (rows) => rows.some((r) => r.path === 'package.json' && r.struck))
+  await expect(changeRow(page, 'package.json')).not.toHaveAttribute('draggable', 'true')
+  await expect(row).toHaveAttribute('draggable', 'true')
+
+  await row.dragTo(page.locator('.agent-pane .terminal-area'))
+  const typed = await kea.waitScreen('the mention at the prompt', (s) => s.includes('@README.md'))
+  expect(typed.trimEnd().endsWith('@README.md'), `not submitted\n${typed}`).toBe(true)
+  await expect(changesList(page)).toBeVisible()
 })
 
 test('E-KB-3 · a column hidden while the keyboard is in it gives the keyboard to the main pane: ⌘⇧E pressed in the file tree hides the panel and what is typed next reaches the terminal, not the hidden tree; ⌘⇧G pressed in the Changes list with a file tab on screen gives it to the viewer; ⌘B with the keyboard in the sidebar gives it to the terminal', async ({ run, launch }) => {
@@ -864,6 +983,8 @@ async function dropFile(page: Page, selector: string): Promise<{ taken: boolean;
     if (!el) throw new Error(`nothing at ${sel}`)
     const dt = new DataTransfer()
     dt.items.add(new File(['x'], 'dropped.txt', { type: 'text/plain' }))
+    let set = 'unset'
+    Object.defineProperty(dt, 'dropEffect', { get: () => set, set: (v: string) => void (set = v) })
     let window = false
     const seen = (): void => {
       window = true

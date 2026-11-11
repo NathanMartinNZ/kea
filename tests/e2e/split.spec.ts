@@ -1,11 +1,19 @@
 // The agent beside the work pane (the split): Kea launched through tests/e2e/fixtures.ts with the split chosen and the
 // window wide enough for it. The work pane's strip, the keyboard between the panes, widths and modes, the layers drawn
-// per pane, the empty work pane, and what counts as viewed. One column keeps the Agent tab (tests/e2e/tabs.spec.ts).
+// per pane, the empty work pane, what counts as viewed, and the status row's usage meter. One column keeps the Agent tab
+// (tests/e2e/tabs.spec.ts).
 
+import fs from 'node:fs'
+import path from 'node:path'
 import type { Page } from '@playwright/test'
-import { PROMPT, STEP_MS, until, type Kea } from '../support/app.ts'
-import { addProject, agentTerminal, demoRepo, rowState, sessionMenu, sessionRow, startSession, tabKinds, waitLive, waitRow } from '../support/app-sessions.ts'
-import { AGENT_MARK, claudeByDefault, fakeAgentTerminal, gate, startFakeSession } from '../support/app-fake-agent.ts'
+import { clockTime, L } from '@kea/protocol'
+import { SPACE_PX } from '../../packages/ui/src/generated/tokens.ts'
+import { writeAgentShim } from '../../tools/fake-agent/src/index.ts'
+import { harnessUserHome } from '../../tools/perf/src/launch.ts'
+import { PROMPT, STEP_MS, until, type Kea, type KeaRun } from '../support/app.ts'
+import { addProject, agentTerminal, demoRepo, paneSession, promptBox, rowState, selectSession, sessionMenu, sessionRow, startSession, tabKinds, tabOf, waitLive, waitRow } from '../support/app-sessions.ts'
+import { AGENT_MARK, agentEvents, claudeByDefault, fakeAgentTerminal, gate, startFakeSession } from '../support/app-fake-agent.ts'
+import { tooltip } from '../support/app-palette.ts'
 import { ingest, notifications, permission, viewing } from '../support/app-status.ts'
 import { fileTabs, openFile, viewerShown } from '../support/app-tabs.ts'
 import { expect, test } from './fixtures.ts'
@@ -519,4 +527,264 @@ test('E-TERM-21 · the work pane keeps its place: a click on its tab gives it th
   await expect(page.locator('.find-bar')).toHaveCount(0)
   const searches = await page.evaluate(() => (window as unknown as { __keaPerf: { resources(): Record<string, number> } }).__keaPerf.resources()['renderer.searchAddons'])
   expect(searches, 'the resource report’s search addons').toBe(0)
+})
+
+// ── the usage meter: Claude's usage limits at the status row's right end ──
+
+const HOUR_MS = 3_600_000
+const DAY_MS = 24 * HOUR_MS
+const STATUS_ROW = '.agent-pane .status-row'
+/** The strip in one column: the tabs, and at its right end the meter while the Agent tab is shown. */
+const STRIP = '.terminal-pane .tabstrip'
+/** The fake agent's prompt, then nothing until the test ends: its usage is the test's to report. */
+const WAITS = `steps:\n  - frame: ${JSON.stringify([AGENT_MARK, '', '> {{prompt}}'])}\n  - wait: { answer: z }\n`
+
+/** Kea's settings with the usage meter on or off and Claude Code (the fake agent) the composer's default; core follows the file as it changes. */
+function usageSetting(run: KeaRun, on: boolean): void {
+  fs.writeFileSync(path.join(run.home, 'settings.json'), `${JSON.stringify({ general: { defaultAgent: 'claude' }, agents: { claude: { usageLimits: on } } }, null, 2)}\n`)
+}
+
+/** How many replies a replying session's agent can end, one each time the test asks (more than any test asks for). */
+const REPLIES = 8
+
+/** The run's file of rate limits, which a replying session's agent reads at each status line run (FAKE_AGENT_RATE_LIMITS). */
+const rateLimitsFile = (run: KeaRun) => path.join(run.home, 'rate-limits.json')
+
+/**
+ * Start a fake Claude session whose agent ends a reply each time `reply()` is called: its status line, which Kea
+ * injects with the setting on, then runs again and hands on the rate limits the run's file holds then, in Claude's own
+ * form. Its first run, at start, carries none: there is no reply yet.
+ */
+async function replyingSession(kea: Kea, name: string, prompt: string): Promise<{ id: string; reply: () => Promise<number> }> {
+  const g = gate(kea.run, name)
+  const scenario = path.join(kea.run.home, `${name}.yaml`)
+  const replies = Array.from({ length: REPLIES }, () => `  - ${g.step}\n  - hook: Stop\n`).join('')
+  fs.writeFileSync(scenario, `version: 1\nname: ${name}\nsteps:\n  - frame: ${JSON.stringify([AGENT_MARK, '', '> {{prompt}}'])}\n${replies}  - wait: { answer: z }\n`)
+  const log = path.join(kea.run.home, `${name}.log`)
+  writeAgentShim(kea.run.agentBin, 'claude', { env: { FAKE_AGENT_SCENARIO: scenario, FAKE_AGENT_LOG: log, FAKE_AGENT_RATE_LIMITS: rateLimitsFile(kea.run) } })
+  const id = await startSession(kea, prompt)
+  await waitLive(kea, id)
+  await until(`the fake agent of ${name} started`, () => agentEvents(log).some((e) => e.t === 'start') || undefined)
+  return { id, reply: g.open }
+}
+
+/**
+ * Claude's usage limits as the agent of `s` reports them after its next reply: each window's share used and its reset
+ * (wall ms; Claude gives it in whole seconds).
+ */
+async function reportUsage(kea: Kea, s: { reply: () => Promise<number> }, session: number, week: number, resets: { session: number; week: number }): Promise<void> {
+  const limits = {
+    five_hour: { used_percentage: session, resets_at: Math.floor(resets.session / 1000) },
+    seven_day: { used_percentage: week, resets_at: Math.floor(resets.week / 1000) },
+  }
+  fs.writeFileSync(rateLimitsFile(kea.run), JSON.stringify(limits))
+  await s.reply()
+}
+
+/** A reset as the meter says it: the clock time on the same day, else the weekday and the time. */
+function resetWords(ms: number): string {
+  const d = new Date(ms)
+  return d.toDateString() === new Date().toDateString() ? clockTime(ms) : `${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getDay()]} ${clockTime(ms)}`
+}
+
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+interface MeterShown {
+  /** The parts on the meter's line, as read; a part that wrapped out of sight is not. */
+  text: string
+  /** Each shown part's colour, named by the token it is (`plain` for --text-3). */
+  levels: string[]
+  /** From the last shown part to the row's right end, px (-1 with none shown). */
+  rightGap: number
+  /** The status words' box, in the agent pane's row. */
+  words: { left: number; width: number } | null
+}
+
+/** The usage meter in `row` as a person sees it; null with none drawn. */
+function meterIn(page: Page, row: string): Promise<MeterShown | null> {
+  return page.evaluate((sel) => {
+    const r = document.querySelector(sel)
+    const m = r?.querySelector('.usage-meter')
+    if (!r || !m) return null
+    const token = (t: string): string => {
+      const probe = document.createElement('span')
+      probe.style.color = `var(${t})`
+      document.body.append(probe)
+      const c = getComputedStyle(probe).color
+      probe.remove()
+      return c
+    }
+    const names = new Map([
+      [token('--text-3'), 'plain'],
+      [token('--warn'), 'warn'],
+      [token('--danger'), 'danger'],
+    ])
+    const bottom = m.getBoundingClientRect().bottom
+    const shown = [...m.querySelectorAll('.usage-part')].filter((p) => p.getBoundingClientRect().top < bottom - 1)
+    const last = shown.at(-1)
+    const words = r.querySelector('.status-text')?.getBoundingClientRect()
+    return {
+      text: shown.map((p) => p.textContent ?? '').join(''),
+      levels: shown.map((p) => names.get(getComputedStyle(p.querySelector('.usage-value')!).color) ?? 'other'),
+      rightGap: last ? Math.round(r.getBoundingClientRect().right - last.getBoundingClientRect().right) : -1,
+      words: words ? { left: words.left, width: words.width } : null,
+    }
+  }, row)
+}
+
+/** Wait until the meter in `row` shows `text`; resolves with what it shows. */
+function waitMeter(page: Page, row: string, text: string): Promise<MeterShown> {
+  return until(`the meter showing "${text}"`, async () => {
+    const m = await meterIn(page, row)
+    return m?.text === text ? m : undefined
+  }).catch(async (e: Error) => {
+    throw new Error(`${e.message}: ${JSON.stringify(await meterIn(page, row))}`)
+  })
+}
+
+/** Narrow the agent pane's status row so its meter has `room` px beside the words (null: its own width again); resolves with what the meter shows. */
+async function narrowRow(page: Page, room: number | null): Promise<MeterShown | null> {
+  await page.evaluate(
+    ([sel, px]) => {
+      const r = document.querySelector<HTMLElement>(sel)!
+      if (px === null) return void r.style.removeProperty('width')
+      const s = getComputedStyle(r)
+      const pads = s.boxSizing === 'border-box' ? parseFloat(s.paddingLeft) + parseFloat(s.paddingRight) : 0
+      const words = r.querySelector('.status-text')!.getBoundingClientRect().width
+      r.style.width = `${px + parseFloat(s.columnGap) + words + pads}px`
+    },
+    [STATUS_ROW, room] as const,
+  )
+  return meterIn(page, STATUS_ROW)
+}
+
+/** Start a session whose agent is Command Code (`⌘1` opens the composer's Agent menu; it is the second agent). */
+async function startCommandCode(kea: Kea, prompt: string): Promise<string> {
+  const page = await kea.page()
+  return startSession(kea, prompt, {
+    beforeStart: async () => {
+      await page.keyboard.press(sysKey('Meta+1'))
+      const menu = page.getByRole('menu', { name: 'Agent', exact: true })
+      await expect(menu).toBeVisible({ timeout: STEP_MS })
+      await page.keyboard.press('ArrowDown')
+      await page.keyboard.press('Enter')
+      await expect(menu).toHaveCount(0)
+      await until('the prompt holding the keyboard again', () => promptBox(page).evaluate((e) => e === document.activeElement).catch(() => false) || undefined)
+      await expect(page.getByRole('region', { name: 'New session' }).getByRole('group', { name: 'Agent options' }).getByRole('button').first()).toHaveAttribute('aria-label', 'Agent: Command Code')
+    },
+  })
+}
+
+test('E-ST-11 · usage limits, with the setting on: a Claude Code session’s reading at the right end of the agent pane’s status row, `5h 25% · 7d 67%` in --text-3; a window at the warning ratio in --warn and at the danger ratio in --danger; at 100 % its limit and reset; the tooltip spells each window out; a narrow row drops the weekly part, then the meter, the words on its left unmoved; a second session of the agent shows the same reading before its own; none for a Command Code session; in one column at the strip’s right end while the Agent tab is shown; none with the setting off', async ({ run, launch }) => {
+  test.setTimeout(180_000)
+  usageSetting(run, true)
+  writeAgentShim(run.agentBin, 'commandcode', { name: 'cmd', env: { FAKE_AGENT_HOME: harnessUserHome(run.home), FAKE_AGENT_LOG: path.join(run.home, 'e-st-11-cmd.log') } })
+  const kea = await launch()
+  const page = await kea.page()
+  await addProject(kea, demoRepo(run).root)
+  await drawSplit(kea)
+  const one = await replyingSession(kea, 'e-st-11-one', 'measured')
+  const agent = await fakeAgentTerminal(kea, one.id)
+  expect(await meterIn(page, STATUS_ROW), 'no reading yet: no meter').toBeNull()
+
+  // the first reading: both windows at the row's right end, inside its padding, in the meta colour
+  const now = Date.now()
+  const resets = { session: now + HOUR_MS, week: now + 3 * DAY_MS }
+  await reportUsage(kea, one, 25, 67, resets)
+  let m = await waitMeter(page, STATUS_ROW, '5h 25% · 7d 67%')
+  expect(m.levels).toEqual(['plain', 'plain'])
+  expect(m.rightGap, 'at the row’s right end').toBe(SPACE_PX[2])
+
+  // the warning colour from the warning ratio, the danger colour from the danger ratio, each window on its own
+  const warn = Math.round(L.usageWarnRatio * 100)
+  const danger = Math.round(L.usageDangerRatio * 100)
+  await reportUsage(kea, one, warn, 67, resets)
+  m = await waitMeter(page, STATUS_ROW, `5h ${warn}% · 7d 67%`)
+  expect(m.levels).toEqual(['warn', 'plain'])
+  await reportUsage(kea, one, danger, warn, resets)
+  m = await waitMeter(page, STATUS_ROW, `5h ${danger}% · 7d ${warn}%`)
+  expect(m.levels).toEqual(['danger', 'warn'])
+
+  // the tooltip, on either part: each window with its share and reset, and when it was seen
+  await page.locator(`${STATUS_ROW} .usage-part[data-window="session"]`).hover()
+  const tip = `Session limit: ${danger} % used, resets ${resetWords(resets.session)} · Weekly: ${warn} % used, resets ${resetWords(resets.week)} · as of `
+  await expect(tooltip(page).locator('span')).toHaveText(new RegExp(`^${escapeRe(tip)}\\d\\d:\\d\\d$`), { timeout: STEP_MS })
+  await page.mouse.move(1, 1)
+  await expect(tooltip(page)).toHaveCount(0)
+
+  // at 100 %: the window's limit and its reset
+  await reportUsage(kea, one, 100, 67, resets)
+  m = await waitMeter(page, STATUS_ROW, `5h limit · ${resetWords(resets.session)} · 7d 67%`)
+  expect(m.levels).toEqual(['danger', 'plain'])
+
+  // a narrow row: the weekly part gives way first, then the whole meter; the words on the left keep their place
+  await reportUsage(kea, one, 25, 67, resets)
+  m = await waitMeter(page, STATUS_ROW, '5h 25% · 7d 67%')
+  const widths = await page.evaluate((sel) => Object.fromEntries([...document.querySelectorAll(`${sel} .usage-part`)].map((p) => [p.getAttribute('data-window') ?? '', p.getBoundingClientRect().width])), STATUS_ROW)
+  expect(await narrowRow(page, widths.session! + widths.week! - 1)).toMatchObject({ text: '5h 25%', words: m.words })
+  expect(await narrowRow(page, widths.session! - 1)).toMatchObject({ text: '', words: m.words })
+  await narrowRow(page, null)
+  await waitMeter(page, STATUS_ROW, '5h 25% · 7d 67%')
+
+  // a second session of the same agent shows the account's reading before its own agent has said anything
+  const two = await startFakeSession(kea, 'e-st-11-two', 'measured too', WAITS)
+  const agentTwo = await fakeAgentTerminal(kea, two.id)
+  await waitMeter(page, STATUS_ROW, '5h 25% · 7d 67%')
+
+  // a Command Code session: no meter, while Claude Code's reading stands
+  const cmd = await startCommandCode(kea, 'nothing to measure')
+  await waitLive(kea, cmd)
+  await until('the Command Code session in the main pane', async () => ((await paneSession(page)) === cmd ? true : undefined))
+  await until('its agent in the agent pane', async () => {
+    const shown = await kea.shown('agent')
+    return shown !== null && shown !== agent && shown !== agentTwo && shown === (await tabOf(kea, 'agent')) ? true : undefined
+  })
+  expect(await meterIn(page, STATUS_ROW), 'no meter for Command Code').toBeNull()
+  await selectSession(kea, one.id)
+  await fakeAgentTerminal(kea, one.id)
+  await waitMeter(page, STATUS_ROW, '5h 25% · 7d 67%')
+
+  // one column: at the strip's right end while the Agent tab is shown, not beside a shell
+  await kea.oneColumn()
+  await kea.clickTab(agent)
+  m = await waitMeter(page, STRIP, '5h 25% · 7d 67%')
+  expect(m.rightGap, 'at the strip’s right end').toBe(SPACE_PX[2])
+  await kea.newTab()
+  await until('no meter while a shell is shown', async () => ((await meterIn(page, STRIP)) === null ? true : undefined))
+  await kea.clickTab(agent)
+  await waitMeter(page, STRIP, '5h 25% · 7d 67%')
+
+  // the setting off: core holds no reading, and the meter goes
+  usageSetting(run, false)
+  await until('no meter with the setting off', async () => ((await meterIn(page, STRIP)) === null ? true : undefined))
+})
+
+test('A-7 · the usage meter for assistive technology: an image named by its windows in words ("Usage: session 25 %, weekly 67 %"), at the limit with its reset, described by the tooltip’s words, in the agent pane and in the one-column strip; not a stop for the keyboard and not a live region', async ({ run, launch }) => {
+  usageSetting(run, true)
+  const kea = await launch()
+  const page = await kea.page()
+  await addProject(kea, demoRepo(run).root)
+  await drawSplit(kea)
+  const s = await replyingSession(kea, 'a-7', 'read the limits')
+  const agent = await fakeAgentTerminal(kea, s.id)
+  const now = Date.now()
+  const resets = { session: now + HOUR_MS, week: now + 3 * DAY_MS }
+  await reportUsage(kea, s, 25, 67, resets)
+
+  const pane = page.getByRole('region', { name: 'Agent' })
+  const named = pane.getByRole('img', { name: 'Usage: session 25 %, weekly 67 %', exact: true })
+  await expect(named).toBeVisible({ timeout: STEP_MS })
+  expect(await named.evaluate((e) => ({ tabIndex: e.tabIndex, live: e.closest('[aria-live], [role=status]') !== null })), 'not focusable, not announced on each change').toEqual({ tabIndex: -1, live: false })
+  // the resets and when it was seen, which the window's tooltip (hidden from assistive technology) shows the eye
+  const described = `Session limit: 25 % used, resets ${resetWords(resets.session)} · Weekly: 67 % used, resets ${resetWords(resets.week)} · as of `
+  await expect(named).toHaveAccessibleDescription(new RegExp(`^${escapeRe(described)}\\d\\d:\\d\\d$`))
+
+  // at the limit the name says until when
+  await reportUsage(kea, s, 100, 67, resets)
+  await expect(pane.getByRole('img', { name: `Usage: session limit reached until ${resetWords(resets.session)}, weekly 67 %`, exact: true })).toBeVisible({ timeout: STEP_MS })
+
+  // in one column the strip's meter has the same name
+  await kea.oneColumn()
+  await kea.clickTab(agent)
+  await expect(page.locator(STRIP).getByRole('img', { name: `Usage: session limit reached until ${resetWords(resets.session)}, weekly 67 %`, exact: true })).toBeVisible({ timeout: STEP_MS })
 })

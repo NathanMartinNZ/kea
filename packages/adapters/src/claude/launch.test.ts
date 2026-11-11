@@ -15,7 +15,8 @@ const ctx = (o: Partial<LaunchContext> = {}): LaunchContext => ({
   binary: '/opt/bin/claude',
   version: '2.1.296',
   env: { PATH: '/usr/bin:/bin', HOME: '/tmp/h', KEA_SESSION_ID: '01JXKEASESSION0000000000AA', LANG: 'en_US.UTF-8' },
-  settings: { extraArgs: [], env: {}, allowDangerousModes: false, renderer: 'agent-default' },
+  // the usage meter's status line (on by default) is statusline.test.ts's: these cases read the hooks alone
+  settings: { extraArgs: [], env: {}, allowDangerousModes: false, renderer: 'agent-default', usageLimits: false },
   ownWorktree: true,
   ...o,
 })
@@ -61,7 +62,7 @@ describe('claude launch', () => {
       }
     }
     // extra arguments (settings, then the composer's) come before the prompt; an unknown mode is not passed
-    const s = buildLaunch({ prompt: 'go now', permissionMode: 'nonsense', extraArgs: ['--add-dir', '/x'] }, ctx({ settings: { extraArgs: ['--verbose'], env: {}, allowDangerousModes: false } }))
+    const s = buildLaunch({ prompt: 'go now', permissionMode: 'nonsense', extraArgs: ['--add-dir', '/x'] }, ctx({ settings: { extraArgs: ['--verbose'], env: {}, allowDangerousModes: false, usageLimits: false } }))
     expect(shape(s.args)).toEqual(['--session-id', UUID, '--settings', '<settings>', '--verbose', '--add-dir', '/x', '--', 'go now'])
     // below the alias gate the default mode is passed by its old name
     expect(buildLaunch({ prompt: '', permissionMode: 'manual' }, ctx({ version: '2.1.150' })).args).toContain('default')
@@ -69,8 +70,10 @@ describe('claude launch', () => {
     expect(promptArg('a\tb')).toBe('a\tb')
   })
 
-  it('U-AGT-2 · injected settings: valid JSON with every listed event, each hook synchronous, timeout L.hookTimeoutS, exec form, absolute helper, generated projection, no statusLine', () => {
+  it('U-AGT-2 · injected settings: valid JSON with every listed event, each hook synchronous, timeout L.hookTimeoutS, exec form, absolute helper, generated projection, no statusLine with the usage meter turned off (it is on by default: statusline.test.ts)', () => {
     const json = injectedSettings(ctx())
+    const argv = buildLaunch({ prompt: '' }, ctx({ settings: { extraArgs: [], env: {}, allowDangerousModes: false, usageLimits: false } })).args
+    expect(JSON.parse(argv[argv.indexOf('--settings') + 1]!)).toEqual(JSON.parse(json))
     expect(Buffer.byteLength(json)).toBeLessThanOrEqual(L.settingsInlineMaxBytes)
     const o = JSON.parse(json) as { hooks: Record<string, { hooks: Record<string, unknown>[] }[]> } & Record<string, unknown>
     expect(Object.keys(o)).toEqual(['hooks'])
@@ -137,7 +140,7 @@ describe('claude launch', () => {
     expect(s.unset.sort()).toEqual(['CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_CODE_SESSION_ID', 'ELECTRON_RUN_AS_NODE', 'NODE_CHANNEL_FD'])
     expect(s.env[ENV_NO_FLICKER]).toBeUndefined()
     // the agent's extra environment and the renderer setting are laid over it
-    const r = buildLaunch({ prompt: '' }, ctx({ env, settings: { extraArgs: [], env: { MY_VAR: 'over', EXTRA: 'x' }, allowDangerousModes: false, renderer: 'classic' } }))
+    const r = buildLaunch({ prompt: '' }, ctx({ env, settings: { extraArgs: [], env: { MY_VAR: 'over', EXTRA: 'x' }, allowDangerousModes: false, renderer: 'classic', usageLimits: false } }))
     expect(r.env.MY_VAR).toBe('over')
     expect(r.env.EXTRA).toBe('x')
     expect(r.env[ENV_NO_FLICKER]).toBe('0')

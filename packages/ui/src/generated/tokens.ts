@@ -9,9 +9,10 @@ export const COLOR = {
   "surface-4": "#2A2D27",
   "line": "#23261F",
   "line-strong": "#33372F",
-  "text-1": "#E6E8E1",
+  "text-1": "#CDD0C6",
   "text-2": "#A3A79A",
   "text-3": "#868A80",
+  "text-4": "#74786E",
   "accent": "#F5793A",
   "accent-hover": "#FF8D55",
   "accent-wash": "rgba(245,121,58,.14)",
@@ -69,7 +70,9 @@ export const SIZE_PX = {
   "terminal-pad-x": 12,
   "terminal-pad-y": 8,
   "focus-ring": 1.5,
-  "scrollbar": 8,
+  "scrollbar": 6,
+  "change-ruler": 4,
+  "change-ruler-min": 6,
   "server-control": 136,
 } as const
 

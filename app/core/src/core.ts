@@ -571,6 +571,7 @@ export function createCore(o: CoreOptions): Core {
   stores.add(ghostty.store)
   stores.add(status.store)
   stores.add(status.conditions.store)
+  stores.add(status.usage.store)
   stores.add(agents.store)
   stores.add(disk.store)
 

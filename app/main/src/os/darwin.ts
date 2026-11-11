@@ -66,9 +66,11 @@ const SEP: MenuItemConstructorOptions = { type: 'separator' }
 
 export const darwin: MainOs = {
   system: 'darwin',
-  // the traffic lights inside the sidebar header
+  // the traffic lights inside the sidebar header. A click on an inactive window also acts on what it lands on: without
+  // it AppKit spends that click on bringing the window forward, and the keyboard goes back to whatever had it before
+  // (an editable file, say) instead of the terminal or field the user clicked
   windowChrome: {
-    options: (o) => ({ titleBarStyle: 'hiddenInset', trafficLightPosition: o.trafficLights }),
+    options: (o) => ({ titleBarStyle: 'hiddenInset', trafficLightPosition: o.trafficLights, acceptFirstMouse: true }),
     createShown: false,
     restoresPosition: () => true,
     nativeTheme: null,

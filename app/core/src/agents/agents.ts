@@ -30,6 +30,9 @@
 //                           file (the file says itself when a prompt is answered); typing into a blocked agent is
 //                           `userTyped`;
 //               and every AgentEvent goes to the status engine's `ingest` with its tier as the source.
+//   usage       an envelope a status line sent (`statusline`, from the socket or a spool) is the account's, not the
+//               session's: its adapter maps it to `account.usage` and the engine's usage reading for the agent's config
+//               folder takes it. Ignored while the adapter's setting is off; turning it off drops the agent's readings.
 //   reconcile   at start (and for a session first seen live: a rebuilt one), each live agent session's spool is
 //               drained, then its transcript tail decides the status. When an agent PTY ends, the tail's cost-state and
 //               title are written for the detached session.
@@ -95,7 +98,7 @@ export interface AgentServiceOptions {
    * what runs. Default: the running rows of `terminals`.
    */
   runningArgvs?: () => Iterable<readonly string[]>
-  status: Pick<StatusEngine, 'ingest' | 'statusFile' | 'reconcile' | 'userTyped' | 'state'>
+  status: Pick<StatusEngine, 'ingest' | 'statusFile' | 'reconcile' | 'userTyped' | 'state'> & { usage: Pick<StatusEngine['usage'], 'report' | 'clear'> }
   /** Writes for a detached session (cost after the agent exits). */
   batch: Pick<StatusBatch, 'queue'>
   /** Listen on the hook socket (default true; unit tests feed envelopes directly). */
@@ -176,7 +179,7 @@ export class AgentService {
   /** The watch service made here when none was given (unit tests): closed with this service. */
   private readonly ownWatch: Watcher | null
   /** Counters for the resource report and tests. */
-  readonly stats = { envelopes: 0, unknownSession: 0, wrongAdapter: 0, early: 0, stale: 0, malformed: 0, oversize: 0, duplicates: 0, spoolDrains: 0, spoolApplied: 0, spoolSkipped: 0, interrupts: 0, invalidEvents: 0, foreignTranscript: 0 }
+  readonly stats = { envelopes: 0, unknownSession: 0, wrongAdapter: 0, early: 0, stale: 0, malformed: 0, oversize: 0, duplicates: 0, spoolDrains: 0, spoolApplied: 0, spoolSkipped: 0, interrupts: 0, invalidEvents: 0, foreignTranscript: 0, usageReports: 0 }
   private readonly o: AgentServiceOptions
   private readonly now: () => number
   private readonly mono: () => bigint
@@ -311,6 +314,8 @@ export class AgentService {
       const d = this.detections.get(a.id)
       if (d && d.command !== this.override(a.id)) void this.detect(a.id)
       this.publish(a)
+      // the usage meter turned off: what its status lines reported goes with it
+      if (a.usage && !a.usage.enabled(this.o.settings.values.agent(a.id))) this.o.status.usage.clear(a.id)
     }
     this.rearmStatusFiles()
   }
@@ -637,10 +642,17 @@ export class AgentService {
     if (this.disposed) return
     this.stats.envelopes++
     const id = env.keaSessionId
-    // the helper could not read the hook's stdin (not JSON, or over L.hookStdinMaxBytes): its payload is `{}` (C-COR-7)
-    if (env.malformed) this.dropped('malformed', 'hook payload was not JSON: dropped', env)
-    if (env.oversize) this.dropped('oversize', 'hook payload over the stdin cap: dropped', env)
+    // the helper could not read the hook's or the status line's stdin (not JSON, or over its cap): its payload is `{}`
+    // (C-COR-7)
+    const what = env.statusline ? 'status line' : 'hook'
+    if (env.malformed) this.dropped('malformed', `${what} payload was not JSON: dropped`, env)
+    if (env.oversize) this.dropped('oversize', `${what} payload over the stdin cap: dropped`, env)
     const l = this.live.get(id)
+    if (env.statusline) {
+      this.statusLine(env, l?.adapter ?? this.adapterOf(this.pending.get(id)?.adapter))
+      if (l && l.adapter.id === env.adapter && hasSpool(this.o.home, id)) this.drain(id)
+      return
+    }
     if (l) {
       if (l.adapter.id !== env.adapter) {
         this.stats.wrongAdapter++
@@ -661,6 +673,37 @@ export class AgentService {
     }
     if (this.o.sessions.has(id)) this.stats.stale++
     else this.dropped('unknownSession', 'hook envelope for an unknown session: dropped', env)
+  }
+
+  /**
+   * A status line's envelope (`statusline`): the account's usage, which its adapter maps and the engine's reading for
+   * the agent's config folder keeps (the latest report per window, by the envelope's own time, so a copy that comes
+   * twice or a spooled one that comes late changes nothing). It is no session's input: not its signals, not its
+   * envelope ids. `adapter`: the session's (live, or launching); none, another adapter's, or the setting off: nothing.
+   */
+  private statusLine(env: Envelope, adapter: AgentAdapter | undefined): void {
+    if (!adapter || adapter.id !== env.adapter || !adapter.usage || env.malformed || env.oversize) return
+    if (!adapter.usage.enabled(this.o.settings.values.agent(adapter.id))) return
+    let events: AgentEvent[]
+    try {
+      events = adapter.usage.map(env.payload)
+    } catch (e) {
+      this.o.log.warn('status line not read', { sessionId: env.keaSessionId, adapter: adapter.id, error: String(e) })
+      return
+    }
+    const account = adapter.usage.account(this.agentEnv(adapter))
+    for (const e of events) {
+      if (e.t !== 'account.usage' || !zAgentEvent.safeParse(e).success) {
+        this.stats.invalidEvents++
+        continue
+      }
+      this.stats.usageReports++
+      this.o.status.usage.report({ agent: adapter.id, account, windows: e.windows, at: env.receivedAt })
+    }
+  }
+
+  private adapterOf(id: string | undefined): AgentAdapter | undefined {
+    return id === undefined ? undefined : this.o.registry.get(id)
   }
 
   /** An envelope whose id its session took before: the copy that came second, from the socket or the spool. */
@@ -756,6 +799,7 @@ export class AgentService {
       id,
       (env) => {
         if (!l || env.adapter !== l.adapter.id) return
+        if (env.statusline) return this.statusLine(env, l.adapter)
         if (this.duplicate(env)) return false
         this.applyHook(l, env, true)
       },

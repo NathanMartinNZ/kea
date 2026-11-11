@@ -247,34 +247,88 @@ describe('drag regions', () => {
 })
 
 
+/** A selector for a disabled control (its `:not(…)` parts left out: they exclude one). */
+const disabledForm = (s: string) => /:disabled|\[aria-disabled='true'\]/.test(s.replace(/:not\([^)]*\)/g, ''))
+/** A selector that styles a control: any cursor it sets is the hand, its disabled form aside. */
+const CONTROL = /quiet-button|primary-button|icon-button|\.button\b|segment|-row\b|kea-menu-item|\.tab\b|\bselect\b|switch|checkbox|crumb|chip/
+/** An element of the markup that is clicked: a click handler, or the role of a thing that is clicked. */
+const CLICKABLE = /\s(onclick|ondblclick)=|\srole="(option|treeitem|menuitem\w*|tab|switch|radio|checkbox|link|button)"/
+/** Clicked elements that are not native controls and keep another cursor, each with its reason. */
+const NO_HAND: Record<string, string> = {
+  'fp-list': 'a list hands its clicks to its rows, which have the hand',
+  divider: 'a column divider has col-resize',
+  'viewer-image': 'its image has the zoom cursors',
+  'status-row': 'a press on the agent pane’s status line gives the agent the keyboard, as a press on its empty space does: the window’s own text keeps the arrow',
+  'session-title': 'a double-click renames the session and a single click does nothing: the window’s own text keeps the arrow',
+}
+
+/** The classes a tag sets: the plain words of `class="…"` and the quoted words in its `{…}` parts, or of `class={…}`. */
+function classesOf(tag: string): string[] {
+  const m = /\sclass=("((?:\{[^}]*\}|[^"{])*)"|\{([^}]*)\})/.exec(tag)
+  if (!m) return []
+  const value = m[2] ?? m[3] ?? ''
+  const quoted = [...value.matchAll(/'([^']*)'/g)].map((q) => q[1]!)
+  return [...value.replace(/\{[^}]*\}/g, ' ').split(/\s+/), ...quoted.flatMap((q) => q.split(/\s+/))].filter((w) => /^[a-z][\w-]*[a-z0-9]$/.test(w))
+}
+
 describe('cursors', () => {
-  it('DS-10 · the cursor policy: the hand on links and on text-like buttons, the I-beam on the viewer’s code, col-resize on dividers, the arrow on controls drawn as buttons, tabs, rows and menu items', () => {
+  it('DS-10 · the cursor policy: the hand on everything that acts on a click (every button, select and checkbox, and each feature’s clickable rows, menu items, fold chevrons, change ruler and links), the arrow set for a disabled control alone, the I-beam on text, col-resize on dividers', () => {
     const cursor = (r: Rule) => r.decls.get('cursor')
     const set = sheet.rules.filter((r) => cursor(r) !== undefined)
     const by = (value: string) => set.filter((r) => cursor(r) === value).map((r) => r.selector).sort()
     // the hand-kept list: a new cursor is added here on purpose
     expect(by('pointer')).toEqual(
       [
-        '.branch-chip',
-        '.config-summary',
-        '.diff-stat',
-        '.kea-terminal .xterm.enable-mouse-events .xterm-cursor-pointer',
-        '.kea-terminal .xterm.enable-mouse-events.xterm-cursor-pointer',
-        '.link-button',
-        '.server-chip',
+        "button:not(:disabled):not([aria-disabled='true'])",
+        'select:not(:disabled)',
+        "input[type='checkbox']:not(:disabled)",
+        '.composer-toggle:not(.locked)',
+        '.sb-row',
+        '.fp-row',
+        '.finder-row',
+        '.palette-row',
+        '.kea-menu-item',
+        '.viewer .cm-editor .kea-fold',
+        '.viewer .cm-editor .cm-foldPlaceholder',
+        '.viewer .cm-editor .cm-collapsedLines',
+        '.viewer .kea-change-ruler',
         '.viewer-preview a[data-path]',
         '.viewer-preview a[href]',
+        '.kea-terminal .xterm.enable-mouse-events .xterm-cursor-pointer',
+        '.kea-terminal .xterm.enable-mouse-events.xterm-cursor-pointer',
       ].sort(),
     )
     expect(by('text')).toEqual(['.kea-terminal .xterm.enable-mouse-events', '.viewer .cm-editor .cm-content'])
+    // the tree's name field sits in a row: its input keeps a field's I-beam
+    expect(by('auto')).toEqual(['.ft-edit'])
     expect(by('col-resize')).toEqual(['.divider', '.window.resizing'])
     expect(by('zoom-in')).toEqual(['.viewer-image img'])
     expect(by('zoom-out')).toEqual(['.viewer-image.actual img'])
     expect(by('default')).toEqual(
-      ['.fp-row', '.finder-row', '.palette-row', '.sb-row', '.tab', '.kea-menu-item', '.viewer .cm-editor .cm-foldGutter .cm-gutterElement', '.viewer .cm-editor .cm-collapsedLines', ".link-button[aria-disabled='true']", ".link-button[aria-disabled='true']:hover"].sort(),
+      [":where(:disabled, [aria-disabled='true'])", ".kea-menu-item[aria-disabled='true']", ".palette-row[aria-disabled='true']:not(:has(.palette-remedy))", ".link-button[aria-disabled='true']", ".link-button[aria-disabled='true']:hover"].sort(),
     )
-    expect(set.filter((r) => !['pointer', 'text', 'col-resize', 'zoom-in', 'zoom-out', 'default'].includes(cursor(r)!)).map((r) => `${r.selector}: ${cursor(r)}`)).toEqual([])
-    // a control drawn as a button never has the hand: it reads as a control already
-    expect(by('pointer').filter((s) => /quiet-button|primary-button|\.button|segment|-row|kea-menu-item|\.tab\b/.test(s))).toEqual([])
+    expect(set.filter((r) => !['pointer', 'text', 'auto', 'col-resize', 'zoom-in', 'zoom-out', 'default'].includes(cursor(r)!)).map((r) => `${r.selector}: ${cursor(r)}`)).toEqual([])
+    // the arrow is set for a disabled control alone: elsewhere it is the browser's own, over text that cannot be
+    // selected, the viewer's line numbers and empty space
+    expect(by('default').filter((s) => !disabledForm(s))).toEqual([])
+    // every button, select and checkbox has the hand from the window's own rules, a disabled one aside
+    for (const s of by('pointer').filter((s) => !s.startsWith('.'))) expect(set.find((r) => r.selector === s)?.file, s).toBe('app/renderer/src/styles.css')
+    // a control's own rule never takes the hand away
+    expect(set.filter((r) => CONTROL.test(r.selector) && !disabledForm(r.selector) && cursor(r) !== 'pointer').map((r) => `${r.file} ${r.selector}: ${cursor(r)}`)).toEqual([])
+    // every element of the markup that is clicked and is not a native control has a class with the hand, or a reason
+    const hand = new Set(by('pointer').flatMap((s) => /^\.([\w-]+)(?::|$)/.exec(s)?.[1] ?? []))
+    const missing: string[] = []
+    const excused = new Set<string>()
+    for (const f of all.filter((f) => f.endsWith('.svelte'))) {
+      for (const { tag } of tags(readFileSync(f, 'utf8'))) {
+        if (/^<(button|input|select|textarea|[A-Z])/.test(tag) || !CLICKABLE.test(tag)) continue
+        const cls = classesOf(tag)
+        const reason = cls.find((c) => c in NO_HAND)
+        if (reason) excused.add(reason)
+        else if (!cls.some((c) => hand.has(c))) missing.push(`${relative(ROOT, f)}: ${tag.replace(/\s+/g, ' ').slice(0, 100)}`)
+      }
+    }
+    expect(missing).toEqual([])
+    expect([...excused].sort(), 'every reason is still needed').toEqual(Object.keys(NO_HAND).sort())
   })
 })

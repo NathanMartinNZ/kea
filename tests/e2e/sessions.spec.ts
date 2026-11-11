@@ -858,3 +858,68 @@ test('E-SES-12 · a creation held at its last step (the test hook’s hold): the
   expect(fs.readFileSync(file, 'utf8'), 'the log has every step').toContain(`step ${CREATION_STEPS[last]}`)
   await kea.assertUnfocused()
 })
+
+test('E-SES-15 · the main header names the session’s project before its title: the project’s name in the secondary grey and a `›` in the dim one, then the title, which alone is the heading; with the main column at its narrowest a long project name is cut first while a short title shows whole; a double-click on the project renames nothing, and the project stays while the title is renamed', async ({ run, launch }) => {
+  const kea = await launch()
+  const page = await kea.page()
+  const PROJECT = 'a-project-whose-name-is-long-enough-to-be-cut-in-the-header'
+  await addProject(kea, demoRepo(run, PROJECT).root)
+  const id = await startSession(kea, 'fix')
+  await waitLive(kea, id)
+  const title = (await rowState(page, id))!.title
+  const left = page.getByRole('main', { name: 'Session' }).locator('.header-left')
+  const project = left.locator('.header-project')
+  const sep = left.locator('.header-sep')
+  const heading = left.locator('h1.session-title')
+  /** A colour token as the browser computes it: `rgb(…)`. */
+  const colour = (token: string): Promise<string> =>
+    page.evaluate((t) => {
+      const probe = document.body.appendChild(document.createElement('span'))
+      probe.style.color = `var(${t})`
+      const c = getComputedStyle(probe).color
+      probe.remove()
+      return c
+    }, token)
+  const cut = (e: Element) => e.scrollWidth > e.clientWidth
+
+  // project › title, in that order, before the branch; the heading is the title alone
+  await expect(project).toHaveText(PROJECT, { timeout: STEP_MS })
+  await expect(project).toHaveAttribute('data-tip', PROJECT)
+  await expect(sep).toHaveText('›')
+  await expect(sep).toHaveAttribute('aria-hidden', 'true')
+  expect(await left.evaluate((e) => [...e.children].slice(0, 3).map((c) => c.className))).toEqual(['header-project', 'header-sep', 'session-title'])
+  expect(await headerTitle(page)).toBe(title)
+  await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible()
+  await expect(project).toHaveCSS('color', await colour('--text-2'))
+  await expect(sep).toHaveCSS('color', await colour('--text-3'))
+
+  // the main column at its minimum (the window at the width the file panel stays open at, the panel as wide as it
+  // goes): the project's name gives way first, and the short title is whole
+  const size = (name: string) => page.evaluate((n) => parseFloat(getComputedStyle(document.documentElement).getPropertyValue(`--size-${n}`)), name)
+  const [mainMin, treeMax, treeKept] = await Promise.all(['main-min', 'tree-max', 'tree-autocollapse'].map(size))
+  await kea.setLayout({ sidebarHidden: false, treeHidden: false, treeWidth: treeMax! })
+  await kea.resize(treeKept!, await page.evaluate(() => window.innerHeight))
+  await until('the main column at its minimum', async () => {
+    const { drawn } = await kea.layout()
+    return (await page.evaluate(() => window.innerWidth)) - drawn.sidebar - drawn.tree === mainMin || undefined
+  })
+  await until('the project’s name cut', () => project.evaluate(cut).then((c) => c || undefined))
+  expect(await heading.evaluate(cut), 'the title whole').toBe(false)
+  await expect(project).toBeVisible()
+
+  // a double-click on the project's name is not one on the title
+  await project.dblclick()
+  const field = page.getByRole('textbox', { name: 'Session title' })
+  expect(await field.count(), 'no rename from the project').toBe(0)
+  // renaming: the field takes the title's place, after the project and its `›`
+  await heading.dblclick()
+  await expect(field).toBeFocused({ timeout: STEP_MS })
+  expect(await left.evaluate((e) => [...e.children].slice(0, 3).map((c) => c.className))).toEqual(['header-project', 'header-sep', 'field session-title-field'])
+  await field.fill('tidy')
+  await page.keyboard.press('Enter')
+  await waitRow(kea, id, 'renamed', (r) => r.title === 'tidy')
+  await until('the new title in the header', async () => (await headerTitle(page)) === 'tidy' || undefined)
+  await expect(project).toHaveText(PROJECT)
+  await expect(sep).toHaveText('›')
+  await kea.assertUnfocused()
+})

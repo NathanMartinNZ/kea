@@ -10,6 +10,10 @@ pane (and this area with it): the area that comes keeps the terminal the old one
 painted, whichever of the two Svelte makes first. Views no area hosts wait, hidden and alive, in the window's dock
 (`views.ts`: other sessions' warm terminals). An area's switch closes find and "Jump to bottom" on its own terminals
 only.
+
+Drops: files from other apps and rows of the file tree or the Changes view are typed at the prompt of the terminal on
+screen (`drop.ts` says what). While such a drag is over the area the drop-target ring is drawn over the terminal; with
+no terminal on screen the area refuses the drag, so a folder dropped there never becomes a project.
 -->
 <script lang="ts">
   import { tick, untrack } from 'svelte'
@@ -173,23 +177,43 @@ only.
 
   const modeOf = (id: string): Mode => (id === shown ? 'shown' : id === active ? 'pending' : 'hidden')
 
-  // ── Files from other apps and rows of the file tree dropped on the terminal are typed at its prompt ──
+  // ── Files from other apps and rows of the file tree or the Changes view dropped on the terminal are typed at its
+  // prompt ──
+
+  /** A drag the area takes is over it: the drop-target ring is drawn over the terminal. */
+  let dropping = $state(false)
 
   function onDragOver(e: DragEvent): void {
-    if (!shown || !e.dataTransfer || !takesDrop(e.dataTransfer.types)) return
-    // taken here: the window does not read a dropped folder as a project to add
+    if (!e.dataTransfer || !takesDrop(e.dataTransfer.types)) return
+    // taken here, with no terminal on screen too (refused then): the window does not read a dropped folder as a
+    // project to add
     e.preventDefault()
-    e.dataTransfer.dropEffect = 'copy'
+    e.dataTransfer.dropEffect = shown ? 'copy' : 'none'
+    dropping = shown !== null
+  }
+
+  function onDragLeave(e: DragEvent): void {
+    // moving onto another element inside the area is not leaving it
+    if (e.relatedTarget instanceof Node && e.currentTarget instanceof Node && e.currentTarget.contains(e.relatedTarget)) return
+    dropping = false
+  }
+
+  // a drag that ends anywhere (dropped elsewhere, or cancelled) leaves no ring
+  const endDrag = (): void => {
+    dropping = false
   }
 
   function onDrop(e: DragEvent): void {
+    dropping = false
     const dt = e.dataTransfer
     const ptyId = shown
-    if (!ptyId || !dt || !takesDrop(dt.types)) return
+    if (!dt || !takesDrop(dt.types)) return
     e.preventDefault()
+    if (!ptyId) return
     const row = parseDraggedPath(dt.getData(PATH_DRAG_TYPE))
-    // a mention is for the agent's terminal: on a shell or the dev server's tab `⌥` types the shell's form
-    const dropped = dropText({ row, files: [...dt.files].map(pathForFile), alt: e.altKey, agent: sessionId !== null && terminalsList.get(ptyId)?.kind === 'agent' })
+    // a row is the agent's mention on the agent's terminal (its path with `⌥`), its path on any other; a row of
+    // another session types nothing
+    const dropped = dropText({ row, files: [...dt.files].map(pathForFile), alt: e.altKey, agent: sessionId !== null && terminalsList.get(ptyId)?.kind === 'agent', sessionId })
     if ('mention' in dropped) {
       // the form is the agent's (a name with a space is quoted its way): core's adapter says it
       const sid = sessionId
@@ -213,12 +237,18 @@ only.
   }
 </script>
 
+<svelte:document ondragend={endDrag} />
+
 <!-- svelte-ignore a11y_no_static_element_interactions (a drop target only: the terminal inside has the keyboard) -->
-<div class="terminal-area" data-pane={pane} ondragover={onDragOver} ondrop={onDrop}>
+<div class="terminal-area" data-pane={pane} ondragenter={onDragOver} ondragover={onDragOver} ondragleave={onDragLeave} ondrop={onDrop}>
   {#each live as id (id)}
     {@const mode = modeOf(id)}
     <div class="terminal-host {mode}" data-pty={id} aria-hidden={mode !== 'shown'} {@attach mountView(id)}></div>
   {/each}
+  {#if dropping && shown !== null}
+    <!-- the drop-target ring, over the terminal; the pointer goes through it to the terminal -->
+    <div class="terminal-drop" aria-hidden="true"></div>
+  {/if}
   <FindBar ptyId={shown} />
   <Overlays ptyId={shown} owns={(id) => tabs.includes(id)} />
 </div>

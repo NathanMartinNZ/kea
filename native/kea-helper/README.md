@@ -1,11 +1,12 @@
 # native/kea-helper
 
-Kea's small native helper (Rust, no async runtime). One binary, five subcommands:
+Kea's small native helper (Rust, no async runtime). One binary, six subcommands:
 
 | Subcommand | Lifetime | What |
 |---|---|---|
 | `pty` | One PTY, detached (survives Kea) | The **holder**: owns exactly one PTY, a ring file of its output, and one Kea client |
 | `hook` | Milliseconds | Agent hook → projected envelope → `core.sock` (core answers it), else the session spool |
+| `statusline` | Milliseconds | An agent's status line, delivered as `hook` delivers but never spooled: the account's usage for Kea, nothing printed |
 | `footprint <pid…>` | Milliseconds | Physical footprint per pid (macOS `ri_phys_footprint`; Linux `RssAnon + VmSwap`) |
 | `ports <pid…>` | Milliseconds | Listening TCP sockets per pid (macOS libproc; Linux `/proc/<pid>/net/tcp{,6}`) |
 | `ports --all` | Milliseconds | Linux: every TCP listener, this user's with their pid, others' as `-` (who holds a port) |
@@ -33,7 +34,8 @@ agent flag, path or payload field name appears in this crate.
   non-dumpable holder. `procfs.rs`: the `/proc` text parsers, pure and built on both systems, so their tests run on
   macOS against `fixtures/os/linux/`. `#[cfg(target_os)]` appears on the two system modules only, and `os::IS_LINUX`
   picks the per-system numbers of `limits.rs`.
-- `rundir.rs`, `hook.rs` (with `hook/tests.rs`), `footprint.rs`, `ports.rs`, `procs.rs`, `sys.rs` (thin libc helpers).
+- `rundir.rs`, `hook.rs` (`hook` and `statusline`, with `hook/tests.rs`), `footprint.rs`, `ports.rs`, `procs.rs`,
+  `sys.rs` (thin libc helpers).
 - `limits.rs`, generated from `constants/limits.toml` by `pnpm codegen`.
 - `golden_tests.rs` (the wire format against the shared golden file) and `test_alloc.rs` (the counting allocator the
   unit tests use to prove the loop allocates nothing).
@@ -369,6 +371,20 @@ exits 0 and prints nothing, not even on a panic (a silent panic hook plus `catch
   directory (`<home>/run`, or the `/tmp/kea-<uid>/…` fallback); the session directory `<home>/sessions/<id>` must
   already exist for spooling (the hook never creates directories). Anything else is dropped silently. Environment
   variables are never read for identification.
+
+## `statusline`
+
+```
+kea-helper statusline <adapter> --session <keaSessionId> --home <KEA_HOME> --project '<projection JSON>'
+```
+
+What an agent runs as its status line, for the account's usage limits: the arguments, the projection, the validation
+and the delivery are `hook`'s. It differs in four ways. stdin is capped at `STATUSLINE_STDIN_MAX_BYTES` (above it,
+drained to EOF and dropped: `payload:{}` plus `"oversize":true`). The envelope carries a top-level `"statusline":true`
+after `payload`, which is how core tells it from a hook's. It is never spooled: when core does not answer within
+`HOOK_BOUND_MS` the line is dropped, since the agent can run its status line after every message and the next run's
+reading replaces it, so a spool of them would only crowd out the session's own events. It prints nothing at all and
+always exits 0, since the agent shows whatever its status line prints.
 
 ## `footprint <pid…>`
 

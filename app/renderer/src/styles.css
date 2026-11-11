@@ -21,6 +21,21 @@ button {
   color: inherit;
 }
 
+/* The hand on everything that acts on a click: every button (tabs, segments and chips among them), select and
+   checkbox here, and each feature's clickable rows, menu items and links by their own class. The window's own text,
+   the viewer's line numbers and empty space keep the browser's arrow. */
+button:not(:disabled):not([aria-disabled='true']),
+select:not(:disabled),
+input[type='checkbox']:not(:disabled) {
+  cursor: pointer;
+}
+
+/* a disabled control has the arrow, inside a clickable row too; `:where` gives this rule no weight, so a component's
+   own rule for its disabled form decides */
+:where(:disabled, [aria-disabled='true']) {
+  cursor: default;
+}
+
 :focus-visible {
   outline: var(--size-focus-ring) solid var(--accent);
   outline-offset: 1px;
@@ -100,7 +115,6 @@ kbd {
   background: transparent;
   color: var(--text-3);
   padding: 0 var(--space-3);
-  cursor: default;
   white-space: nowrap;
   max-width: var(--size-sidebar);
   overflow: hidden;
@@ -215,6 +229,16 @@ kbd {
   opacity: var(--opacity-detached-dim);
 }
 
+/* a drag the terminal takes: the drop-target ring of the file tree's folders, over the whole terminal area; the
+   pointer goes through it */
+.terminal-drop {
+  position: absolute;
+  inset: 0;
+  outline: var(--size-focus-ring) solid var(--accent);
+  outline-offset: calc(0px - var(--size-focus-ring));
+  pointer-events: none;
+}
+
 /* the detached overlay: one centred row over the dimmed last screen, no modal; the terminal around it stays readable
    and scrollable */
 .detached-overlay {
@@ -280,6 +304,76 @@ kbd {
   left: auto !important;
   right: 0;
   width: var(--size-scrollbar) !important;
+}
+
+/* its shape and colours are the window's scrollbar thumb's (below); xterm fades its bar in and out itself. One class
+   more than the rule xterm writes the theme's colours into, so these win */
+.kea-terminal .xterm .xterm-scrollable-element > .xterm-scrollbar > .xterm-slider {
+  box-sizing: border-box;
+  border: var(--size-hairline) solid transparent;
+  border-radius: var(--radius-sm);
+  background-clip: padding-box;
+  background-color: color-mix(in srgb, var(--text-1) calc(var(--opacity-scrollbar) * 100%), transparent);
+}
+
+.kea-terminal .xterm .xterm-scrollable-element > .xterm-scrollbar > .xterm-slider:hover,
+.kea-terminal .xterm .xterm-scrollable-element > .xterm-scrollbar > .xterm-slider.xterm-active {
+  border-width: 0;
+  background-color: color-mix(in srgb, var(--text-1) calc(var(--opacity-scrollbar-hover) * 100%), transparent);
+}
+
+/* scrollbars: every scrolling container's is one thin bar with no arrows on a transparent track. Its thumb is hidden
+   until the pointer is over the container or the keyboard is inside it, and is brighter and the bar's full width under
+   the pointer or while dragged; it shows and hides at once. Only the -webkit- pseudo-elements: Chromium turns them off
+   on an element that sets scrollbar-width or scrollbar-color. xterm's viewport keeps the system's bar: it never
+   scrolls itself, and the room that bar takes decides where xterm's own scrollbar sits.
+   Chromium paints a scrollbar's parts again only when the scrolling element's own style changes, never for a state in
+   a part's selector alone (`:hover::-webkit-scrollbar-thumb` is never painted). So the container itself takes the
+   thumb's colour while the pointer is over it or the keyboard is inside it, in --scrollbar-thumb, which no element
+   inherits, and its thumb reads it from there. */
+@property --scrollbar-thumb {
+  syntax: '<color>';
+  inherits: false;
+  initial-value: transparent;
+}
+
+:hover,
+:focus-within {
+  --scrollbar-thumb: color-mix(in srgb, var(--text-1) calc(var(--opacity-scrollbar) * 100%), transparent);
+}
+
+:not(.xterm-viewport)::-webkit-scrollbar {
+  width: var(--size-scrollbar);
+  height: var(--size-scrollbar);
+  background: transparent;
+}
+
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+::-webkit-scrollbar-button {
+  display: none;
+}
+
+::-webkit-scrollbar-thumb {
+  --scrollbar-thumb: inherit;
+  border: var(--size-hairline) solid transparent;
+  border-radius: var(--radius-sm);
+  background-clip: padding-box;
+  background-color: var(--scrollbar-thumb);
+}
+
+::-webkit-scrollbar-thumb:hover,
+::-webkit-scrollbar-thumb:active {
+  border-width: 0;
+  background-color: color-mix(in srgb, var(--text-1) calc(var(--opacity-scrollbar-hover) * 100%), transparent);
+}
+
+/* the tab strip has no bar: it scrolls sideways with a trackpad, or with the wheel and ⇧ */
+.tabs::-webkit-scrollbar {
+  display: none;
 }
 
 /* find bar: docked top-right, not a floating card */

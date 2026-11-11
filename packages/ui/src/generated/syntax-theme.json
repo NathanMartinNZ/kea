@@ -4,7 +4,7 @@
   "type": "dark",
   "colors": {
     "editor.background": "#0C0D0B",
-    "editor.foreground": "#DADDD3"
+    "editor.foreground": "#D2D5CB"
   },
   "tokenColors": [
     {
@@ -16,7 +16,7 @@
         "source"
       ],
       "settings": {
-        "foreground": "#DADDD3"
+        "foreground": "#D2D5CB"
       }
     },
     {
@@ -170,7 +170,7 @@
         "punctuation.definition.heading"
       ],
       "settings": {
-        "foreground": "#E6E8E1",
+        "foreground": "#CDD0C6",
         "fontStyle": "bold"
       }
     },

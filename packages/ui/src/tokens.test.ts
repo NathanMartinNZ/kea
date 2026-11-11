@@ -25,6 +25,7 @@ type Leaf = { $value: string }
 type Tokens = {
   color: Record<string, Leaf>
   contrast: { text: string[]; surfaces: string[]; min: number }
+  contrastDim: { text: string[]; surfaces: string[]; min: number }
   sessionPalette: { colors: string[]; meanings: string[]; apart: number; clear: number }
   terminalContrast: { text: string[]; dark: string[]; light: string[]; min: number; cursorMin: number }
   terminal: Record<string, Record<string, Leaf> & { $extensions?: { kea?: { label?: string; scheme?: string } } }>
@@ -108,6 +109,33 @@ describe('design tokens', () => {
     }
     expect(checked).toBeGreaterThan(0)
     expect(failures, `below ${tokens.contrast.min} : 1`).toEqual([])
+  })
+
+  it('DS-1 · a grey meant to recede (ignored files) reaches contrastDim.min on every listed surface and stays darker than every grey of contrast.text, so it never stands in for a brighter text', () => {
+    const dim = tokens.contrastDim
+    expect(dim.text.length).toBeGreaterThan(0)
+    const failures: string[] = []
+    const greys = tokens.contrast.text.filter((n) => /^text-\d+$/.test(n)).map((n) => tokens.color[n]!.$value)
+    expect(greys.length).toBeGreaterThan(0)
+    for (const name of dim.text) {
+      const fg = tokens.color[name]!.$value
+      expect(opaque(fg), `${name} must be opaque`).toBe(true)
+      expect(tokens.contrast.text, `${name} is held to the dim minimum, not the text one`).not.toContain(name)
+      for (const surface of dim.surfaces) {
+        const bg = tokens.color[surface]!.$value
+        const ratio = contrast(fg, bg)
+        if (ratio < dim.min) failures.push(`${name} ${fg} on ${surface} ${bg}: ${ratio.toFixed(2)} : 1`)
+      }
+      for (const g of greys) if (luminance(parseColour(fg)!) >= luminance(parseColour(g)!)) failures.push(`${name} ${fg} is not darker than ${g}`)
+    }
+    expect(failures, `below ${dim.min} : 1 or not darker`).toEqual([])
+  })
+
+  it('DS-13 · the window\'s brightest text is dimmer against its panels than the default terminal theme\'s text against the terminal, so the window never outshines what the agent writes', () => {
+    const t = tokens.terminal['kea-dark']!
+    const terminal = contrast(t.foreground!.$value, t.background!.$value)
+    const chrome = contrast(tokens.color['text-1']!.$value, tokens.color['surface-1']!.$value)
+    expect(chrome, `text-1 on surface-1 ${chrome.toFixed(2)} : 1, the terminal's foreground ${terminal.toFixed(2)} : 1`).toBeLessThan(terminal)
   })
 
   it('DS-11 · one session colour per palette slot, each a text colour DS-1 checks, far enough from each other and from the colours the sidebar gives a meaning', () => {

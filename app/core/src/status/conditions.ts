@@ -10,11 +10,15 @@
 //   clear      any `turn.finished` of that agent ends it; a `reset` one also ends on Continue all, or when its
 //                      last session leaves `failed`
 //   restart    restored from `kv` and re-evaluated against the sessions' reconciled state
+//   usage      a usage limit with no reset time takes the latest reset among the account's full windows, while the
+//                      agent has one account with a reading (usage.ts); the same check expires the usage readings, so
+//                      they need no timer of their own
 
 import type { Logger } from '@kea/kit'
 import { CONDITIONS_STORE, KeyedStore, L, RpcError, zAccountCondition, type AccountCondition, type AccountKind } from '@kea/protocol'
 import { kvDelete, kvSet, type KeaDb } from '../platform/db/db.ts'
 import type { StatusNotice } from './notices.ts'
+import type { Usage } from './usage.ts'
 
 const KEY_PREFIX = 'condition:'
 
@@ -24,6 +28,8 @@ export interface ConditionsOptions {
   /** Wall clock (ms). */
   now: () => number
   notify(n: StatusNotice): void
+  /** The usage readings: their reset times and staleness are checked here; a full window names a reset time. */
+  usage?: Pick<Usage, 'check' | 'limitReset'>
 }
 
 export class Conditions {
@@ -80,8 +86,8 @@ export class Conditions {
     const next: AccountCondition = {
       ...base,
       kind,
-      // a newer reset time (or the first one) wins; a failure without one keeps what is known
-      resetsAt: kind === 'rate_limit' ? (resetsAt ?? (base.kind === 'rate_limit' ? base.resetsAt : null)) : null,
+      // a newer reset time (or the first one) wins; a failure without one keeps what is known, else a full window's
+      resetsAt: kind === 'rate_limit' ? (resetsAt ?? (base.kind === 'rate_limit' ? base.resetsAt : null) ?? this.o.usage?.limitReset(agent) ?? null) : null,
       sessionIds: base.sessionIds.includes(sessionId) ? base.sessionIds : [...base.sessionIds, sessionId],
     }
     if (!open && JSON.stringify(next) === JSON.stringify(cur)) return
@@ -114,7 +120,25 @@ export class Conditions {
     return c.sessionIds
   }
 
-  /** Move usage limits whose reset time has passed to `reset` (N5; one no session holds any more ends), and schedule the next check. */
+  /**
+   * `agent`'s published usage reading changed: a usage limit of its with no reset time takes a full window's (N4,
+   * updated in place), and the check is armed for the reading's own times.
+   */
+  usageChanged(agent: string): void {
+    const c = this.store.get(agent)
+    const reset = c && c.kind === 'rate_limit' && c.state === 'active' && c.resetsAt === null ? (this.o.usage?.limitReset(agent) ?? null) : null
+    if (c && reset !== null) {
+      const next: AccountCondition = { ...c, resetsAt: reset }
+      this.put(next)
+      this.o.notify({ k: 'N4', condition: next })
+    }
+    this.checkResets()
+  }
+
+  /**
+   * Move usage limits whose reset time has passed to `reset` (N5; one no session holds any more ends), expire the usage
+   * readings' windows, and schedule the next check.
+   */
   checkResets(): void {
     if (this.disposed) return
     if (this.timer) clearTimeout(this.timer)
@@ -134,6 +158,8 @@ export class Conditions {
         this.o.notify({ k: 'N5', condition: r })
       } else next = Math.min(next, c.resetsAt)
     }
+    const usage = this.o.usage?.check(now) ?? null
+    if (usage !== null) next = Math.min(next, usage)
     if (Number.isFinite(next)) this.schedule(next - now)
   }
 

@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createMemoryLogger } from '@kea/kit'
-import { badgeCount, KeyedStore, L, type AgentEvent, type EndReason, type Lifecycle, type SessionView, type StatusSource } from '@kea/protocol'
+import { badgeCount, KeyedStore, L, zUsageReading, type AgentEvent, type EndReason, type Lifecycle, type SessionView, type StatusSource, type UsageReading, type UsageWindow } from '@kea/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { StatusBatch } from '../platform/db/batch.ts'
 import { openDatabase, type KeaDb } from '../platform/db/db.ts'
@@ -10,6 +10,7 @@ import { CONTINUE_TEXT, StatusEngine } from './engine.ts'
 import type { StatusNotice } from './notices.ts'
 import type { ReportsOptions } from './reports.ts'
 import { TRUST_KEY } from './table.ts'
+import { usageKey } from './usage.ts'
 
 const T0 = 1_790_000_000_000
 const S = 1_000_000_000n
@@ -620,6 +621,221 @@ describe('account conditions', () => {
     vi.advanceTimersByTime(resetsAt - Date.now())
     expect(h.engine.conditions.get('fake')).toBeUndefined()
     expect(h.notices.filter((x) => x.k === 'N5')).toEqual([])
+  })
+})
+
+describe('usage readings', () => {
+  const W = (id: UsageWindow['id'], usedPct: number, resetsAt: number): UsageWindow => ({ id, usedPct, resetsAt })
+  const FIVE_HOURS = 5 * 3600_000
+  const WEEK = 7 * 86_400_000
+
+  it('U-ST-25 · one reading per account (the agent and its config folder): the latest report wins per window, a window a report leaves out keeps its last value, an older or repeated report changes nothing; published only when it changes', () => {
+    const h = harness()
+    const u = h.engine.usage
+    const deltas: unknown[] = []
+    u.store.onDelta((d) => deltas.push(d))
+    const r5 = T0 + FIVE_HOURS
+    const r7 = T0 + WEEK
+    const key = usageKey('claude', '/h/.claude')
+    u.report({ agent: 'claude', account: '/h/.claude', windows: [W('session', 25, r5), W('week', 67, r7)], at: T0 })
+    expect(u.store.get(key)).toEqual({ account: key, agent: 'claude', seenAt: T0, windows: [{ ...W('session', 25, r5), seenAt: T0 }, { ...W('week', 67, r7), seenAt: T0 }] })
+    expect(zUsageReading.safeParse(u.store.get(key)).success).toBe(true)
+    // a later report with the session window only: it wins there, the week keeps its value and when it was seen
+    u.report({ agent: 'claude', account: '/h/.claude', windows: [W('session', 31.5, r5)], at: T0 + 1000 })
+    expect(u.store.get(key)).toEqual({ account: key, agent: 'claude', seenAt: T0 + 1000, windows: [{ ...W('session', 31.5, r5), seenAt: T0 + 1000 }, { ...W('week', 67, r7), seenAt: T0 }] })
+    // a copy drained late from a spool, or the same report twice: nothing changes, nothing is published
+    const n = deltas.length
+    u.report({ agent: 'claude', account: '/h/.claude', windows: [W('session', 10, r5), W('week', 10, r7)], at: T0 - 500 })
+    u.report({ agent: 'claude', account: '/h/.claude', windows: [W('session', 31.5, r5)], at: T0 + 1000 })
+    u.report({ agent: 'claude', account: '/h/.claude', windows: [], at: T0 + 2000 })
+    expect(deltas.length).toBe(n)
+    // per window: a report older than the session's reading but newer than the week's moves the week only
+    u.report({ agent: 'claude', account: '/h/.claude', windows: [W('session', 11, r5), W('week', 68, r7)], at: T0 + 500 })
+    expect(u.store.get(key)!.windows).toEqual([{ ...W('session', 31.5, r5), seenAt: T0 + 1000 }, { ...W('week', 68, r7), seenAt: T0 + 500 }])
+    // a new window of the same name (the next five hours) replaces the old one
+    u.report({ agent: 'claude', account: '/h/.claude', windows: [W('session', 2, r5 + FIVE_HOURS)], at: T0 + 3000 })
+    expect(u.store.get(key)!.windows[0]).toEqual({ ...W('session', 2, r5 + FIVE_HOURS), seenAt: T0 + 3000 })
+    // another config folder is another account; a window already past its reset is not taken
+    u.report({ agent: 'claude', account: '/other', windows: [W('week', 5, r7)], at: T0 + 4000 })
+    u.report({ agent: 'claude', account: '/third', windows: [W('session', 50, T0 - 1)], at: T0 + 5000 })
+    expect([...u.store.values()].map((r) => r.account).sort()).toEqual([key, usageKey('claude', '/other')].sort())
+    expect(h.engine.resourceCounts.usage).toBe(2)
+  })
+
+  it('U-ST-25 · a window goes at its reset time and a reading no report refreshed for L.usageStaleMs goes whole, on the conditions’ check (no timer of its own); a reading with no window left goes', () => {
+    const h = harness()
+    const u = h.engine.usage
+    const key = usageKey('claude', '/h')
+    vi.advanceTimersByTime(0) // the conditions' first check, at start, finds nothing to wait for
+    expect(h.engine.resourceCounts.timers).toBe(0)
+    u.report({ agent: 'claude', account: '/h', windows: [W('session', 40, T0 + 90_000), W('week', 20, T0 + 2 * L.usageStaleMs)], at: T0 })
+    expect(h.engine.resourceCounts.timers, 'the one check, armed for the reading').toBe(1)
+    vi.advanceTimersByTime(90_000 - 1)
+    expect(u.store.get(key)!.windows.map((w) => w.id)).toEqual(['session', 'week'])
+    vi.advanceTimersByTime(1)
+    expect(u.store.get(key)!.windows.map((w) => w.id)).toEqual(['week'])
+    // a refresh moves the stale time on
+    vi.advanceTimersByTime(L.usageStaleMs / 2)
+    u.report({ agent: 'claude', account: '/h', windows: [W('week', 21, T0 + 2 * L.usageStaleMs)], at: Date.now() })
+    const refreshed = Date.now()
+    vi.advanceTimersByTime(L.usageStaleMs - 1)
+    expect(u.store.get(key)?.windows.map((w) => w.usedPct)).toEqual([21])
+    vi.advanceTimersByTime(refreshed + L.usageStaleMs - Date.now())
+    expect(u.store.get(key), 'stale: use outside Kea may have moved it').toBeUndefined()
+    expect(h.engine.resourceCounts.timers, 'nothing left to wait for').toBe(0)
+    // the last window reset: the reading goes with it
+    u.report({ agent: 'claude', account: '/h', windows: [W('session', 3, Date.now() + 1000)], at: Date.now() })
+    vi.advanceTimersByTime(1000)
+    expect(u.store.size).toBe(0)
+    expect(h.engine.resourceCounts).toMatchObject({ usage: 0, timers: 0 })
+  })
+
+  it('U-ST-25 · the setting going off clears that agent’s readings; another agent’s stay', () => {
+    const h = harness()
+    const u = h.engine.usage
+    u.report({ agent: 'claude', account: '/a', windows: [W('week', 5, T0 + WEEK)], at: T0 })
+    u.report({ agent: 'claude', account: '/b', windows: [W('week', 6, T0 + WEEK)], at: T0 })
+    u.report({ agent: 'other', account: '', windows: [W('week', 7, T0 + WEEK)], at: T0 })
+    u.clear('claude')
+    expect([...u.store.values()].map((r) => r.agent)).toEqual(['other'])
+  })
+
+  it('U-ST-25 · a usage limit hit with no reset time takes the session window’s when that window is at or above 100 %, whichever comes first (N4 updated in place); not from a window below it, and a condition’s own reset time or another kind is left alone', () => {
+    const h = harness()
+    const u = h.engine.usage
+    const resets = T0 + 2 * 3600_000
+    const fail = (id: string, more: Partial<Extract<AgentEvent, { t: 'turn.failed' }>> = {}) => {
+      h.ingest(id, 'hook', { t: 'turn.started' })
+      h.ingest(id, 'hook', { t: 'turn.failed', error: 'limit', kind: 'rate_limit', ...more })
+    }
+    // the reading first, then the failure
+    const a = h.add({ agent: 'claude', lifecycle: 'live' })
+    u.report({ agent: 'claude', account: '/h', windows: [W('session', 100, resets), W('week', 70, T0 + WEEK)], at: T0 })
+    fail(a)
+    expect(h.engine.conditions.get('claude')).toMatchObject({ kind: 'rate_limit', state: 'active', resetsAt: resets })
+    // the failure first, then the reading: below 100 % it is left as it is; at 100 % it takes the window's
+    const b = h.add({ agent: 'other', lifecycle: 'live' })
+    fail(b)
+    expect(h.engine.conditions.get('other')!.resetsAt).toBeNull()
+    u.report({ agent: 'other', account: '', windows: [W('session', 99.5, resets)], at: T0 + 1 })
+    expect(h.engine.conditions.get('other')!.resetsAt).toBeNull()
+    h.notices.length = 0
+    u.report({ agent: 'other', account: '', windows: [W('session', 100, resets)], at: T0 + 2 })
+    expect(h.engine.conditions.get('other')).toMatchObject({ resetsAt: resets, sessionIds: [b] })
+    expect(h.notices).toEqual([{ k: 'N4', condition: h.engine.conditions.get('other') }])
+    // a reset time the failure named stays; signed out never takes one
+    const c = h.add({ agent: 'third', lifecycle: 'live' })
+    fail(c, { resetsAt: resets + 60_000 })
+    u.report({ agent: 'third', account: '', windows: [W('session', 100, resets)], at: T0 + 3 })
+    expect(h.engine.conditions.get('third')!.resetsAt).toBe(resets + 60_000)
+    const d = h.add({ agent: 'fourth', lifecycle: 'live' })
+    u.report({ agent: 'fourth', account: '', windows: [W('session', 100, resets)], at: T0 + 4 })
+    h.ingest(d, 'hook', { t: 'turn.started' })
+    h.ingest(d, 'hook', { t: 'turn.failed', error: 'signed out', kind: 'auth' })
+    expect(h.engine.conditions.get('fourth')).toMatchObject({ kind: 'auth', resetsAt: null })
+    // the reset comes: the condition resets (N5) and the window goes with it
+    vi.advanceTimersByTime(resets - Date.now())
+    expect(h.engine.conditions.get('claude')).toMatchObject({ state: 'reset' })
+    expect(u.store.get(usageKey('claude', '/h'))!.windows.map((w) => w.id)).toEqual(['week'])
+  })
+
+  it('U-ST-25 · usage belongs to no session: an account.usage event reaching the engine, alone or beside a turn’s event, moves no phase, writes no journal row, takes no ring entry and notifies nothing', () => {
+    const h = harness()
+    const id = h.add({ lifecycle: 'live' })
+    h.ingest(id, 'hook', { t: 'session.started', agentSessionId: 'a-1', source: 'startup' })
+    h.ingest(id, 'hook', { t: 'turn.started' })
+    const usage: AgentEvent = { t: 'account.usage', windows: [W('session', 100, T0 + FIVE_HOURS)] }
+    const before = { state: h.engine.state(id), journal: h.journal(id), ring: h.engine.machine(id)!.ring.length, notices: h.notices.length, status: h.engine.store.get(id) }
+    h.ingest(id, 'hook', usage)
+    h.engine.usage.report({ agent: 'fake', account: '', windows: [W('session', 100, T0 + FIVE_HOURS)], at: T0 })
+    expect({ state: h.engine.state(id), journal: h.journal(id), ring: h.engine.machine(id)!.ring.length, notices: h.notices.length, status: h.engine.store.get(id) }).toEqual(before)
+    // beside a turn's end, the end applies and the usage stays out of the session's record
+    h.ingest(id, 'hook', usage, { t: 'turn.finished', backgroundWork: false })
+    expect(h.engine.state(id)!.phase).toBe('ready')
+    expect(h.engine.machine(id)!.ring.flatMap((r) => r.events.map((e) => e.t))).not.toContain('account.usage')
+    expect(h.journal(id).map((j) => j.event)).not.toContain('account.usage')
+  })
+
+  it('U-ST-25 · a report with the same percentages and reset times within the published reading’s minute is kept (it keeps the reading fresh) but not published and re-arms no check; a changed percentage, a window that appears and a report in a later minute are published', () => {
+    const h = harness()
+    const u = h.engine.usage
+    const key = usageKey('claude', '/h')
+    const published: UsageReading[] = []
+    u.store.onDelta((d) => {
+      const r = d.set?.[key]
+      if (r) published.push(r)
+    })
+    const checks = vi.spyOn(h.engine.conditions, 'checkResets')
+    const minute = new Date(T0).setSeconds(0, 0) // the start of T0's local minute (the tooltip's "as of")
+    const far = T0 + 2 * L.usageStaleMs
+    const report = (at: number, session: number, week?: number) =>
+      u.report({ agent: 'claude', account: '/h', windows: [W('session', session, far), ...(week === undefined ? [] : [W('week', week, far)])], at })
+    report(minute + 10_000, 25)
+    expect(published.map((r) => r.seenAt)).toEqual([minute + 10_000])
+    expect(checks).toHaveBeenCalledTimes(1)
+    // the same reading again within the minute: nothing published, the check left as it was
+    report(minute + 20_000, 25)
+    expect(published.length).toBe(1)
+    expect(checks).toHaveBeenCalledTimes(1)
+    // a changed percentage, then a window that appears: each published with its time
+    report(minute + 30_000, 26)
+    report(minute + 40_000, 26, 67)
+    expect(published.map((r) => [r.seenAt, r.windows.map((w) => w.usedPct)])).toEqual([
+      [minute + 10_000, [25]],
+      [minute + 30_000, [26]],
+      [minute + 40_000, [26, 67]],
+    ])
+    expect(checks).toHaveBeenCalledTimes(3)
+    // the same reading in the next minute: published, so the time it was seen moves on
+    report(minute + 60_000, 26, 67)
+    expect(published.map((r) => r.seenAt)).toEqual([minute + 10_000, minute + 30_000, minute + 40_000, minute + 60_000])
+    // a report that is not published still refreshes the reading: it goes stale from its own time
+    report(minute + 70_000, 26, 67)
+    expect(published.length).toBe(4)
+    vi.advanceTimersByTime(minute + 60_000 + L.usageStaleMs - Date.now())
+    expect(u.store.get(key), 'refreshed by the report that was not published').toBeDefined()
+    vi.advanceTimersByTime(10_000)
+    expect(u.store.get(key)).toBeUndefined()
+  })
+
+  it('U-ST-25 · a usage limit hit with no reset time takes the latest reset among the full windows: the week’s when both are full, the one full window’s otherwise, none while no window is full', () => {
+    const h = harness()
+    const u = h.engine.usage
+    const session = T0 + 2 * 3600_000
+    const week = T0 + 3 * 86_400_000
+    const report = (at: number, s: number, w: number) => u.report({ agent: 'claude', account: '/h', windows: [W('session', s, session), W('week', w, week)], at })
+    report(T0, 100, 100)
+    expect(u.limitReset('claude'), 'both full: limited until the week resets').toBe(week)
+    report(T0 + 1, 100, 90)
+    expect(u.limitReset('claude')).toBe(session)
+    report(T0 + 2, 40, 100)
+    expect(u.limitReset('claude')).toBe(week)
+    report(T0 + 3, 40, 90)
+    expect(u.limitReset('claude')).toBeNull()
+    // through the condition: a failure with no reset time while both are full is limited until the week resets
+    report(T0 + 4, 100, 100)
+    const a = h.add({ agent: 'claude', lifecycle: 'live' })
+    h.ingest(a, 'hook', { t: 'turn.started' })
+    h.ingest(a, 'hook', { t: 'turn.failed', error: 'limit', kind: 'rate_limit' })
+    expect(h.engine.conditions.get('claude')).toMatchObject({ kind: 'rate_limit', resetsAt: week })
+  })
+
+  it('U-ST-25 · a usage limit takes a full window’s reset time only while its agent has one account with a reading: with two logins the session’s is not known, so the reset time stays unknown; another agent’s readings do not count', () => {
+    const h = harness()
+    const u = h.engine.usage
+    const resets = T0 + 2 * 3600_000
+    u.report({ agent: 'claude', account: '/a', windows: [W('session', 100, resets)], at: T0 })
+    u.report({ agent: 'other', account: '', windows: [W('session', 50, resets)], at: T0 })
+    expect(u.limitReset('claude'), 'one account: its full window').toBe(resets)
+    u.report({ agent: 'claude', account: '/b', windows: [W('session', 10, resets + 60_000)], at: T0 + 1 })
+    expect(u.limitReset('claude'), 'two accounts').toBeNull()
+    const a = h.add({ agent: 'claude', lifecycle: 'live' })
+    h.ingest(a, 'hook', { t: 'turn.started' })
+    h.ingest(a, 'hook', { t: 'turn.failed', error: 'limit', kind: 'rate_limit' })
+    expect(h.engine.conditions.get('claude')).toMatchObject({ kind: 'rate_limit', resetsAt: null })
+    // a later report from either account leaves it unknown
+    u.report({ agent: 'claude', account: '/a', windows: [W('session', 100, resets + 1)], at: T0 + 2 })
+    expect(h.engine.conditions.get('claude')!.resetsAt).toBeNull()
   })
 })
 

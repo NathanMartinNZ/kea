@@ -284,8 +284,9 @@
   color: var(--text-2);
 }
 
+/* the current line, only while nothing is selected (activeLine.ts): a tint, so nothing drawn under it is hidden */
 .viewer .cm-editor .cm-activeLine {
-  background: var(--surface-1);
+  background: color-mix(in srgb, var(--text-1) calc(var(--opacity-active-line) * 100%), transparent);
 }
 
 .viewer .cm-editor .cm-cursor {
@@ -365,21 +366,35 @@
   top: -3px;
 }
 
+/* the change ruler (ruler.ts): a column of its own at the editor's right edge, its top and height set from the
+   scroller, which ends where it starts (its scrollbar included), so no text is ever under it */
+.viewer .cm-editor .kea-change-ruler {
+  position: absolute;
+  right: 0;
+  width: var(--size-change-ruler);
+  background: var(--surface-0);
+}
+
+.viewer .cm-editor.kea-ruled .cm-scroller {
+  margin-right: var(--size-change-ruler);
+}
+
 /* places changed on disk where the user edited too (marks.ts): their lines --warn at --opacity-diff-line, over the active line's */
 .viewer .cm-editor .cm-line.kea-conflict {
   background: color-mix(in srgb, var(--warn) calc(var(--opacity-diff-line) * 100%), transparent);
 }
 
-/* fold chevrons appear only while the gutter is hovered; a folded block's chevron stays */
+/* fold chevrons appear only while the gutter is hovered; a folded block's chevron stays. A chevron has the hand, the
+   gutter around it the arrow */
 .viewer .cm-editor .cm-foldGutter .cm-gutterElement {
   width: 2ch;
   text-align: center;
-  cursor: default;
 }
 
 .viewer .cm-editor .kea-fold {
   color: var(--text-3);
   opacity: 0;
+  cursor: pointer;
 }
 
 .viewer .cm-editor .cm-gutters:hover .kea-fold,
@@ -391,6 +406,7 @@
   color: var(--text-1);
 }
 
+/* a folded block's `⋯`: a click unfolds it */
 .viewer .cm-editor .cm-foldPlaceholder {
   margin: 0 var(--space-1);
   padding: 0 var(--space-1);
@@ -398,6 +414,12 @@
   border-radius: var(--radius-sm);
   background: var(--surface-3);
   color: var(--text-2);
+  cursor: pointer;
+}
+
+/* a click anywhere on the change ruler goes to the nearest change */
+.viewer .kea-change-ruler {
+  cursor: pointer;
 }
 
 /* ── the bars (find and replace, go to line) ── */
@@ -556,7 +578,7 @@
   color: var(--text-3);
   font-family: var(--font-ui);
   font-size: var(--type-secondary-size);
-  cursor: default;
+  cursor: pointer;
 }
 
 .viewer .cm-editor .cm-collapsedLines:hover {

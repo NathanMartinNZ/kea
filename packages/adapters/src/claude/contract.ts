@@ -124,6 +124,34 @@ export const ENV_REMOVED = [
 
 /** Inline settings keys. */
 export const SETTINGS_HOOKS = 'hooks'
+/**
+ * The status line Kea adds for the usage meter (on unless turned off): `{ type, command }`. Claude has no exec form for it and runs
+ * `command` through a shell. One in the inline settings replaces the user's own (2.1.322).
+ */
+export const SETTINGS_STATUS_LINE = 'statusLine'
+export const STATUS_LINE_TYPE = 'command'
+export const STATUS_LINE_COMMAND = 'command'
+
+/**
+ * The user's own settings files, read (never written) for a status line of theirs: the user settings in the config
+ * folder, the project's and the local one under the working folder's `.claude/`. A worktree shares the local one of
+ * the main checkout (2.1.211+), so that one is read there too.
+ */
+export const SETTINGS_FILE = 'settings.json'
+export const LOCAL_SETTINGS_FILE = 'settings.local.json'
+
+/**
+ * The status line's payload as kea-helper's `statusline` projection keeps it, and nothing else of it (no paths, cost or
+ * transcript): the account's usage windows and the session id. `rate_limits` appears only for a claude.ai subscriber,
+ * only after the session's first reply, each window on its own; `used_percentage` is 0–100, `resets_at` Unix seconds.
+ */
+export const STATUS_LINE_FIELDS = {
+  sessionId: 'session_id',
+  sessionUsed: 'rate_limits.five_hour.used_percentage',
+  sessionResets: 'rate_limits.five_hour.resets_at',
+  weekUsed: 'rate_limits.seven_day.used_percentage',
+  weekResets: 'rate_limits.seven_day.resets_at',
+} as const
 
 /** Hook events Kea injects, each synchronous, exec form, `timeout` L.hookTimeoutS. */
 export const HOOK_EVENTS = [

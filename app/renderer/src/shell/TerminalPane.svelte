@@ -22,7 +22,13 @@ active tab's kind and whether it ended (SessionPane: the detached overlay).
 
 Status: the pane tells the viewing report which tab it shows (a session counts as viewed, `isBeingViewed`, only while
 its Agent tab is the one shown), takes a request to show its Agent tab (a notification's click, a menu-bar pick), and
-the Agent tab shows a dot while its session needs you and another tab is the visible one.
+the Agent tab shows a dot while its session needs you and another tab is the visible one. While the Agent tab is the
+one shown, the strip's right end holds the usage meter of the session's agent (in the split the agent pane's status row
+holds it); "Copied by terminal" takes its place while it shows.
+
+Drops: a drag of files from another app or of a file panel row over the terminal frame where nothing takes it (the
+empty states over a terminal area with no terminal, the overlay) is refused, so a folder dropped there never becomes a
+project. The viewer's mount is left to the viewer.
 
 File and diff tabs: a session's strip also holds the tabs `viewer.open` opened (the model is `tabs.ts`, the window's
 copy `fileTabs.svelte.ts`). While one is active the viewer is mounted over the terminal area
@@ -76,6 +82,8 @@ instead of the Agent tab's dot.
   import { isUnsaved, unsavedKey, unsavedView } from '../features/viewer/unsaved.svelte.ts'
   import Viewer from '../features/viewer/Viewer.svelte'
   import { fileTabsOf, reportShownFile, setFileTabs, takeMovedTab } from './fileTabs.svelte.ts'
+  import UsageMeter from '../features/status/UsageMeter.svelte'
+  import { takesDrop } from '../features/terminal/drop.ts'
   import AgentPane from './AgentPane.svelte'
   import Divider from './Divider.svelte'
   import { layoutState } from './layoutStore.svelte.ts'
@@ -813,6 +821,14 @@ instead of the Agent tab's dot.
   })
 
   const keepFocus = (e: MouseEvent) => e.preventDefault()
+
+  /** A drag the terminal would take, where nothing in the frame took it: refused, so the window never adds it as a project. */
+  function refuseDrop(e: DragEvent): void {
+    if (e.defaultPrevented || !e.dataTransfer || !takesDrop(e.dataTransfer.types)) return
+    if (e.target instanceof Element && e.target.closest('.viewer-mount')) return
+    e.preventDefault()
+    if (e.type === 'dragover') e.dataTransfer.dropEffect = 'none'
+  }
 </script>
 
 <!-- a closable tab's close button: drawn when the tab is the active one or under the pointer; hidden from assistive
@@ -911,9 +927,12 @@ instead of the Agent tab's dot.
       {/if}
       {#if uiState.copied !== null && byId.has(uiState.copied) && (!split || uiState.copied !== agentId)}
         <span class="tab-note" role="status">Copied by terminal</span>
+      {:else if !split && agentId !== null && active === agentId}
+        <UsageMeter agent={sessionRow.current?.agent ?? null} />
       {/if}
     </div>
-    <div bind:this={area} class={activeTab.ended ? 'terminal-frame ended' : 'terminal-frame'}>
+    <!-- svelte-ignore a11y_no_static_element_interactions (only refuses drops; the terminal and the viewer inside take them) -->
+    <div bind:this={area} class={activeTab.ended ? 'terminal-frame ended' : 'terminal-frame'} ondragover={refuseDrop} ondrop={refuseDrop}>
       <TerminalArea tabs={stripTabs} active={terminal} sessionId={context === SHELLS_CONTEXT ? null : context} activate={activateAreas} claims={() => !split || paneNow === 'work'} seize={takeSeizeWork} />
       {#if !split}
         {@render overlay?.(activeTab)}
@@ -957,6 +976,7 @@ instead of the Agent tab's dot.
   {#if split && layoutState.split}
     <AgentPane
       sessionId={context}
+      sessionAgent={sessionRow.current?.agent ?? null}
       {agentTabs}
       status={agentStatus}
       {settingUp}

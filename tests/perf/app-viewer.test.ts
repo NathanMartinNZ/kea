@@ -17,6 +17,7 @@ import { repoRoot } from '../../tools/perf/src/launch.ts'
 import { footprint, until, type Kea, type KeaRun } from '../support/app.ts'
 import { RendererProbe } from '../support/app-leak.ts'
 import { addProject, agentTerminal, demoRepo, startSession, waitLive } from '../support/app-sessions.ts'
+import { GIT_MS } from '../support/app-files.ts'
 import { openFile } from '../support/app-tabs.ts'
 import { closeViewer, commitAll, plainText, sampleSource, sessionWorktree, viewer, viewerRows, waitViewer, WorkerProbe, writeFiles } from '../support/app-viewer.ts'
 import { budget, check, disposeRuns, dist, echoLatencies, frames, median, record, RUNS, startKea, WARMUPS } from './app-harness.ts'
@@ -206,16 +207,23 @@ describe('file viewer (app)', () => {
     expect(e.pass, `P-DF-1: ${JSON.stringify(e.values)}`).toBe(true)
   })
 
-  it('P-FV-3 · a 100 000-line file scrolled from top to bottom: frames per second and the longest frame within budget, the median of 3 runs after an unmeasured one', async () => {
+  it('P-FV-3 · a 100 000-line file with changes all down it (its change ruler drawn) scrolled from top to bottom: frames per second and the longest frame within budget, the median of 3 runs after an unmeasured one', async () => {
     const LINES = 100_000
     const SCROLL_FRAMES = 300
-    const { kea, id, worktree } = await session({})
+    /** Changed lines, evenly down the file: the change ruler has a mark all the way down while it scrolls. */
+    const CHANGES = 100
+    const FILE = 'src/long.ts'
+    const source = sampleSource(1, LINES)
+    const { kea, id, worktree } = await session({ [FILE]: source })
     const page = await kea.page()
-    writeFiles(worktree, { 'big/long.ts': sampleSource(1, LINES) })
-    expect(await openFile(kea, { sessionId: id, path: 'big/long.ts', mode: 'file' })).toBe(true)
-    await coloured(kea, 'big/long.ts')
-    const shown = (await viewer(kea))!
+    const lines = source.split('\n')
+    for (let n = 0; n < CHANGES; n++) lines[n * (LINES / CHANGES)] = `// changed ${n}`
+    writeFiles(worktree, { [FILE]: lines.join('\n') })
+    expect(await openFile(kea, { sessionId: id, path: FILE, mode: 'file' })).toBe(true)
+    await coloured(kea, FILE)
+    const shown = await waitViewer(kea, 'the changes known', (v) => v.ui.changes === CHANGES, GIT_MS)
     expect(shown.text!.lines).toBeGreaterThanOrEqual(LINES)
+    await expect.poll(() => page.locator('.viewer .kea-change-ruler').isVisible(), { message: 'the change ruler is drawn' }).toBe(true)
     const runs: { fps: number; maxGapMs: number }[] = []
     for (let r = 0; r < WARMUPS + RUNS; r++) {
       await page.locator('.viewer .cm-scroller').evaluate((s) => void (s.scrollTop = 0))
@@ -246,7 +254,7 @@ describe('file viewer (app)', () => {
     const e = record({
       id: 'P-FV-3',
       metric: b.metric,
-      method: `a generated ${LINES}-line source file (${(shown.text!.chars / MIB).toFixed(1)} MiB${shown.ui.notices.length ? `; ${shown.ui.notices.join('; ')}` : ''}), its scroller moved from the first line to the last in ${SCROLL_FRAMES} animation frames; rAF frames while it moves (__keaPerf.frames); ${RUNS} runs after ${WARMUPS} unmeasured, the median of each`,
+      method: `a generated ${LINES}-line source file (${(shown.text!.chars / MIB).toFixed(1)} MiB${shown.ui.notices.length ? `; ${shown.ui.notices.join('; ')}` : ''}), committed, then ${CHANGES} lines changed evenly down it (the change ruler drawn), its scroller moved from the first line to the last in ${SCROLL_FRAMES} animation frames; rAF frames while it moves (__keaPerf.frames); ${RUNS} runs after ${WARMUPS} unmeasured, the median of each`,
       values: { fps, maxGapMs: maxGap, worstGapMs: Math.max(...runs.map((x) => x.maxGapMs)), slowestFps: Math.min(...runs.map((x) => x.fps)) },
       checks: [check('fps', fps, b.min, 'min', b.unit), check('maxGapMs', maxGap, b.max_frame_ms, 'max', 'ms')],
     })

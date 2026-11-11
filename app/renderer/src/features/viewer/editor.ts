@@ -7,8 +7,9 @@ import { standardKeymap, deleteCharBackward, deleteCharForward, deleteGroupBackw
 import { bracketMatching } from '@codemirror/language'
 import { closeSearchPanel } from '@codemirror/search'
 import { Compartment, EditorState, Text, type Extension } from '@codemirror/state'
-import { drawSelection, EditorView, highlightActiveLine, highlightActiveLineGutter, keymap, lineNumbers, type KeyBinding, type ViewUpdate } from '@codemirror/view'
+import { drawSelection, EditorView, highlightActiveLineGutter, keymap, lineNumbers, type KeyBinding, type ViewUpdate } from '@codemirror/view'
 import type { LineChanges, LineEnding } from '@kea/protocol'
+import { activeLine } from './activeLine.ts'
 import { bars, findBarOpen } from './bars.ts'
 import { lineBreakOf } from './decode.ts'
 import { folding } from './folding.ts'
@@ -20,6 +21,7 @@ import { editing, fileLineEnding, type EditingOptions } from './editing.ts'
 import { undoHistory } from './history.ts'
 import { marks } from './marks.ts'
 import { readOnly } from './readonly.ts'
+import { changeRuler } from './ruler.ts'
 import type { TabPosition, TabViewState } from './tab.ts'
 import type { TokenStore } from './tokens.ts'
 import { positionAt, restoreFolds, selectionFor } from './viewState.ts'
@@ -76,7 +78,7 @@ export function baseExtensions(o: { eol: LineEnding; store: TokenStore | null; g
     EditorView.contentAttributes.of({ 'aria-label': o.label }),
     o.file ? fileLineEnding(o.eol) : EditorState.lineSeparator.of(lineBreakOf(o.eol)),
     drawSelection(),
-    highlightActiveLine(),
+    activeLine(),
     highlightActiveLineGutter(),
     bracketMatching(),
     o.guides === null ? [] : indentGuides(o.guides),
@@ -109,8 +111,10 @@ export function fileState(d: FileDoc, kept: TabViewState, goto: TabPosition | nu
     doc,
     selection: goto ? { anchor: positionAt(doc, goto) } : selectionFor(doc, kept.selection),
     extensions: [
-      // the gutters, left to right: change markers, line numbers, fold chevrons
+      // the gutters, left to right: change markers, line numbers, fold chevrons; the same changes on the ruler beside
+      // the scrollbar
       changeGutter(d.changes),
+      changeRuler(),
       lineNumbers(),
       d.policy.folding ? folding() : [],
       editability.of(d.edit ? editing(d.edit) : readOnlyDocument()),

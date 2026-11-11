@@ -62,7 +62,7 @@
   border-radius: var(--radius-md);
   color: var(--text-2);
   white-space: nowrap;
-  cursor: default;
+  cursor: pointer;
 }
 
 .palette-row.current {
@@ -90,6 +90,11 @@
 /* a command that cannot run now: listed dimmed, with its reason in the detail's place */
 .palette-row[aria-disabled='true'] .palette-title {
   color: var(--text-3);
+}
+
+/* a click on it does nothing unless it offers something instead: the arrow, as on a disabled menu item */
+.palette-row[aria-disabled='true']:not(:has(.palette-remedy)) {
+  cursor: default;
 }
 
 /* what ↵ does on it instead */

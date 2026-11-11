@@ -5,7 +5,7 @@
 // Payloads arrive projected by kea-helper: strings at most L.hookSummaryMaxChars, arrays counted, `tool_input`
 // reduced to its command, path, url, pattern or (compact JSON) questions.
 
-import { L, type AgentEvent, type FailureKind, type StatusFileReading } from '@kea/protocol'
+import { L, type AgentEvent, type FailureKind, type StatusFileReading, type UsageWindow } from '@kea/protocol'
 import type { RawAgentSignal, SessionSignals } from '../types.ts'
 import {
   FAILURE_KINDS,
@@ -15,6 +15,7 @@ import {
   QUESTION_TOOL,
   START_SOURCES,
   STATUS_FILE,
+  STATUS_LINE_FIELDS,
   STATUS_VALUES,
   TASK_NOTIFICATION_PREFIX,
   WAITING_FOR,
@@ -172,6 +173,32 @@ export function normalise(p: Payload, c: Ctx = { recentPermission: false }): Age
 export function knownEvent(p: Payload): boolean {
   const e = str(p, FIELDS.event)
   return e !== undefined && Object.hasOwn(HOOK_MAPPING, e)
+}
+
+// ── the status line: the account's usage ──────────────────────────────────────────────────────────────
+
+/** The status line's windows, row for row: Kea's window id and the payload's share used and reset time. */
+const USAGE_WINDOW_FIELDS: readonly { id: UsageWindow['id']; used: string; resets: string }[] = [
+  { id: 'session', used: STATUS_LINE_FIELDS.sessionUsed, resets: STATUS_LINE_FIELDS.sessionResets },
+  { id: 'week', used: STATUS_LINE_FIELDS.weekUsed, resets: STATUS_LINE_FIELDS.weekResets },
+]
+
+/**
+ * A (projected) status line payload → the account's usage: each window the payload carries, its share used (clamped
+ * to 0–100) and its reset time in wall ms (the payload's Unix seconds). A window with a value missing or out of range
+ * is left out on its own; none at all (before the session's first reply, an API key) gives nothing.
+ */
+export function usageEvents(p: Payload): AgentEvent[] {
+  const windows: UsageWindow[] = []
+  for (const w of USAGE_WINDOW_FIELDS) {
+    const used = field(p, w.used)
+    const resets = field(p, w.resets)
+    if (typeof used !== 'number' || !Number.isFinite(used) || typeof resets !== 'number' || !(resets > 0)) continue
+    const resetsAt = Math.round(resets * 1000)
+    if (!Number.isSafeInteger(resetsAt)) continue
+    windows.push({ id: w.id, usedPct: Math.min(100, Math.max(0, used)), resetsAt })
+  }
+  return windows.length ? [{ t: 'account.usage', windows }] : []
 }
 
 // ── tier 1b: the status file ──────────────────────────────────────────────────────────────────────────

@@ -44,7 +44,7 @@ import { hasUnsaved, type FileDocument } from './document.ts'
 import { indentStringOf, setFileLineEnding, type EditingOptions } from './editing.ts'
 import { fileState, hideFile, restoreScroll, reveal, scrollOf, setEditable, setEditorHooks, setWrap, showFile, type EditorHooks } from './editor.ts'
 import { staleFoldEffects } from './folding.ts'
-import { changedRegions, setLineChanges } from './gutter.ts'
+import { changeRuns, nextChange, setLineChanges } from './gutter.ts'
 import { tokensArrived } from './highlight.ts'
 import { highlighter, tokenizeInto } from './highlighter.ts'
 import { applyFromDisk, historyBytes, historyClearedForMemory } from './history.ts'
@@ -1087,7 +1087,7 @@ export class ViewerController {
       canPreview: markdown && doc.policy.preview,
       canSource: svg,
       source: svg,
-      changes: this.shown.kind === 'file' ? changedRegions(this.shown.view.state).length : 0,
+      changes: this.shown.kind === 'file' ? changeRuns(this.shown.view.state).runs.length : 0,
       editable,
       readOnly: editable ? null : (doc.readOnly ?? readOnlyAtLoad(doc)),
       unsaved: hasUnsaved(doc),
@@ -1102,7 +1102,7 @@ export class ViewerController {
     s.doc.changes = c
     s.view.dispatch({ effects: setLineChanges.of(c) })
     s.doc.state = s.view.state
-    const n = changedRegions(s.view.state).length
+    const n = changeRuns(s.view.state).runs.length
     if (n !== this.ui.changes) {
       this.ui = { ...this.ui, changes: n }
       commands.changed()
@@ -1755,11 +1755,8 @@ export class ViewerController {
       return
     }
     if (s.kind !== 'file' || this.ui.body.kind !== 'text') return
-    const regions = changedRegions(s.view.state)
-    if (regions.length === 0) return
-    const line = s.view.state.doc.lineAt(s.view.state.selection.main.head).number
-    const next = dir === 1 ? (regions.find((r) => r.from > line) ?? regions[0]) : ([...regions].reverse().find((r) => r.to < line) ?? regions[regions.length - 1])
-    if (next) goTo(s.view, { line: next.from, col: 1 })
+    const line = nextChange(s.view.state, dir)
+    if (line !== null) goTo(s.view, { line, col: 1 })
   }
 
   toggleLayout(): void {

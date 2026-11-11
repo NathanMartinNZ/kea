@@ -10,6 +10,7 @@
 // by it, neither opened.
 
 import fs from 'node:fs'
+import type { Page } from '@playwright/test'
 import path from 'node:path'
 import { L } from '@kea/protocol'
 import { STEP_MS, until, type Kea } from '../support/app.ts'
@@ -23,6 +24,7 @@ import { documentKey, tryToEditDocument } from '../support/app-editing.ts'
 import { expect, test } from './fixtures.ts'
 import { sysKey, textKey } from '../support/keys.ts'
 import { protocolOs } from '../../packages/protocol/src/os/index.ts'
+import { COLOR, SIZE_PX } from '../../packages/ui/src/generated/tokens.ts'
 import { harnessOs } from '../../tools/perf/src/os/index.ts'
 import { TIMING_NOT_JUDGED } from '../support/skip.ts'
 
@@ -769,6 +771,77 @@ test('E-FV-11 · the cursor over a file’s code is the I-beam, as over text tha
   expect(['auto', 'default']).toContain(await cursorOf('.viewer .cm-editor .cm-gutters'))
 })
 
+test('E-FV-22 · a selection dragged with the mouse from the middle of one line to the middle of the line two below, downward and upward, shows on every line it covers, the first and the last included, with the viewer focused and then unfocused: no line is marked current while it lasts, and a click back to a caret marks that line again', async ({ run, launch }) => {
+  const kea = await launch()
+  const page = await kea.page()
+  const FILE = 'src/selection.ts'
+  await sessionWith(kea, run, { [FILE]: ['// a selection over three lines', 'export const second = 2', 'export const third = 3', 'export const fourth = 4', 'export const fifth = 5', ''].join('\n') })
+  await clickFile(kea, FILE)
+  await waitBody(kea, FILE, 'text')
+  const lines = page.locator('.viewer .cm-editor .cm-content .cm-line')
+  /** A point a quarter into column `col` (0-based) of line `n` (1-based): nearest the boundary before it (the font is fixed-width). */
+  const pointAt = (n: number, col: number) =>
+    lines.nth(n - 1).evaluate((line, col) => {
+      const range = document.createRange()
+      range.selectNodeContents(line)
+      const r = range.getBoundingClientRect()
+      return { x: r.left + (r.width * (col + 0.25)) / (line.textContent ?? '').length, y: r.top + r.height / 2 }
+    }, col)
+  const drag = async (from: { x: number; y: number }, to: { x: number; y: number }) => {
+    await page.mouse.move(from.x, from.y)
+    await page.mouse.down()
+    await page.mouse.move(to.x, to.y, { steps: 8 })
+    await page.mouse.up()
+  }
+  /** The lines (1-based) marked current. */
+  const current = () => lines.evaluateAll((els) => els.flatMap((e, i) => (e.classList.contains('cm-activeLine') ? [i + 1] : [])))
+  /** The lines (1-based) whose middle a selection rectangle covers, the rectangles' count and their colours. */
+  const painted = async () => {
+    const middles = await lines.evaluateAll((els) => els.map((e) => (e.getBoundingClientRect().top + e.getBoundingClientRect().bottom) / 2))
+    const rects = await page.locator('.viewer .cm-editor .cm-selectionLayer .cm-selectionBackground').evaluateAll((els) => els.map((e) => ({ top: e.getBoundingClientRect().top, bottom: e.getBoundingClientRect().bottom, colour: getComputedStyle(e).backgroundColor })))
+    return { lines: middles.flatMap((m, i) => (rects.some((r) => r.top <= m && m <= r.bottom) ? [i + 1] : [])), rects: rects.length, colours: [...new Set(rects.map((r) => r.colour))] }
+  }
+  /** How many rectangles, over which lines, in how many colours. */
+  const shape = async () => {
+    const p = await painted()
+    return [p.rects, p.lines, p.colours.length]
+  }
+  const COL = 10 // inside `const`, so neither end is at a line's edge
+
+  const colours: string[] = []
+  for (const [way, from, to, head] of [['downward', 2, 4, 4], ['upward', 4, 2, 2]] as const) {
+    await drag(await pointAt(from, COL), await pointAt(to, COL))
+    const selected = await waitViewer(kea, `lines 2 to 4 selected ${way}`, (v) => v.text?.selection.from.line === 2 && v.text.selection.to.line === 4)
+    for (const end of [selected.text!.selection.from, selected.text!.selection.to]) expect(end.col, `${way}: each end is mid-line`).toBeGreaterThan(1)
+    await expect(page.locator('.viewer .cm-editor.cm-focused'), `${way}: the viewer has the keyboard`).toHaveCount(1)
+    // the gutter still numbers the line the selection ends on
+    expect(await page.locator('.viewer .cm-editor .cm-lineNumbers .cm-activeLineGutter').allTextContents(), way).toEqual([String(head)])
+    // the selection layer is drawn in CodeMirror's next measure pass
+    await expect.poll(shape, { message: `${way}, focused: three rectangles of one colour over lines 2, 3 and 4` }).toEqual([3, [2, 3, 4], 1])
+    const focused = await painted()
+    expect(await current(), `${way}, focused: no line marked current`).toEqual([])
+    await expect(page.locator('.viewer .cm-activeLine'), way).toHaveCount(0)
+
+    // the keyboard moves to Files: the selection stays, in its unfocused colour, still on every line
+    await page.getByRole('tree', { name: 'Files' }).focus()
+    await expect(page.locator('.viewer .cm-editor.cm-focused'), `${way}: the viewer has lost the keyboard`).toHaveCount(0)
+    await expect.poll(shape, { message: `${way}, unfocused: three rectangles of one colour over lines 2, 3 and 4` }).toEqual([3, [2, 3, 4], 1])
+    const unfocused = await painted()
+    expect(unfocused.colours[0], `${way}: the unfocused selection has its own colour`).not.toBe(focused.colours[0])
+    expect(await current(), `${way}, unfocused: no line marked current`).toEqual([])
+    colours.push(focused.colours[0]!, unfocused.colours[0]!)
+
+    // a click back to a caret: no selection, and the caret's line is current again
+    const caret = await pointAt(3, 2)
+    await page.mouse.click(caret.x, caret.y)
+    await waitViewer(kea, `${way}: a caret on line 3`, (v) => v.text?.selection.from.line === 3 && v.text.selection.to.line === 3 && v.text.selection.from.col === v.text.selection.to.col)
+    await expect(page.locator('.viewer .cm-editor .cm-selectionBackground'), `${way}: nothing selected`).toHaveCount(0)
+    await expect.poll(current, { message: `${way}: the caret’s line is current` }).toEqual([3])
+  }
+  // both ways draw the same two colours
+  expect(colours.slice(0, 2)).toEqual(colours.slice(2))
+})
+
 test('E-FV-12 · a Markdown file’s long lines wrap when it opens and ⌥Z turns that off; a code file opens unwrapped and keeps its own ⌥Z choice; back on the Markdown file it is as it was left', async ({ run, launch }) => {
   test.setTimeout(90_000)
   const kea = await launch()
@@ -818,7 +891,130 @@ test('E-FV-12 · a Markdown file’s long lines wrap when it opens and ⌥Z turn
   await waitViewer(kea, 'code wrap still on', (v) => v.ui.path === CODE && v.text?.wrap === true && v.ui.wrap)
 })
 
-test('E-KB-7 · the text menu: a right-click on a field offers Cut, Copy, Paste and Select All with their keys, and its picks act on that field; on the viewer’s code it offers the same in a file that can be edited and Copy and Select All in a read-only one, Cut and Copy disabled while nothing is selected, Select All selecting the whole file; one menu at a time', async ({ run, launch }) => {
+/**
+ * The change ruler as drawn: its place beside the scroller (`gap`: from the scroller's right edge to the ruler's left;
+ * `edge`: from the ruler's right to the editor's) and its marks (CSS px from its top, with their colour, read from its
+ * pixels); null while it is not on screen.
+ */
+async function changeRulerShown(kea: Kea): Promise<{ top: number; gap: number; edge: number; height: number; clientHeight: number; marks: { y: number; h: number; rgb: string }[] } | null> {
+  return (await kea.page()).evaluate(() => {
+    const c = document.querySelector<HTMLCanvasElement>('.viewer .cm-editor .kea-change-ruler')
+    const scroller = c?.parentElement?.querySelector<HTMLElement>(':scope > .cm-scroller')
+    if (!c || !scroller || !c.checkVisibility()) return null
+    const box = c.getBoundingClientRect()
+    const s = scroller.getBoundingClientRect()
+    const editor = c.parentElement!.getBoundingClientRect()
+    const data = c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data
+    const column = Math.floor(c.width / 2)
+    const runs: { from: number; to: number; rgb: string }[] = []
+    for (let row = 0; row < c.height; row++) {
+      const i = (row * c.width + column) * 4
+      const rgb = data[i + 3] ? `${data[i]},${data[i + 1]},${data[i + 2]}` : ''
+      const open = runs[runs.length - 1]
+      if (open && open.to === row && open.rgb === rgb) open.to = row + 1
+      else if (rgb) runs.push({ from: row, to: row + 1, rgb })
+    }
+    const scale = c.height / box.height
+    return {
+      top: box.top - s.top,
+      gap: box.left - s.right,
+      edge: editor.right - box.right,
+      height: box.height,
+      clientHeight: scroller.clientHeight,
+      marks: runs.map((r) => ({ y: r.from / scale, h: (r.to - r.from) / scale, rgb: r.rgb })),
+    }
+  })
+}
+
+/** A colour token as the canvas reads it back: `r,g,b`. */
+function rgbOf(hex: string): string {
+  return [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)).join(',')
+}
+
+test('E-FV-21 · a change three quarters down a long file is a mark three quarters down the change ruler, which has a column of its own at the editor’s right edge beside the scrollbar, so no text, a long line scrolled sideways included, is ever under it; a press anywhere on the ruler goes to the change nearest it; a clean file and a Markdown preview show no ruler', async ({ run, launch }) => {
+  test.setTimeout(90_000)
+  const kea = await launch()
+  const page = await kea.page()
+  const LONG = 'src/long.ts'
+  const CLEAN = 'src/clean.ts'
+  const NOTES = 'notes.md'
+  const LINES = 400
+  const base = Array.from({ length: LINES }, (_, i) => `export const line${i + 1} = ${i + 1}`)
+  // a line far wider than the view: it scrolls sideways, and none of it passes under the ruler
+  base[0] = `export const line1 = '${'x'.repeat(400)}'`
+  const notes = Array.from({ length: 60 }, (_, i) => `Paragraph ${i + 1}.`)
+  const { worktree } = await sessionWith(kea, run, { [LONG]: `${base.join('\n')}\n`, [CLEAN]: 'export const clean = 1\n', [NOTES]: `${notes.join('\n\n')}\n` })
+  const changed = [...base]
+  changed[299] = "export const line300 = 'changed'"
+  notes[40] = 'Paragraph 41, changed.'
+  writeFiles(worktree, { [LONG]: `${changed.join('\n')}\n`, [NOTES]: `${notes.join('\n\n')}\n` })
+  const min = SIZE_PX['change-ruler-min']
+
+  // 1. line 300 of 400 modified: one --warn mark at about three quarters of the ruler's height, at least the least
+  // height and about a line's share of it, the ruler as tall as the scroller's client area, at the editor's right edge
+  // and outside the scroller, which ends (its scrollbar included) where the ruler starts
+  await clickFile(kea, LONG)
+  await waitBody(kea, LONG, 'text')
+  await waitViewer(kea, 'one changed region', (v) => v.ui.changes === 1)
+  const shown = await until('the ruler drawn', async () => {
+    const r = await changeRulerShown(kea)
+    return r && r.marks.length > 0 ? r : undefined
+  })
+  expect(shown.marks.map((m) => m.rgb), 'one mark, in the modified colour').toEqual([rgbOf(COLOR.warn)])
+  const mark = shown.marks[0]!
+  expect(Math.abs(mark.y - (299 / LINES) * shown.height), `the mark at ${mark.y} of ${shown.height} px`).toBeLessThanOrEqual(min)
+  expect(mark.h).toBeGreaterThanOrEqual(min - 0.5)
+  expect(mark.h).toBeLessThanOrEqual(Math.max(min, shown.height / LINES) + 1)
+  expect(Math.abs(shown.edge), 'at the editor’s right edge').toBeLessThanOrEqual(0.5)
+  expect(Math.abs(shown.gap), 'the scroller ends where the ruler starts').toBeLessThanOrEqual(0.5)
+  // the long line scrolled to its end: its last character ends before the ruler
+  const lastChar = await page.evaluate(() => {
+    const scroller = document.querySelector<HTMLElement>('.viewer .cm-scroller')!
+    scroller.scrollLeft = scroller.scrollWidth
+    const line = document.querySelector('.viewer .cm-content .cm-line')!
+    const range = document.createRange()
+    range.selectNodeContents(line)
+    const rects = [...range.getClientRects()]
+    return { right: Math.max(...rects.map((r) => r.right)), ruler: document.querySelector('.viewer .kea-change-ruler')!.getBoundingClientRect().left }
+  })
+  expect(lastChar.right, 'the long line’s end is left of the ruler').toBeLessThanOrEqual(lastChar.ruler)
+  await page.evaluate(() => {
+    document.querySelector<HTMLElement>('.viewer .cm-scroller')!.scrollLeft = 0
+  })
+  expect([shown.top, shown.height], 'beside the whole scroll area').toEqual([0, shown.clientHeight])
+  expect(await gutterLines(kea), 'the change is out of view').not.toContain(300)
+
+  // 2. a press on the mark: line 300 in view with the cursor on it, the document keeping the keyboard
+  const strip = page.locator('.viewer .kea-change-ruler')
+  const width = (await strip.boundingBox())!.width
+  await strip.click({ position: { x: width / 2, y: mark.y + mark.h / 2 } })
+  await waitViewer(kea, 'the cursor on line 300', (v) => v.text?.selection.from.line === 300)
+  expect(await gutterLines(kea), 'line 300 in view').toContain(300)
+  await expect(page.locator('.viewer .cm-content'), 'the document has the keyboard').toBeFocused()
+  // a press far from the mark goes to the same change, the only one
+  await goToLine(kea, '1')
+  await waitViewer(kea, 'back at the top', (v) => v.text?.scroll.line === 1)
+  await strip.click({ position: { x: width / 2, y: min } })
+  await waitViewer(kea, 'the cursor on line 300 again', (v) => v.text?.selection.from.line === 300)
+  expect(await gutterLines(kea)).toContain(300)
+
+  // 3. a clean file: its changes read (none), no ruler
+  await clickFile(kea, CLEAN)
+  await waitBody(kea, CLEAN, 'text')
+  await waitViewer(kea, 'the clean file read with its changes', (v) => v.ui.path === CLEAN && v.resources.viewerReads === 0 && v.ui.changes === 0)
+  expect(await changeRulerShown(kea), 'no ruler on a clean file').toBeNull()
+
+  // 4. a changed Markdown file: its source has a ruler, its preview none
+  await clickFile(kea, NOTES)
+  await waitBody(kea, NOTES, 'text')
+  await waitViewer(kea, 'one changed paragraph', (v) => v.ui.changes === 1)
+  await until('the source has a ruler', async () => ((await changeRulerShown(kea))?.marks.length ?? 0) > 0 || undefined)
+  await page.keyboard.press(sysKey('Meta+Shift+v'))
+  await waitBody(kea, NOTES, 'preview')
+  expect(await changeRulerShown(kea), 'no ruler on the preview').toBeNull()
+})
+
+test('E-KB-7 ·the text menu: a right-click on a field offers Cut, Copy, Paste and Select All with their keys, and its picks act on that field; on the viewer’s code it offers the same in a file that can be edited and Copy and Select All in a read-only one, Cut and Copy disabled while nothing is selected, Select All selecting the whole file; one menu at a time', async ({ run, launch }) => {
   const kea = await launch()
   const page = await kea.page()
   const code = 'export function add(a, b) {\n  return a + b\n}\n'
@@ -1088,4 +1284,65 @@ test('E-DF-3 · a diff: unified and side by side, unchanged regions collapsed be
   const sides = page.locator('.viewer .viewer-images img')
   await until('both images decoded', async () => (await sides.evaluateAll((is) => is.map((i) => (i as HTMLImageElement).naturalWidth))).join() === '64,32' || undefined)
   expect(await sides.evaluateAll((is) => is.map((i) => (i as HTMLImageElement).src.split(':')[0]))).toEqual(['data', 'kea-file'])
+})
+
+/**
+ * The vertical scrollbar of the element at `selector` as painted: its width (CSS px) and how many of its device pixels
+ * differ from the bottom of its track, which the thumb of a container scrolled to the top never covers.
+ */
+async function scrollbarPaint(page: Page, selector: string): Promise<{ width: number; painted: number }> {
+  const clip = await page.locator(selector).evaluate((el: HTMLElement) => {
+    const r = el.getBoundingClientRect()
+    const width = el.offsetWidth - el.clientWidth
+    return { x: r.right - width, y: r.top, width, height: el.clientHeight }
+  })
+  const shot = await page.screenshot({ clip })
+  const painted = await page.evaluate(async (b64) => {
+    const img = new Image()
+    img.src = `data:image/png;base64,${b64}`
+    await img.decode()
+    const canvas = document.createElement('canvas')
+    canvas.width = img.width
+    canvas.height = img.height
+    const g = canvas.getContext('2d')!
+    g.drawImage(img, 0, 0)
+    const d = g.getImageData(0, 0, canvas.width, canvas.height).data
+    const ground = d.slice(d.length - 4)
+    let n = 0
+    for (let i = 0; i < d.length; i += 4) if (Math.abs(d[i]! - ground[0]!) + Math.abs(d[i + 1]! - ground[1]!) + Math.abs(d[i + 2]! - ground[2]!) > 20) n++
+    return n
+  }, shot.toString('base64'))
+  return { width: clip.width, painted }
+}
+
+test('E-FV-23 · the scrollbar thumb of the file view and of the Files tree, as painted: none at rest, drawn while the pointer is over the container, gone once it leaves, drawn while the keyboard is inside it with the pointer away, gone once the keyboard leaves; the bar is --size-scrollbar wide', async ({ run, launch }) => {
+  const kea = await launch()
+  const page = await kea.page()
+  const many = Object.fromEntries(Array.from({ length: 80 }, (_, i) => [`f${String(i).padStart(2, '0')}.txt`, `${i}\n`]))
+  await sessionWith(kea, run, { ...many, 'long.js': Array.from({ length: 400 }, (_, i) => `export const v${i} = ${i}`).join('\n') + '\n' })
+  await clickFile(kea, 'long.js')
+  await waitBody(kea, 'long.js', 'text')
+  const header = (await page.locator('.main-header').boundingBox())!
+  const away = { x: header.x + header.width / 2, y: header.y + header.height / 2 }
+  const containers = [
+    { name: 'the file view', selector: '.viewer .cm-scroller', keyboard: '.viewer .cm-content' },
+    { name: 'the Files tree', selector: '[role=tree][aria-label=Files]', keyboard: '[role=tree][aria-label=Files]' },
+  ]
+  for (const { name, selector, keyboard } of containers) {
+    const box = (await page.locator(selector).boundingBox())!
+    const inside = { x: box.x + box.width / 2, y: box.y + box.height / 2 }
+    const thumb = async () => (await scrollbarPaint(page, selector)).painted
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+    await page.mouse.move(away.x, away.y)
+    await until(`${name}: no thumb at rest`, async () => (await thumb()) === 0 || undefined)
+    expect((await scrollbarPaint(page, selector)).width, `${name}: the bar’s width`).toBe(SIZE_PX.scrollbar)
+    await page.mouse.move(inside.x, inside.y, { steps: 4 })
+    await until(`${name}: the thumb under the pointer`, async () => (await thumb()) > 0 || undefined)
+    await page.mouse.move(away.x, away.y, { steps: 4 })
+    await until(`${name}: no thumb once the pointer leaves`, async () => (await thumb()) === 0 || undefined)
+    await page.locator(keyboard).focus()
+    await until(`${name}: the thumb while the keyboard is inside`, async () => (await thumb()) > 0 || undefined)
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+    await until(`${name}: no thumb once the keyboard leaves`, async () => (await thumb()) === 0 || undefined)
+  }
 })
