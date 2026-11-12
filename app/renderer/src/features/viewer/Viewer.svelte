@@ -29,7 +29,7 @@ tooltip.
   import { LETTER_NAMES } from '../files/changes.ts'
   import { currentKeyScopes, provideKeyScope } from '../commands/scope.ts'
   import { prefs } from '../terminal/prefs.ts'
-  import { copyPath, noteAction, openTabInEditor, switchMode } from './commands.ts'
+  import { copyPath, noteAction, openTabInBrowser, openTabInEditor, switchMode, whyNoPage } from './commands.ts'
   import { sizeText, ViewerController, type NoteAction, type NoticeAction } from './controller.svelte.ts'
   import { fileEditor } from './editor.ts'
   import { installSyntaxStyles } from './highlight.ts'
@@ -64,6 +64,8 @@ tooltip.
   const ui = $derived(ctl.ui)
   const segments = $derived(ui.path.split('/'))
   const editorShown = $derived(ui.body.kind === 'text' || ui.body.kind === 'diff')
+  // a web page that is on disk: Open in browser beside Open in editor
+  const page = $derived(whyNoPage(ctl) === null)
   // `Reveal in Finder`, `Reveal in File Manager`
   const NOTE_LABELS: Readonly<Record<NoteAction, string>> = { editor: 'Open in editor', default: 'Open with default app', reveal: `Reveal in ${protocolOs.words.fileManager}` }
   const NOTICE_LABELS: Readonly<Record<NoticeAction, string>> = { compare: 'Compare', useFile: 'Use the File’s', keepMine: 'Keep Yours', retry: 'Try Again', save: 'Save', copyAll: 'Copy All', dontSave: 'Don’t Save', show: 'Show' }
@@ -199,6 +201,9 @@ tooltip.
         <span class="dot" aria-hidden="true">·</span>
         <button aria-pressed={ui.layout === 'split'} data-command="viewer.toggleDiffLayout" onmousedown={keepFocus} onclick={() => ui.layout !== 'split' && ctl.toggleLayout()}>Split</button>
       </div>
+    {/if}
+    {#if page}
+      <button class="viewer-open" data-command="viewer.openInBrowser" onmousedown={keepFocus} onclick={() => void openTabInBrowser(ctl)}>Open in browser</button>
     {/if}
     <button class="viewer-open" data-command="viewer.openInEditor" onmousedown={keepFocus} onclick={() => void openTabInEditor(ctl)}>Open in editor</button>
   </div>

@@ -34,8 +34,8 @@ export type ReviewScope =
 /** The warning's answer; Copy All is Don't Save after the text is copied; Anyway hands the file over as it is on disk. */
 export type UnsavedAnswer = 'save' | 'dontSave' | 'copyAll' | 'anyway' | 'cancel'
 
-/** What reads the file from disk: the agent (Send Reference), the clipboard (Copy Reference), the editor. */
-export type HandOff = 'send' | 'copy' | 'open'
+/** What reads the file from disk: the agent (Send Reference), the clipboard (Copy Reference), the editor, the browser. */
+export type HandOff = 'send' | 'copy' | 'open' | 'browse'
 
 /** What the warning asks about. */
 export interface UnsavedAsk {

@@ -150,6 +150,7 @@ export const COMMANDS: readonly CommandDef[] = [
   { id: 'viewer.copyReference', title: 'Copy Reference', category: 'Viewer', keys: ['⌘⇧C'], linuxKeys: ['Ctrl+Shift+Alt+C'], keyScope: 'viewer tab' },
   { id: 'viewer.pinTab', title: 'Pin Tab', category: 'Viewer', gesture: 'double-click the tab, or ↵ in a read-only document' },
   { id: 'viewer.openInEditor', title: 'Open in Editor', category: 'Viewer', keys: ['⌘↵'], linuxKeys: ['Ctrl+Shift+Enter'], keyScope: 'viewer tab', other: 'viewer header' },
+  { id: 'viewer.openInBrowser', title: 'Open in Browser', category: 'Viewer', other: 'viewer header' },
   { id: 'viewer.save', title: 'Save', category: 'Viewer', keys: ['⌘S'], linuxKeys: ['Ctrl+Shift+S'] },
   { id: 'viewer.indentLess', title: 'Indent Less', category: 'Viewer', keys: ['⌘['], linuxKeys: ['Ctrl+['], keyScope: 'editable file' },
   { id: 'viewer.indentMore', title: 'Indent More', category: 'Viewer', keys: ['⌘]'], linuxKeys: ['Ctrl+]'], keyScope: 'editable file' },

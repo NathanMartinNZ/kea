@@ -19,8 +19,8 @@ Open), the default; Send (Copy, Open) Anyway; Cancel.
   const a = untrack(() => ask)
   const name = a.path.slice(a.path.lastIndexOf('/') + 1)
   const cancel = (): void => answerUnsaved('cancel')
-  const VERB: Readonly<Record<HandOff, string>> = { send: 'Send', copy: 'Copy', open: 'Open' }
-  const READER: Readonly<Record<HandOff, string>> = { send: 'The agent reads the file on disk', copy: 'The reference names the file on disk', open: 'The editor opens the file on disk' }
+  const VERB: Readonly<Record<HandOff, string>> = { send: 'Send', copy: 'Copy', open: 'Open', browse: 'Open' }
+  const READER: Readonly<Record<HandOff, string>> = { send: 'The agent reads the file on disk', copy: 'The reference names the file on disk', open: 'The editor opens the file on disk', browse: 'The browser opens the file on disk' }
 
   let first = true
   $effect(() => {

@@ -13,7 +13,8 @@
 // File contents cross as bytes and are decoded in the window; a save's text crosses as a string and core encodes it as
 // the file is encoded. Core keeps nothing after sending or writing them.
 //
-// Local images reach the window through `kea-file://`, served by main: `keaFileUrl` / `keaFilePath`.
+// Local images reach the window through `kea-file://`, served by main: `keaFileUrl` / `keaFilePath`. A web page of the
+// worktree (`isPage`) is opened in the default browser by main, which checks the path itself.
 
 import { z } from 'zod'
 import { zDiffScope, zWorktreePath, GIT_CODES } from './files.ts'
@@ -77,6 +78,17 @@ export function imageExtension(path: string): ImageExtension | null {
   if (dot <= 0) return null
   const ext = name.slice(dot + 1).toLowerCase()
   return (IMAGE_EXTENSIONS as readonly string[]).includes(ext) ? (ext as ImageExtension) : null
+}
+
+/** The types a browser shows as a web page, by extension (lower case): what the viewer's Open in Browser offers to open. */
+export const PAGE_EXTENSIONS = ['html', 'htm', 'xhtml'] as const
+
+/** Whether a path names a web page by its extension: `site/Index.HTML` → true. */
+export function isPage(path: string): boolean {
+  const name = path.slice(path.lastIndexOf('/') + 1)
+  const dot = name.lastIndexOf('.')
+  if (dot <= 0) return false
+  return (PAGE_EXTENSIONS as readonly string[]).includes(name.slice(dot + 1).toLowerCase())
 }
 
 /**

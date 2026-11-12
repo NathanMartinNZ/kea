@@ -11,12 +11,13 @@ import path from 'node:path'
 import { performance } from 'node:perf_hooks'
 import * as electron from 'electron'
 import { app, BrowserWindow, dialog, ipcMain, Menu, MessageChannelMain, nativeTheme, Notification, powerMonitor, protocol, screen, session, shell, Tray, type IpcMainEvent, type MenuItemConstructorOptions, type Session, type WebContents } from 'electron'
-import { createLogger, installHookHelper, registerSingletonGauge, resources, Supervisor, type Logger } from '@kea/kit'
+import { createLogger, installHookHelper, registerSingletonGauge, resources, runProcess, Supervisor, type Logger } from '@kea/kit'
 import { childArgv, childV8Flags, DESKTOP_IDS, EDIT_ROLES, isAvailable, KEA_FILE_SCHEME, L, need, parsePerfBusy, parseRepository, RELEASE_REPOSITORY, releaseUrls, scrubSessionEnv, zMenuState, zPtyId, zResourcesReply, zSessionId, type CollectedResources, type EditRole, type HandedDocuments, type InstallKind, type MenuBarState, type PlatformReport, type ReleaseArch, type ResourceReport, type UpdateState } from '@kea/protocol'
 import { COLOR, SIZE_PX } from '@kea/ui/tokens'
 import { installFrontGuard } from './frontGuard.ts'
 import { keaHome } from './home.ts'
 import { serveKeaFile, VisibleDirs } from './keaFile.ts'
+import { PAGE_REFUSALS, resolvePage } from './page.ts'
 import { CoreAvailability, RpcPortHandout, shutdownChildren } from './lifecycle.ts'
 import { findMenuItem, menuTemplate, windowMenuState, windowMenuTree, type WindowMenuState } from './menu.ts'
 import { BackgroundTray, DockIcon, isQuitChoice, lastWindowAction, markQuitSheetSeen, MenuBarItemRemoval, QuitSheetAnswer, quitAction, quitSheetSeen, trayTemplate, trayTitle, trayTooltip, type QuitChoice } from './menuBar.ts'
@@ -328,6 +329,33 @@ ipcMain.on('kea:reveal', (e, p: unknown) => {
   if (!ok) return
   if (PERF) log.info('reveal not opened (perf)', { path: ok })
   else shell.showItemInFolder(ok)
+})
+
+// Open in Browser (viewer.openInBrowser): a web page inside a working directory this window shows (page.ts), in the
+// default browser; the answer carries why not in words, or null. Under --kea-perf no browser opens (it would take the
+// keyboard): the request is logged instead
+ipcMain.on('kea:openPage', (e, req: unknown) => {
+  const w = fromOurWindow(e)
+  const { reqId, path: asked } = (typeof req === 'object' && req !== null ? req : {}) as { reqId?: unknown; path?: unknown }
+  if (!w || !Number.isInteger(reqId)) return
+  const dirs = keaFileDirs.of(w.webContents.id)
+  const answer = (message: string | null) => {
+    if (!w.isDestroyed()) w.webContents.send('kea:pageOpened', { reqId, message })
+  }
+  void (async () => {
+    const r = await resolvePage(asked, dirs)
+    if (!r.ok) {
+      log.warn('page not opened', { why: r.why })
+      return answer(PAGE_REFUSALS[r.why])
+    }
+    if (PERF) {
+      log.info('page not opened (perf)', { path: r.real })
+      return answer(null)
+    }
+    const message = await mainOs.browser.openPage(r.real, { app, shell, run: runProcess })
+    if (message !== null) log.warn('page not opened', { why: 'browser' })
+    answer(message)
+  })()
 })
 
 // the settings banner's "Open settings.json": this home's file, nothing else

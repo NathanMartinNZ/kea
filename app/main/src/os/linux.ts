@@ -582,6 +582,14 @@ export const linux: MainOs = {
     loadUpdater: () => null,
   },
   packageWatch: { watch: watchResources },
+  // the desktop's app for web pages (`xdg-open`'s handler for the page's type, which a desktop sets with its default
+  // browser), started by Electron apart from Kea, so that a browser it starts in the foreground is never waited on
+  browser: {
+    openPage: async (file, via) => {
+      const error = await via.shell.openPath(file).catch(() => 'The page could not be opened')
+      return error === '' ? null : error
+    },
+  },
   // How Kea was installed and is updated, the desktop, the terminal lines, the sandbox, the terminal renderer, the tray
   // host, notifications, idle and inotify
   report: {

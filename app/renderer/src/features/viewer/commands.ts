@@ -1,16 +1,17 @@
 // The viewer's commands (the command table's Viewer category): Switch File / Diff, Go to Line…, Find in File, and for an
 // editable document Replace in File, Save and Indent Less / More; the wrap, preview and layout toggles, Next / Previous
-// Change and Changed File, Send / Copy Reference, Open in Editor. They act on the viewer that has the screen
-// (`controller.svelte.ts`); with none, they are unavailable with their reason. Send Reference, Copy Reference and Open
-// in Editor hand over the file as it is on disk, so with unsaved changes they ask first (`review.svelte.ts`). Two
-// Viewer rows are the tab strip's and are registered by it (`shell/TerminalPane.svelte`): `viewer.open` and
-// `viewer.pinTab`. `App.svelte` calls this once for the window.
+// Change and Changed File, Send / Copy Reference, Open in Editor, and for a web page Open in Browser. They act on the
+// viewer that has the screen (`controller.svelte.ts`); with none, they are unavailable with their reason. Send
+// Reference, Copy Reference, Open in Editor and Open in Browser hand over the file as it is on disk, so with unsaved
+// changes they ask first (`review.svelte.ts`). Two Viewer rows are the tab strip's and are registered by it
+// (`shell/TerminalPane.svelte`): `viewer.open` and `viewer.pinTab`. `App.svelte` calls this once for the window.
 //
 // The viewer's keys without `⌘` (`⌃G`, `⌥Z`, `⌥↓`, `⌥↑`, `]`, `[`) are passed to it by the key router; it finds
 // their command with `scopedBinding` and runs it (`Viewer.svelte`).
 
+import { isPage } from '@kea/protocol'
 import { disposeAll, type Disposable } from '@kea/terminal'
-import { editRole, onHistory, reveal } from '../../lib/bridge.ts'
+import { editRole, onHistory, openPage, reveal } from '../../lib/bridge.ts'
 import { watch } from '../../lib/reactive.svelte.ts'
 import { call } from '../../lib/rpc.ts'
 import { commands } from '../commands/registry.ts'
@@ -79,6 +80,25 @@ export async function openTabInEditor(c: ViewerController): Promise<void> {
   const path = c.ui.path
   if (!(await askHandOff('open', sessionId, path))) return
   void openInEditor({ target: 'session', id: sessionId, path, ...(pos ? { line: pos.line, col: pos.col } : {}) })
+}
+
+/** Why the tab on screen has no page to open in the browser, or null when it has one: a web page that is on disk. */
+export function whyNoPage(c: ViewerController | null): string | null {
+  if (!c) return NO_TAB
+  if (!isPage(c.ui.path)) return 'This file is not a web page'
+  if (c.ui.deleted || (c.ui.mode === 'diff' && c.ui.letter === 'D')) return 'The file is not on disk'
+  return null
+}
+
+/** The tab's web page in the default browser (main checks the path and opens it); with unsaved changes, the question first. */
+export async function openTabInBrowser(c: ViewerController): Promise<void> {
+  const sessionId = c.session
+  const path = c.ui.path
+  const cwd = sessions.get(sessionId)?.cwd
+  if (!cwd) return
+  if (!(await askHandOff('browse', sessionId, path))) return
+  const message = await openPage(`${cwd.replace(/\/+$/, '')}/${path}`)
+  if (message !== null) showToast({ message })
 }
 
 /** What a one-line body offers: Open in editor, Open with default app, Reveal in the file manager (Finder on macOS). */
@@ -200,6 +220,14 @@ export function registerViewerCommands(strip: TabStrip): Disposable {
       },
       when: () => viewer() !== null,
       unavailableReason: () => NO_TAB,
+    }),
+    commands.register('viewer.openInBrowser', {
+      run: () => {
+        const c = viewer()
+        if (c && whyNoPage(c) === null) void openTabInBrowser(c)
+      },
+      when: () => whyNoPage(viewer()) === null,
+      unavailableReason: () => whyNoPage(viewer()) ?? NO_TAB,
     }),
   ]
   // No document of a session that left the screen is kept, and none of a tab that is gone (the strip

@@ -5,8 +5,8 @@
 // (`gpuReset`), core going away (main's `coreAway`; the next RPC port means it is back) and main's requests for this
 // renderer's resource report, answered by the reporter `setResourceReporter` installs, and the window's own question
 // for every process's report (`resourceReports`: Copy diagnostics and the dev HUD); the native pieces of the window's
-// UI: the folder picker (`pickFolder`), `reveal`, `openSettingsFile` and `pathForFile` for dropped files; the
-// first-quit sheet main asks for and its answer, and a session main asks the window to show; main's update state and
+// UI: the folder picker (`pickFolder`), `reveal`, `openPage` (Open in Browser), `openSettingsFile` and `pathForFile`
+// for dropped files; the first-quit sheet main asks for and its answer, and a session main asks the window to show; main's update state and
 // the window's update actions (`onUpdateState`, `checkUpdates`, `restartToUpdate`, `updateNoticeShown`); main's review
 // of the window's unsaved files before anything closes them, answered by the host `setReviewHost` installs (the bridge
 // acknowledges each request at once, and answers proceed itself while no host is installed), the window's unsaved
@@ -33,6 +33,7 @@ interface PreloadApi {
   askResourceReports(reqId: number): void
   pickFolder(reqId: number, purpose: 'add' | 'locate'): void
   reveal(path: string): void
+  openPage(reqId: number, path: string): void
   openSettingsFile(): void
   openHomeItem(which: 'keybindings' | 'reports' | 'logs'): void
   askNotificationState(reqId: number): void
@@ -83,6 +84,8 @@ let coreUp = false
 let reporter: (() => ResourceReport) | null = null
 /** What this window hands the one main rebuilds in its place (the composer's drafts). */
 let handoffSource: (() => WindowHandoff) | null = null
+/** Open in Browser's request to main, while it is out (one at a time: a newer one replaces it). */
+let pageOpen: { reqId: number; done(message: string | null): void } | null = null
 /** Settings › Notifications' question to main, while it is out (one at a time: a newer one replaces it). */
 let notificationAsk: { reqId: number; done(denied: boolean): void } | null = null
 /** What answers main's review of the window's unsaved files (the viewer's); null: the bridge answers proceed. */
@@ -165,6 +168,14 @@ window.addEventListener('message', (e: MessageEvent) => {
       folderPicks.delete(d.reqId!)
       const p = (d as { path?: unknown }).path
       done(typeof p === 'string' ? p : null)
+      return
+    }
+    case 'pageOpened': {
+      const ask = pageOpen
+      if (!ask || ask.reqId !== d.reqId) return
+      pageOpen = null
+      const m = (d as { message?: unknown }).message
+      ask.done(typeof m === 'string' ? m : null)
       return
     }
     case 'notificationState': {
@@ -381,6 +392,19 @@ export function pickFolder(purpose: 'add' | 'locate'): Promise<string | null> {
   return new Promise((resolve) => {
     folderPicks.set(reqId, resolve)
     window.kea.pickFolder(reqId, purpose)
+  })
+}
+
+/**
+ * Open a web page of the session on screen (an absolute path) in the default browser. Main checks the path and opens
+ * it; the answer is why not in words, or null once it is handed over (and for a request a newer one replaced).
+ */
+export function openPage(path: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    pageOpen?.done(null)
+    const reqId = nextReq++
+    pageOpen = { reqId, done: resolve }
+    window.kea.openPage(reqId, path)
   })
 }
 

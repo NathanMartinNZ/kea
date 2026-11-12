@@ -12,6 +12,7 @@
 // The handler is not told which window asks, so the directories are those of every window.
 // Responses carry `nosniff`, `no-store` and a policy that makes the document inert were it ever navigated to; the
 // window shows them through `<img>` only, where an SVG's scripts and external loads do not run.
+// `openVisibleFile` is the check of the last three points for any type; Open in Browser (page.ts) uses it too.
 
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
@@ -55,6 +56,11 @@ export class VisibleDirs {
     return [...new Set([...this.byConn.values()].flat())]
   }
 
+  /** The directories one window shows (its connection is its page's `webContents.id`); none when core has said none. */
+  of(connId: number): readonly string[] {
+    return this.byConn.get(connId) ?? []
+  }
+
   get size(): number {
     return this.byConn.size
   }
@@ -64,14 +70,32 @@ export type KeaFileRefusal = 'url' | 'type' | 'outside' | 'missing' | 'special' 
 
 export type KeaFileAnswer = { ok: true; real: string; type: string; size: number; fh: fsp.FileHandle } | { ok: false; status: number; why: KeaFileRefusal }
 
-const refuse = (status: number, why: KeaFileRefusal): KeaFileAnswer => ({ ok: false, status, why })
+export type VisibleFileAnswer = { ok: true; real: string; stat: fs.Stats; fh: fsp.FileHandle } | { ok: false; status: number; why: KeaFileRefusal }
+
+const refuse = (status: number, why: KeaFileRefusal): { ok: false; status: number; why: KeaFileRefusal } => ({ ok: false, status, why })
 const inside = (root: string, p: string) => p.startsWith(root + path.sep)
 
 /** The file a `kea-file://` URL may show, opened, or why not. The caller closes `fh`. */
 export async function resolveKeaFile(url: string, dirs: readonly string[]): Promise<KeaFileAnswer> {
   const asked = keaFilePath(url)
   if (asked === null) return refuse(400, 'url')
-  if (imageExtension(asked) === null) return refuse(403, 'type')
+  const a = await openVisibleFile(asked, dirs, (p) => imageExtension(p) !== null)
+  if (!a.ok) return a
+  const ext = imageExtension(a.real) as ImageExtension
+  if (a.stat.size > L.imageMaxBytes) {
+    await a.fh.close()
+    return refuse(413, 'large')
+  }
+  return { ok: true, real: a.real, type: MIME[ext], size: a.stat.size, fh: a.fh }
+}
+
+/**
+ * A regular file inside the real path of one of `dirs`, opened, or why not: `asked` is an absolute path, and `accepts`
+ * must hold for it and for the real file's path (a link with an accepted name to a file of another type is refused).
+ * The caller closes `fh`.
+ */
+export async function openVisibleFile(asked: string, dirs: readonly string[], accepts: (p: string) => boolean): Promise<VisibleFileAnswer> {
+  if (!accepts(asked)) return refuse(403, 'type')
   let real: string
   try {
     real = await fsp.realpath(asked)
@@ -88,8 +112,7 @@ export async function resolveKeaFile(url: string, dirs: readonly string[]): Prom
     }
   }
   if (!allowed) return refuse(403, 'outside')
-  const ext = imageExtension(real)
-  if (ext === null) return refuse(403, 'type')
+  if (!accepts(real)) return refuse(403, 'type')
   let fh: fsp.FileHandle
   try {
     fh = await fsp.open(real, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK)
@@ -97,16 +120,12 @@ export async function resolveKeaFile(url: string, dirs: readonly string[]): Prom
     return refuse(404, 'missing')
   }
   try {
-    const st = await fh.stat()
-    if (!st.isFile()) {
+    const stat = await fh.stat()
+    if (!stat.isFile()) {
       await fh.close()
       return refuse(403, 'special')
     }
-    if (st.size > L.imageMaxBytes) {
-      await fh.close()
-      return refuse(413, 'large')
-    }
-    return { ok: true, real, type: MIME[ext], size: st.size, fh }
+    return { ok: true, real, stat, fh }
   } catch {
     await fh.close().catch(() => undefined)
     return refuse(404, 'missing')

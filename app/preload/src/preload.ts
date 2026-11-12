@@ -16,7 +16,8 @@
 // application menu for the window to draw, `{ kea: 'gpuReset' }`: the memory watchdog asks for the GPU process's memory
 // back, `{ kea: 'lowMemory' }`: it held back this window's reload for its unsaved files,
 // `{ kea: 'review', reqId, reason }`, `{ kea: 'reviewDecided', reqId, outcome }`, `{ kea: 'closeDone', reqId, went }`,
-// `{ kea: 'giveDocuments', reqId }`, `{ kea: 'handedDocuments', reqId, documents }`), so the page never registers a
+// `{ kea: 'giveDocuments', reqId }`, `{ kea: 'handedDocuments', reqId, documents }`, `{ kea: 'pageOpened', reqId,
+// message }`: how Open in Browser went), so the page never registers a
 // listener across the bridge, where Electron cannot remove one by identity. The renderer's `lib/bridge.ts` turns these
 // into `openStream(ptyId): Promise<MessagePort>`, `onCommand`, `onWake`, `onHistory`, `onCoreConnection`, the review
 // host and the answer to a resource-report request (`sendResources`).
@@ -69,6 +70,9 @@ ipcRenderer.on('kea:folder', (_e, msg: { reqId: unknown; path: unknown }) => {
 ipcRenderer.on('kea:coreAway', () => toPage({ kea: 'coreAway' }, []))
 ipcRenderer.on('kea:notificationState', (_e, msg: { reqId: unknown; denied: unknown }) => {
   if (typeof msg?.reqId === 'number') toPage({ kea: 'notificationState', reqId: msg.reqId, denied: msg.denied === true }, [])
+})
+ipcRenderer.on('kea:pageOpened', (_e, msg: { reqId: unknown; message: unknown }) => {
+  if (typeof msg?.reqId === 'number') toPage({ kea: 'pageOpened', reqId: msg.reqId, message: typeof msg.message === 'string' ? msg.message : null }, [])
 })
 ipcRenderer.on('kea:resources', (_e, msg: { reqId: unknown }) => {
   if (typeof msg?.reqId === 'number') toPage({ kea: 'resources', reqId: msg.reqId }, [])
@@ -154,6 +158,10 @@ contextBridge.exposeInMainWorld('kea', {
   /** Reveal a project root or worktree in the file manager (main checks the path). */
   reveal: (p: string): void => {
     if (typeof p === 'string') ipcRenderer.send('kea:reveal', p)
+  },
+  /** Open a web page of the session on screen in the default browser (main checks the path); it answers `{ kea: 'pageOpened', reqId, message }`. */
+  openPage: (reqId: number, p: string): void => {
+    if (Number.isInteger(reqId) && typeof p === 'string') ipcRenderer.send('kea:openPage', { reqId, path: p })
   },
   /** Open this home's settings.json, from the banner shown while it is invalid. */
   openSettingsFile: (): void => ipcRenderer.send('kea:openSettingsFile'),

@@ -6,8 +6,8 @@
 //
 // Nothing here reaches the person's clipboard, browser or apps: clipboard writes are recorded in the page, and whatever
 // the viewer hands to the system goes, under the harness, to a stand-in or a recorder (E-FV-7 holds it to that): `open`
-// is the run's own (tests/support/app-server.ts `EditorWorld`), a web link is recorded by main and a reveal is logged
-// by it, neither opened.
+// is the run's own (tests/support/app-server.ts `EditorWorld`), a web link is recorded by main, and a reveal and a page
+// for the browser are logged by it, none opened.
 
 import fs from 'node:fs'
 import type { Page } from '@playwright/test'
@@ -21,6 +21,7 @@ import { changeRows, clickChange, clickFile, clickScope, GIT_MS, panelModes, pan
 import { clickFileTab, fileTab, fileTabs, pinFileTab, viewerShown } from '../support/app-tabs.ts'
 import { changeMarker, commitAll, gitIn, gutterLines, loginSource, png, sessionWorktree, tokenClasses, viewer, viewerCopy, viewerRows, viewerText, waitBody, waitViewer, writeFiles } from '../support/app-viewer.ts'
 import { documentKey, tryToEditDocument } from '../support/app-editing.ts'
+import { chooseMenuItem, waitMenuItem } from '../support/app-palette.ts'
 import { expect, test } from './fixtures.ts'
 import { sysKey, textKey } from '../support/keys.ts'
 import { protocolOs } from '../../packages/protocol/src/os/index.ts'
@@ -662,6 +663,55 @@ test('E-FV-7 · what the viewer hands to the system is, under the harness, recor
   expect(world.launches()).toHaveLength(1)
   expect(await opened(kea)).toHaveLength(1)
   expect(await kea.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(1)
+})
+
+test('E-FV-24 · a web page’s header offers Open in browser, which reaches main for the page’s real path and opens no browser; with unsaved changes it asks first, and Save and Open saves before it opens; a file that is no web page has neither the button nor the menu item', async ({ run, launch }) => {
+  test.setTimeout(120_000)
+  const kea = await launch()
+  const page = await kea.page()
+  const { worktree } = await sessionWith(kea, run, {})
+  writeFiles(worktree, { 'site/index.html': '<!doctype html>\n<title>Demo</title>\n<p>Hello</p>\n', 'notes.md': '# Notes\n' })
+  const real = fs.realpathSync(worktree)
+  const button = page.locator('.viewer-header button', { hasText: 'Open in browser' })
+  const asked = (): Record<string, unknown>[] => kea.logLines('main').filter((l) => l.msg === 'page not opened (perf)')
+
+  // 1. a file that is no web page: no button, and the menu item is unavailable
+  await clickFile(kea, 'notes.md')
+  await waitBody(kea, 'notes.md', 'text')
+  await expect(page.locator('.viewer-header button', { hasText: 'Open in editor' })).toBeVisible()
+  await expect(button).toHaveCount(0)
+  await waitMenuItem(kea, 'viewer.openInBrowser', 'unavailable', (m) => !m.enabled)
+
+  // 2. the page: the button reaches main with its real path; main opens nothing under the harness, and says nothing went wrong
+  await clickFile(kea, 'site/index.html')
+  await waitBody(kea, 'site/index.html', 'text')
+  await waitMenuItem(kea, 'viewer.openInBrowser', 'available', (m) => m.enabled)
+  await button.click()
+  const first = await until('the page asked of main', () => asked()[0])
+  expect(first.path).toBe(path.join(real, 'site/index.html'))
+  expect(await page.locator('.toast[role=alert]').count(), 'no failure').toBe(0)
+  // the menu bar's item does the same
+  expect(await chooseMenuItem(kea, 'viewer.openInBrowser')).toBe(true)
+  await until('the menu item’s request', () => asked()[1])
+
+  // 3. unsaved changes: asked first; Cancel opens nothing; Save and Open saves, then opens
+  await until('the document has the keyboard', async () => (await viewerShown(kea))?.focused || undefined)
+  await page.keyboard.press(textKey('Meta+ArrowDown'))
+  await page.keyboard.type('<p>Mine</p>')
+  const ask = page.getByRole('alertdialog', { name: 'index.html has unsaved changes' })
+  await button.click()
+  await expect(ask).toBeVisible()
+  expect(await ask.getByRole('button').allInnerTexts()).toEqual(['Save and Open', 'Open Anyway', 'Cancel'])
+  await expect(ask).toContainText('The browser opens the file on disk')
+  await ask.getByRole('button', { name: 'Cancel' }).click()
+  await expect(ask).toHaveCount(0)
+  expect(asked(), 'Cancel opens nothing').toHaveLength(2)
+  expect(fs.readFileSync(path.join(worktree, 'site/index.html'), 'utf8'), 'nor saves').not.toContain('Mine')
+  await button.click()
+  await ask.getByRole('button', { name: 'Save and Open' }).click()
+  await until('the page asked of main again', () => asked()[2])
+  expect(fs.readFileSync(path.join(worktree, 'site/index.html'), 'utf8'), 'saved before it opened').toContain('<p>Mine</p>')
+  expect(await kea.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length), 'no window but Kea’s').toBe(1)
 })
 
 test('E-FV-8 · another session comes on screen: the viewer keeps nothing of the one that left — no document, none cached, nothing followed in the window or in core — and kea-file:// stops serving that session’s images; shown again, its file tabs are still there and the file is read anew', async ({ run, launch }) => {

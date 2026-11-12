@@ -1,7 +1,8 @@
 // main's OS layer: the capabilities that differ by system and that main owns. Callers import this file only;
 // `select.ts` picks `darwin.ts` or `linux.ts` once, at start. Nothing here imports Electron at run time (types only),
 // so the decisions stay unit-testable: a capability that acts on Electron is handed the object it acts on.
-import type { App, BrowserWindow, BrowserWindowConstructorOptions, MenuItemConstructorOptions, Notification, Tray } from 'electron'
+import type { App, BrowserWindow, BrowserWindowConstructorOptions, MenuItemConstructorOptions, Notification, Shell, Tray } from 'electron'
+import type { ProcessResult, RunProcessOptions } from '@kea/kit'
 import type { NotAvailable, PlatformLine, PlatformReport, ReleaseFileKind, System } from '@kea/protocol'
 import type { MakeUpdater } from '../updates/driver.ts'
 import type { UpdateHow } from '../updates/how.ts'
@@ -253,6 +254,19 @@ export interface Report {
   platform(o: ReportInput): PlatformReport
 }
 
+/** What `browser` acts through: Electron's `app` and `shell`, and kit's `runProcess` (argv, never a shell string). */
+export interface BrowserVia {
+  app: Pick<App, 'getApplicationInfoForProtocol'>
+  shell: Pick<Shell, 'openPath'>
+  run(file: string, args: readonly string[], o: RunProcessOptions): Promise<Pick<ProcessResult, 'code' | 'timedOut' | 'stderr'>>
+}
+
+/** `browser`: a web page of a worktree in the user's default browser (the viewer's Open in Browser). */
+export interface Browser {
+  /** Opens `file`, an absolute path main has checked, in the default browser: null once it is handed over, else why not in words. */
+  openPage(file: string, via: BrowserVia): Promise<string | null>
+}
+
 export interface MainOs {
   readonly system: System
   readonly windowChrome: WindowChrome | NotAvailable
@@ -272,6 +286,7 @@ export interface MainOs {
   readonly updates: Updates
   readonly packageWatch: PackageWatch | NotAvailable
   readonly report: Report | NotAvailable
+  readonly browser: Browser
 }
 
 export { mainOs } from './select.ts'

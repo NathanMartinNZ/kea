@@ -3,13 +3,16 @@ import fs from 'node:fs'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import type { MenuItemConstructorOptions } from 'electron'
-import type { PlatformLine } from '@kea/protocol'
+import { L, type PlatformLine } from '@kea/protocol'
 import type { MakeUpdater } from '../updates/driver.ts'
 import { installCommand, NOT_FROM_RELEASE, type UpdateHow } from '../updates/how.ts'
 import { terminalRendererLine, updateChannelLine } from '../platformLines.ts'
 import type { InstallKind, MainOs, UpdateHowInput } from './index.ts'
 
 const INSTALL_KINDS: readonly InstallKind[] = ['mac', 'deb', 'rpm', 'tarball', 'user']
+
+/** Open in Browser failed and the system said nothing. */
+const PAGE_NOT_OPENED = 'The page could not be opened'
 
 function readInstallKind(resourcesDir: string): InstallKind | null {
   try {
@@ -144,6 +147,23 @@ export const darwin: MainOs = {
   },
   // a Mac app is replaced only by its own updater or by install.sh, each after Kea has quit: nothing to follow
   packageWatch: { watch: () => () => undefined },
+  // the app macOS opens web addresses with (the default browser the user chose), named by its path: `open` on the file
+  // alone would use whatever app opens `.html` files, which may be an editor
+  browser: {
+    openPage: async (file, via) => {
+      const app = await via.app.getApplicationInfoForProtocol('https://').then(
+        (info) => info.path,
+        () => '',
+      )
+      if (!app) return 'No default browser was found'
+      try {
+        const r = await via.run('/usr/bin/open', ['-a', app, file], { pool: 'other', timeoutMs: L.editorLaunchTimeoutMs })
+        return r.code === 0 && !r.timedOut ? null : r.stderr.trim().split('\n').at(-1) || PAGE_NOT_OPENED
+      } catch {
+        return PAGE_NOT_OPENED
+      }
+    },
+  },
   report: {
     platform: (o) => {
       const kind = readInstallKind(o.resourcesDir)

@@ -5,8 +5,8 @@ surfaces (the window, the menus, the menu-bar item or tray, notifications and th
 Electron utility processes under one `Supervisor` each (`packages/kit`), and brokers the MessagePorts between them and
 the window: the control port between core and ptyhost, one RPC port per window to core, and one stream port per
 attached terminal to ptyhost. After that, main is not on the data path. It also samples every process's memory, runs
-the memory watchdog, serves the window's local images over `kea-file://`, and checks for updates (on macOS it also
-runs Kea's updater).
+the memory watchdog, serves the window's local images over `kea-file://`, opens a worktree's web page in the default
+browser when the window asks, and checks for updates (on macOS it also runs Kea's updater).
 
 ## Startup
 
@@ -88,6 +88,7 @@ it.
 | `handoff.ts` | On Wayland a minimized window cannot be brought back, so Kea makes a new one in its place; the old window's composer drafts and unsaved files are handed to the new one (the files in memory only, the old window kept until the new one has them). A restart Kea makes itself carries the drafts the same way, through a file |
 | `external.ts`, `links.ts` | The one place a link leaves Kea for the system browser: `http`, `https` and `mailto` only |
 | `keaFile.ts` | `kea-file://`: serves an image only when its real path lies inside a working directory the window shows, it is a regular file, and it is no larger than `L.imageMaxBytes` |
+| `page.ts` | Open in Browser: a web page (`.html`, `.htm`, `.xhtml`) whose real path lies inside a working directory the asking window shows, a regular file without an execute bit, handed to the OS layer's `browser` (macOS: the app the system opens `https` addresses with; Linux: the desktop's app for the page's type) |
 | `resources.ts` | The resource report (each process's counters, collected on request), the footprint sampler (`kea-helper footprint`), and the hourly line in `<KEA_HOME>/logs/resources.ndjson` |
 | `watchdog.ts` | The memory watchdog: a soft and a hard limit per kind of process, from `constants/limits.toml`. Past a hard limit while the user is idle, it restarts core or ptyhost, reloads the window, or resets WebGL, once per episode and then not again until a cool-down has passed. A window with unsaved files is not reloaded: it is asked to save them (`kea:lowMemory`) |
 | `rendererLog.ts` | Writes the window's console warnings and errors to `<KEA_HOME>/logs/renderer.log`, since the sandboxed renderer writes no file |
