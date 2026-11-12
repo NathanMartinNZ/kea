@@ -160,10 +160,13 @@
   color: var(--text-3);
 }
 
+/* a name in the window's primary text, the terminal's own foreground, so the tree reads as plainly as the agent's
+   output; git colours, the "Show all" row and ignored entries override it below */
 .ft-name {
   flex: 1;
   min-width: 0;
   overflow: hidden;
+  color: var(--text-1);
   text-overflow: ellipsis;
 }
 

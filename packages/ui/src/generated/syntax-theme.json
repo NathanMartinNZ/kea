@@ -4,7 +4,7 @@
   "type": "dark",
   "colors": {
     "editor.background": "#0C0D0B",
-    "editor.foreground": "#D2D5CB"
+    "editor.foreground": "#CDD0C6"
   },
   "tokenColors": [
     {
@@ -16,7 +16,7 @@
         "source"
       ],
       "settings": {
-        "foreground": "#D2D5CB"
+        "foreground": "#CDD0C6"
       }
     },
     {

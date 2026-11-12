@@ -137,6 +137,8 @@ test('E-FT-2 · the file tree with real clicks and keys: folders open and close 
   // the name and the letter in the state's colour
   await expect(treeRow(page, 'src/index.js').locator('.ft-name')).toHaveCSS('color', await tokenColour(kea, '--warn'))
   await expect(treeRow(page, 'src/brand-new.js').locator('.fp-letter')).toHaveCSS('color', await tokenColour(kea, '--ok'))
+  // an unchanged row's name in the window's primary text, the terminal's foreground
+  await expect(treeRow(page, 'lib').locator('.ft-name')).toHaveCSS('color', await tokenColour(kea, '--text-1'))
   // ignored files, when asked for: listed, dimmed (`node_modules` is left out of the stream by the kernel: a new one is
   // found at the next refresh)
   // (showing ignored files has no control in the panel: its command is run as the palette would run it. Refresh has

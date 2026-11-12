@@ -111,7 +111,7 @@ describe('query table', () => {
     await m.write('\x1b]11;?\x07\x1b]10;?\x1b\\\x1b]12;?\x07\x1b]4;1;?\x07\x1b]4;196;?\x07\x1b]4;244;?\x07')
     expect(m.replies).toEqual([
       '\x1b]11;rgb:0c0c/0d0d/0b0b\x1b\\', // kea-dark background #0C0D0B
-      '\x1b]10;rgb:d2d2/d5d5/cbcb\x1b\\', // foreground #D2D5CB
+      '\x1b]10;rgb:cdcd/d0d0/c6c6\x1b\\', // foreground #CDD0C6
       '\x1b]12;rgb:f5f5/7979/3a3a\x1b\\', // cursor #F5793A
       '\x1b]4;1;rgb:ecec/6a6a/5757\x1b\\', // red #EC6A57
       '\x1b]4;196;rgb:ffff/0000/0000\x1b\\', // 6×6×6 cube
@@ -123,7 +123,7 @@ describe('query table', () => {
     m.replies.length = 0
     // one OSC 10 with two slots asks for foreground and background
     await m.write('\x1b]10;?;?\x07')
-    expect(m.replies).toEqual(['\x1b]10;rgb:d2d2/d5d5/cbcb\x1b\\', '\x1b]11;rgb:0c0c/0d0d/0b0b\x1b\\'])
+    expect(m.replies).toEqual(['\x1b]10;rgb:cdcd/d0d0/c6c6\x1b\\', '\x1b]11;rgb:0c0c/0d0d/0b0b\x1b\\'])
     m.replies.length = 0
     await m.write('\x1b]4;3;#010203\x07\x1b]104;3\x07\x1b]4;3;?\x07\x1b]4;5;#010203\x07\x1b]104\x07\x1b]4;5;?\x07')
     expect(m.replies).toEqual(['\x1b]4;3;rgb:d9d9/b4b4/5b5b\x1b\\', '\x1b]4;5;rgb:b5b5/8a8a/d6d6\x1b\\'])
