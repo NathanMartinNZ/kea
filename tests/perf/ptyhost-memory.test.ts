@@ -51,7 +51,7 @@ function perPty(r: FillResult, n: number, from: number): number[] {
 
 /**
  * The throughput flood's terminal in the app test (tests/perf/app-terminal.test.ts): the default window (design tokens
- * `window-default-*`) at the default font (`terminal.fontSize`) gives 165 × 40. The app test records its own size.
+ * `window-default-*`) at the default font size gives 165 × 40. The app test records its own size.
  */
 const APP_COLS = 165
 const APP_ROWS = 40

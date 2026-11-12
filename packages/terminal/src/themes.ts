@@ -57,14 +57,15 @@ export function resolveTheme(id: string, ghostty?: GhosttyConfig | null): Termin
 }
 
 /**
- * The font "Match Ghostty config" takes from the file: its first `font-family` and its `font-size`, the size
- * kept inside `terminal.fontSize`'s range. Null for what the file does not state, and for every other theme: the
- * `terminal.*` setting then applies.
+ * The font "Match Ghostty config" takes from the file: its first `font-family` and its `font-size`, the size kept
+ * inside the terminal font range (`L.terminalFontSizeMin` to `L.terminalFontSizeMax`); the font size level moves it
+ * after (`terminalFontSize`). Null for what the file does not state, and for every other theme: `terminal.fontFamily`
+ * and Kea's own size (`L.terminalFontSize`) then apply.
  */
 export function ghosttyFont(id: string, g: GhosttyConfig | null | undefined): { fontFamily: string | null; fontSize: number | null } {
   if (id !== GHOSTTY_THEME || !g || !g.found) return { fontFamily: null, fontSize: null }
   const size = g.fontSize
-  return { fontFamily: g.fontFamily, fontSize: size === null ? null : Math.min(L.settingsFontSizeMax, Math.max(L.settingsFontSizeMin, size)) }
+  return { fontFamily: g.fontFamily, fontSize: size === null ? null : Math.min(L.terminalFontSizeMax, Math.max(L.terminalFontSizeMin, size)) }
 }
 
 /** Dark or light, as xterm.js and the mirror decide it (`CSI ? 996 n`): dark when the background is darker than the foreground. */

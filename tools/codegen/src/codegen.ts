@@ -181,8 +181,8 @@ export function genTokensTs(tokens: TokenTree): string {
     '/** The spacing scale in px. */',
     `export const SPACE_PX = [${Object.values(space).map((v) => px(v.$value)).join(', ')}] as const`,
     '',
-    '/** Type sizes in px. */',
-    `export const TYPE_SIZE_PX = [${Object.values(type).map((v) => px(v.size)).join(', ')}] as const`,
+    '/** Type sizes in px, by role (`--type-<role>-size`). */',
+    `export const TYPE_SIZE_PX = ${obj(Object.fromEntries(Object.entries(type).map(([k, v]) => [k, px(v.size)])))} as const`,
     '',
   ].join('\n')
 }

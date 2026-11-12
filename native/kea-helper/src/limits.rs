@@ -153,8 +153,12 @@ pub const OSC52_MAX_BYTES: u64 = 1048576;
 pub const OSC52_NOTE_MS: u64 = 2000;
 /// titles, bells and OSC 9/777 text truncated before display (chars)
 pub const OSC_TEXT_MAX_CHARS: u64 = 120;
-/// ⌘+ / ⌘− change the terminal font size by this much, within terminal.fontSize's range (px)
+/// ⌘+ / ⌘− change the terminal font size by this much, within terminal_font_size_min to terminal_font_size_max (px)
 pub const TERMINAL_FONT_STEP: u64 = 1;
+/// the terminals' and the file view's font size at the Default font size, before the font size level and the ⌘+ / ⌘− zoom (px)
+pub const TERMINAL_FONT_SIZE: u64 = 13;
+/// each level of the Font size setting moves every text size in the window, the terminals' included, by this much (px)
+pub const FONT_SIZE_STEP: u64 = 1;
 /// the agent pane's narrowest width beside the work pane; below it the agent shows as a tab (cols)
 pub const AGENT_MIN_COLS: u64 = 60;
 /// the work pane's narrowest width beside the agent pane (cols)
@@ -641,10 +645,10 @@ pub const SETTINGS_DAYS_MAX: u64 = 3650;
 pub const SETTINGS_BRANCH_PREFIX_MAX_CHARS: u64 = 64;
 /// longest terminal.fontFamily (chars)
 pub const SETTINGS_FONT_FAMILY_MAX_CHARS: u64 = 200;
-/// smallest terminal.fontSize (px)
-pub const SETTINGS_FONT_SIZE_MIN: u64 = 6;
-/// largest terminal.fontSize (px)
-pub const SETTINGS_FONT_SIZE_MAX: u64 = 72;
+/// smallest terminal font size: a Ghostty config's size, the font size level and the ⌘− zoom stop here (px)
+pub const TERMINAL_FONT_SIZE_MIN: u64 = 6;
+/// largest terminal font size: a Ghostty config's size, the font size level and the ⌘+ zoom stop here (px)
+pub const TERMINAL_FONT_SIZE_MAX: u64 = 72;
 /// smallest terminal.lineHeight (ratio)
 pub const SETTINGS_LINE_HEIGHT_MIN: u64 = 1;
 /// largest terminal.lineHeight (ratio)

@@ -52,24 +52,24 @@ describe('settings.json', () => {
     expect(status()).toMatchObject({ path: file, exists: false, error: null })
 
     // valid: applied live, the mirrors reconfigured
-    fs.writeFileSync(file, '{ "terminal": { "fontSize": 15, "scrollback": 1234 } }\n')
-    await until('the edit to apply', () => s.store.get('terminal.fontSize') === 15)
+    fs.writeFileSync(file, '{ "terminal": { "lineHeight": 1.5, "scrollback": 1234 } }\n')
+    await until('the edit to apply', () => s.store.get('terminal.lineHeight') === 1.5)
     await until('ptyhost to get the new scrollback', () => configured().at(-1)?.scrollback === 1234)
     expect(status()).toMatchObject({ exists: true, error: null, notices: [] })
 
     // an invalid value: that key falls back with a notice, its neighbours apply
-    fs.writeFileSync(file, '{ "terminal": { "fontSize": "huge", "cursorStyle": "bar", "scrollback": 1234 } }\n')
+    fs.writeFileSync(file, '{ "terminal": { "lineHeight": "huge", "cursorStyle": "bar", "scrollback": 1234 } }\n')
     await until('the per-key fallback', () => s.store.get('terminal.cursorStyle') === 'bar')
-    expect(s.store.get('terminal.fontSize')).toBe(DEFAULTS.fontSize)
-    expect(status().notices.map((n) => n.key)).toEqual(['terminal.fontSize'])
+    expect(s.store.get('terminal.lineHeight')).toBe(DEFAULTS.lineHeight)
+    expect(status().notices.map((n) => n.key)).toEqual(['terminal.lineHeight'])
 
     // does not parse: the last good values stay; the error has its line and column
-    const broken = '{\n  "terminal": {\n    "cursorStyle": "underline"\n    "fontSize": 20\n  }\n}\n'
+    const broken = '{\n  "terminal": {\n    "cursorStyle": "underline"\n    "lineHeight": 2\n  }\n}\n'
     fs.writeFileSync(file, broken)
     await until('the parse error', () => status().error !== null)
     expect(status().error).toMatchObject({ line: 4, column: 5 })
     expect(s.store.get('terminal.cursorStyle'), 'last known good').toBe('bar')
-    await expect(c.call('settings.set', { key: 'terminal.fontSize', value: 12 })).rejects.toMatchObject({ code: 'file_invalid' })
+    await expect(c.call('settings.set', { key: 'terminal.lineHeight', value: 1.3 })).rejects.toMatchObject({ code: 'file_invalid' })
     expect(fs.readFileSync(file, 'utf8'), 'a broken file is never edited').toBe(broken)
 
     // deleted: the defaults, banner gone
@@ -85,11 +85,11 @@ describe('settings.json', () => {
     expect(await c.call('settings.set', { key: 'terminal.scrollback', value: 3000 })).toEqual({ ok: true })
     expect(s.store.get('terminal.scrollback')).toBe(3000)
     expect(fs.readFileSync(file, 'utf8')).toBe(COMMENTED.replace('"scrollback": 2000', '"scrollback": 3000'))
-    expect(await c.call('settings.set', { key: 'terminal.fontSize', value: 16 })).toEqual({ ok: true })
+    expect(await c.call('settings.set', { key: 'terminal.lineHeight', value: 1.6 })).toEqual({ ok: true })
     const text = fs.readFileSync(file, 'utf8')
     for (const kept of ['// my Kea settings', '// short branches', '/* the terminal */', '"zzz": { "keep": "me" }']) expect(text).toContain(kept)
     expect(text.indexOf('"fontFamily"')).toBeLessThan(text.indexOf('"scrollback"'))
-    expect(text.indexOf('"scrollback"')).toBeLessThan(text.indexOf('"fontSize"'))
+    expect(text.indexOf('"scrollback"')).toBeLessThan(text.indexOf('"lineHeight"'))
     await until('ptyhost to get the UI’s scrollback', () => configured().at(-1)?.scrollback === 3000)
     expect(s.values.get('general.branchPrefix')).toBe('dev/')
   })

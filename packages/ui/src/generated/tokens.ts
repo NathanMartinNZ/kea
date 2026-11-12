@@ -79,5 +79,12 @@ export const SIZE_PX = {
 /** The spacing scale in px. */
 export const SPACE_PX = [4, 8, 12, 16, 24, 32] as const
 
-/** Type sizes in px. */
-export const TYPE_SIZE_PX = [13, 13, 12, 11, 15, 12] as const
+/** Type sizes in px, by role (`--type-<role>-size`). */
+export const TYPE_SIZE_PX = {
+  "base": 13,
+  "emphasis": 13,
+  "secondary": 12,
+  "micro": 11,
+  "dialog": 15,
+  "mono": 12,
+} as const

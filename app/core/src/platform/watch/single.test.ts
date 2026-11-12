@@ -240,7 +240,7 @@ describe('SingleFileWatches (the watch service’s single files, platform/watch)
     w.watch(file, () => void n.file++)
     await looked() // the watch's own look once it listens: not there yet
     expect(n.file).toBe(0)
-    fs.writeFileSync(file, '{ "terminal": { "fontSize": 15 } }') // the stream is still starting: nothing is emitted
+    fs.writeFileSync(file, '{ "terminal": { "cursorStyle": "bar" } }') // the stream is still starting: nothing is emitted
     await settled()
     expect(n.file, 'the creation nobody announced').toBe(1)
     expect(os1.targets()).toEqual([file])

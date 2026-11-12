@@ -759,7 +759,7 @@ test('E-ST-11 · usage limits, with the setting on: a Claude Code session’s re
   await until('no meter with the setting off', async () => ((await meterIn(page, STRIP)) === null ? true : undefined))
 })
 
-test('A-7 · the usage meter for assistive technology: an image named by its windows in words ("Usage: session 25 %, weekly 67 %"), at the limit with its reset, described by the tooltip’s words, in the agent pane and in the one-column strip; not a stop for the keyboard and not a live region', async ({ run, launch }) => {
+test('A-7 · the usage meter for assistive technology: an image named by its windows in words ("Usage: session 25%, weekly 67%"), at the limit with its reset, described by the tooltip’s words, in the agent pane and in the one-column strip; not a stop for the keyboard and not a live region', async ({ run, launch }) => {
   usageSetting(run, true)
   const kea = await launch()
   const page = await kea.page()
@@ -772,19 +772,19 @@ test('A-7 · the usage meter for assistive technology: an image named by its win
   await reportUsage(kea, s, 25, 67, resets)
 
   const pane = page.getByRole('region', { name: 'Agent' })
-  const named = pane.getByRole('img', { name: 'Usage: session 25 %, weekly 67 %', exact: true })
+  const named = pane.getByRole('img', { name: 'Usage: session 25%, weekly 67%', exact: true })
   await expect(named).toBeVisible({ timeout: STEP_MS })
   expect(await named.evaluate((e) => ({ tabIndex: e.tabIndex, live: e.closest('[aria-live], [role=status]') !== null })), 'not focusable, not announced on each change').toEqual({ tabIndex: -1, live: false })
   // the resets and when it was seen, which the window's tooltip (hidden from assistive technology) shows the eye
-  const described = `Session limit: 25 % used, resets ${resetWords(resets.session)} · Weekly: 67 % used, resets ${resetWords(resets.week)} · as of `
+  const described = `Session limit: 25% used, resets ${resetWords(resets.session)} · Weekly: 67% used, resets ${resetWords(resets.week)} · as of `
   await expect(named).toHaveAccessibleDescription(new RegExp(`^${escapeRe(described)}\\d\\d:\\d\\d$`))
 
   // at the limit the name says until when
   await reportUsage(kea, s, 100, 67, resets)
-  await expect(pane.getByRole('img', { name: `Usage: session limit reached until ${resetWords(resets.session)}, weekly 67 %`, exact: true })).toBeVisible({ timeout: STEP_MS })
+  await expect(pane.getByRole('img', { name: `Usage: session limit reached until ${resetWords(resets.session)}, weekly 67%`, exact: true })).toBeVisible({ timeout: STEP_MS })
 
   // in one column the strip's meter has the same name
   await kea.oneColumn()
   await kea.clickTab(agent)
-  await expect(page.locator(STRIP).getByRole('img', { name: `Usage: session limit reached until ${resetWords(resets.session)}, weekly 67 %`, exact: true })).toBeVisible({ timeout: STEP_MS })
+  await expect(page.locator(STRIP).getByRole('img', { name: `Usage: session limit reached until ${resetWords(resets.session)}, weekly 67%`, exact: true })).toBeVisible({ timeout: STEP_MS })
 })

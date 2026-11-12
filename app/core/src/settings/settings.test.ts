@@ -31,7 +31,7 @@ const COMMENTED = `// my Kea settings
   /* the terminal */
   "terminal": {
     "fontFamily": "Berkeley Mono",
-    "fontSize": 14,
+    "scrollback": 14,
   },
   "zzz.unknown": [1, 2, 3],
 }
@@ -39,13 +39,13 @@ const COMMENTED = `// my Kea settings
 
 describe('settings.json editing', () => {
   it('U-SET-5 · a single-key patch keeps comments, unknown keys, key order and formatting', () => {
-    const changed = editSettingsText(COMMENTED, 'terminal.fontSize', 16)
-    expect(changed).toBe(COMMENTED.replace('"fontSize": 14', '"fontSize": 16'))
+    const changed = editSettingsText(COMMENTED, 'terminal.scrollback', 16)
+    expect(changed).toBe(COMMENTED.replace('"scrollback": 14', '"scrollback": 16'))
 
     const added = editSettingsText(COMMENTED, 'terminal.cursorStyle', 'bar')
     for (const kept of ['// my Kea settings', '// short branches', '/* the terminal */', '"zzz.unknown": [1, 2, 3]', '"fontFamily": "Berkeley Mono"']) expect(added).toContain(kept)
-    expect(added.indexOf('"fontFamily"')).toBeLessThan(added.indexOf('"fontSize"'))
-    expect(parseSettingsText(added).raw).toMatchObject({ terminal: { fontFamily: 'Berkeley Mono', fontSize: 14, cursorStyle: 'bar' } })
+    expect(added.indexOf('"fontFamily"')).toBeLessThan(added.indexOf('"scrollback"'))
+    expect(parseSettingsText(added).raw).toMatchObject({ terminal: { fontFamily: 'Berkeley Mono', scrollback: 14, cursorStyle: 'bar' } })
 
     const nested = editSettingsText(COMMENTED, 'agents.claude.defaults', { model: 'fable' })
     expect(parseSettingsText(nested).raw).toMatchObject({ agents: { claude: { defaults: { model: 'fable' } } }, general: { branchPrefix: 'dev/' } })
@@ -55,7 +55,7 @@ describe('settings.json editing', () => {
     expect(parseSettingsText(removed).raw).not.toHaveProperty('general.branchPrefix')
     expect(removed).toContain('/* the terminal */')
 
-    expect(parseSettingsText(editSettingsText('', 'terminal.fontSize', 12)).raw).toEqual({ terminal: { fontSize: 12 } })
+    expect(parseSettingsText(editSettingsText('', 'terminal.scrollback', 12)).raw).toEqual({ terminal: { scrollback: 12 } })
   })
 
   it('U-SET-7 · a key added after a property whose line ends with a comment leaves the comment on that property’s line: the new key goes on its own line after it, with or without a trailing comma, at any depth', () => {
@@ -66,8 +66,8 @@ describe('settings.json editing', () => {
     const noComma = '{\n  "terminal": {\n    "cursorBlink": false // steady\n  }\n}\n'
     expect(editSettingsText(noComma, 'terminal.theme', 'kea-light')).toBe('{\n  "terminal": {\n    "cursorBlink": false, // steady\n    "theme": "kea-light"\n  }\n}\n')
     // a block comment, and a comment after the comma or before it
-    const block = '{\n  "terminal": {\n    "fontSize": 14 /* big */,\n  }\n}\n'
-    expect(editSettingsText(block, 'terminal.theme', 'kea-light')).toBe('{\n  "terminal": {\n    "fontSize": 14 /* big */,\n    "theme": "kea-light",\n  }\n}\n')
+    const block = '{\n  "terminal": {\n    "scrollback": 14 /* big */,\n  }\n}\n'
+    expect(editSettingsText(block, 'terminal.theme', 'kea-light')).toBe('{\n  "terminal": {\n    "scrollback": 14 /* big */,\n    "theme": "kea-light",\n  }\n}\n')
     // at the top level, with a section that does not exist yet (nested objects are made), and a value of several lines
     const top = '{\n  "general": { "branchPrefix": "dev/" }, // short branches\n}\n'
     const made = editSettingsText(top, 'agents.one.env', { A: '1', B: '2' })
@@ -76,8 +76,8 @@ describe('settings.json editing', () => {
     // CRLF files keep their line ends
     expect(editSettingsText(trailingComma.replaceAll('\n', '\r\n'), 'terminal.theme', 'kea-light')).toBe('{\r\n  "terminal": {\r\n    "cursorBlink": false, // steady\r\n    "theme": "kea-light",\r\n  },\r\n}\r\n')
     // a comment on a line of its own after the last property is not that property's: the key goes before it, as ever
-    const ownLine = '{\n  "terminal": {\n    "fontSize": 14,\n    // more to come\n  }\n}\n'
-    expect(editSettingsText(ownLine, 'terminal.theme', 'kea-light')).toBe('{\n  "terminal": {\n    "fontSize": 14,\n    "theme": "kea-light",\n    // more to come\n  }\n}\n')
+    const ownLine = '{\n  "terminal": {\n    "scrollback": 14,\n    // more to come\n  }\n}\n'
+    expect(editSettingsText(ownLine, 'terminal.theme', 'kea-light')).toBe('{\n  "terminal": {\n    "scrollback": 14,\n    "theme": "kea-light",\n    // more to come\n  }\n}\n')
     // every result still parses to the document plus the key, and a second edit of the new key touches nothing else
     for (const text of [trailingComma, noComma, block, ownLine]) {
       const once = editSettingsText(text, 'terminal.theme', 'kea-light')
@@ -96,8 +96,8 @@ describe('settings.json editing', () => {
     }
     // the only key, with the trailing comma a person leaves: the file must not become `{ , }`, which does not parse and
     // would raise the broken-file banner
-    expect(take('{\n  "terminal": {\n    "fontSize": 14,\n  },\n}\n', 'terminal.fontSize')).toBe('{\n  "terminal": {\n  },\n}\n')
-    expect(take('{\n  "terminal": {\n    "fontSize": 14\n  }\n}\n', 'terminal.fontSize')).toBe('{\n  "terminal": {\n  }\n}\n')
+    expect(take('{\n  "terminal": {\n    "scrollback": 14,\n  },\n}\n', 'terminal.scrollback')).toBe('{\n  "terminal": {\n  },\n}\n')
+    expect(take('{\n  "terminal": {\n    "scrollback": 14\n  }\n}\n', 'terminal.scrollback')).toBe('{\n  "terminal": {\n  }\n}\n')
     // the comment on the line above is about the key above: it stays there
     expect(take('{\n  "a": 1, // one\n  "b": 2,\n}\n', 'b')).toBe('{\n  "a": 1, // one\n}\n')
     // the last key, no trailing comma: the comma before it goes with it, the comment between stays
@@ -117,7 +117,7 @@ describe('settings.json editing', () => {
     // a key that is not there, at any depth: the text is the text
     for (const key of ['zzz', 'terminal.zzz', 'a.b.c']) expect(take(COMMENTED, key)).toBe(COMMENTED)
     // adding a key and taking it out again gives the person's text back, comments included (the same texts as U-SET-7)
-    for (const text of ['{\n  "terminal": {\n    "cursorBlink": false, // steady\n  },\n}\n', '{\n  "terminal": {\n    "cursorBlink": false // steady\n  }\n}\n', '{\n  "terminal": {\n    "fontSize": 14 /* big */,\n  }\n}\n', COMMENTED]) {
+    for (const text of ['{\n  "terminal": {\n    "cursorBlink": false, // steady\n  },\n}\n', '{\n  "terminal": {\n    "cursorBlink": false // steady\n  }\n}\n', '{\n  "terminal": {\n    "scrollback": 14 /* big */,\n  }\n}\n', COMMENTED]) {
       expect(take(editSettingsText(text, 'terminal.theme', 'kea-light'), 'terminal.theme')).toBe(text)
     }
   })
@@ -214,51 +214,51 @@ describe('settings.json editing', () => {
     // a parent that is no object: a change under it is refused in words for the person; Reset finds no such key
     for (const [held, what] of [['5 // oops', 'a number'], ['null', 'null'], ['[1, 2]', 'a list'], ['"x"', 'a text'], ['true', 'true or false']] as const) {
       const text = `{\n  "terminal": ${held}\n}\n`
-      const e = refused(text, 'terminal.fontSize', 14)
-      expect(e.message).toBe(`settings.json: "terminal" is ${what}, not a group of settings, so terminal.fontSize cannot be set; make it { } or take it out, then try again`)
-      expect(editSettingsText(text, 'terminal.fontSize', undefined)).toBe(text)
+      const e = refused(text, 'terminal.scrollback', 14)
+      expect(e.message).toBe(`settings.json: "terminal" is ${what}, not a group of settings, so terminal.scrollback cannot be set; make it { } or take it out, then try again`)
+      expect(editSettingsText(text, 'terminal.scrollback', undefined)).toBe(text)
     }
     expect(refused('{ "agents": { "claude": 3 } }', 'agents.claude.command', '/x').message).toContain('"agents.claude" is a number')
 
     // Reset of a key that is not there: the text as it is, whatever it is
     for (const text of ['', '\n', '// only a comment\n', '// only a comment', '/* nothing yet */', '{}\n', '{\n  // nothing\n}\n', '{ "terminal": { "cursorBlink": true } }\n', BOM, `${BOM}// c\n`]) {
-      expect(editSettingsText(text, 'terminal.fontSize', undefined), JSON.stringify(text)).toBe(text)
+      expect(editSettingsText(text, 'terminal.scrollback', undefined), JSON.stringify(text)).toBe(text)
     }
     // and a key set in a file that is only a comment: the key, and the comment still there
     for (const text of ['// only a comment\n', '/* nothing yet */']) {
-      const out = editSettingsText(text, 'terminal.fontSize', 14)
-      expect(parseSettingsText(out)).toEqual({ raw: { terminal: { fontSize: 14 } }, error: null })
+      const out = editSettingsText(text, 'terminal.scrollback', 14)
+      expect(parseSettingsText(out)).toEqual({ raw: { terminal: { scrollback: 14 } }, error: null })
       expect(out).toContain(text.trim())
     }
 
     // duplicate keys: the last is the one in effect, so it is the one changed; the others stay as they are
-    const twice = '{\n  "terminal": { "fontSize": 12 },\n  "terminal": { "fontSize": 13 } // mine\n}\n'
-    expect(parseSettingsText(twice).raw).toEqual({ terminal: { fontSize: 13 } })
-    expect(editSettingsText(twice, 'terminal.fontSize', 20)).toBe(twice.replace('13', '20'))
+    const twice = '{\n  "terminal": { "scrollback": 12 },\n  "terminal": { "scrollback": 13 } // mine\n}\n'
+    expect(parseSettingsText(twice).raw).toEqual({ terminal: { scrollback: 13 } })
+    expect(editSettingsText(twice, 'terminal.scrollback', 20)).toBe(twice.replace('13', '20'))
     const added = editSettingsText(twice, 'terminal.cursorBlink', false)
-    expect(parseSettingsText(added)).toEqual({ raw: { terminal: { fontSize: 13, cursorBlink: false } }, error: null })
-    expect(added).toContain('"terminal": { "fontSize": 12 },')
+    expect(parseSettingsText(added)).toEqual({ raw: { terminal: { scrollback: 13, cursorBlink: false } }, error: null })
+    expect(added).toContain('"terminal": { "scrollback": 12 },')
     expect(added).toContain('// mine')
     // Reset looks at the one in effect only
     expect(editSettingsText(twice, 'terminal.cursorBlink', undefined)).toBe(twice)
-    const reset = editSettingsText(twice, 'terminal.fontSize', undefined)
+    const reset = editSettingsText(twice, 'terminal.scrollback', undefined)
     expect(parseSettingsText(reset)).toEqual({ raw: { terminal: {} }, error: null })
-    expect(reset).toContain('"terminal": { "fontSize": 12 },')
-    const inOne = '{\n  "terminal": {\n    "fontSize": 12, // old\n    "fontSize": 13,\n    "cursorBlink": true\n  }\n}\n'
-    expect(editSettingsText(inOne, 'terminal.fontSize', 20)).toBe(inOne.replace('13', '20'))
-    expect(editSettingsText(inOne, 'terminal.fontSize', { a: [1] })).toBe(inOne.replace('13', '{\n      "a": [\n        1\n      ]\n    }'))
+    expect(reset).toContain('"terminal": { "scrollback": 12 },')
+    const inOne = '{\n  "terminal": {\n    "scrollback": 12, // old\n    "scrollback": 13,\n    "cursorBlink": true\n  }\n}\n'
+    expect(editSettingsText(inOne, 'terminal.scrollback', 20)).toBe(inOne.replace('13', '20'))
+    expect(editSettingsText(inOne, 'terminal.scrollback', { a: [1] })).toBe(inOne.replace('13', '{\n      "a": [\n        1\n      ]\n    }'))
     // Reset takes every one of them out: the default is in effect then, and the comment stays
-    const none = editSettingsText(inOne, 'terminal.fontSize', undefined)
+    const none = editSettingsText(inOne, 'terminal.scrollback', undefined)
     expect(parseSettingsText(none)).toEqual({ raw: { terminal: { cursorBlink: true } }, error: null })
     expect(none).toContain('// old')
 
     // a byte order mark (an editor's "UTF-8 with BOM"): read past, kept in what is written
-    const marked = `${BOM}{\n  "terminal": { "fontSize": 12 } // mine\n}\n`
-    expect(parseSettingsText(marked)).toEqual({ raw: { terminal: { fontSize: 12 } }, error: null })
+    const marked = `${BOM}{\n  "terminal": { "scrollback": 12 } // mine\n}\n`
+    expect(parseSettingsText(marked)).toEqual({ raw: { terminal: { scrollback: 12 } }, error: null })
     expect(parseSettingsText(BOM)).toEqual({ raw: {}, error: null })
-    expect(editSettingsText(marked, 'terminal.fontSize', 14)).toBe(marked.replace('12', '14'))
-    expect(editSettingsText(marked, 'terminal.fontSize', undefined)).toBe(`${BOM}{\n  "terminal": { } // mine\n}\n`)
-    expect(editSettingsText(BOM, 'terminal.fontSize', 14)).toBe(`${BOM}{\n  "terminal": {\n    "fontSize": 14\n  }\n}\n`)
+    expect(editSettingsText(marked, 'terminal.scrollback', 14)).toBe(marked.replace('12', '14'))
+    expect(editSettingsText(marked, 'terminal.scrollback', undefined)).toBe(`${BOM}{\n  "terminal": { } // mine\n}\n`)
+    expect(editSettingsText(BOM, 'terminal.scrollback', 14)).toBe(`${BOM}{\n  "terminal": {\n    "scrollback": 14\n  }\n}\n`)
     // an error is placed as an editor shows it: the mark is no column
     expect(parseSettingsText(`${BOM}{ "a": }`).error).toMatchObject({ line: 1, column: 8 })
     expect(parseSettingsText('{ "a": }').error).toMatchObject({ line: 1, column: 8 })
@@ -269,10 +269,10 @@ describe('settings.json editing', () => {
     fs.writeFileSync(settingsPath(h), broken)
     const s = open(h)
     expect(s.values.get('general.branchPrefix')).toBe('dev/')
-    await expect(s.set('terminal.fontSize', 14)).rejects.toMatchObject({ code: 'file_invalid', message: expect.stringContaining('"terminal" is a number') })
-    await s.reset('terminal.fontSize')
+    await expect(s.set('terminal.scrollback', 14)).rejects.toMatchObject({ code: 'file_invalid', message: expect.stringContaining('"terminal" is a number') })
+    await s.reset('terminal.scrollback')
     expect(fs.readFileSync(settingsPath(h), 'utf8')).toBe(broken)
-    expect(s.values.get('terminal.fontSize')).toBe(DEFAULTS.fontSize)
+    expect(s.values.get('terminal.scrollback')).toBe(DEFAULTS.scrollback)
     await s.set('general.branchPrefix', 'x/')
     expect(fs.readFileSync(settingsPath(h), 'utf8')).toBe(broken.replace('dev/', 'x/'))
 
@@ -280,14 +280,14 @@ describe('settings.json editing', () => {
     fs.writeFileSync(settingsPath(h2), marked)
     const s2 = open(h2)
     expect(s2.statusStore.get(SETTINGS_STATUS_KEY)?.error).toBeNull()
-    expect(s2.values.get('terminal.fontSize')).toBe(12)
-    await s2.set('terminal.fontSize', 16)
+    expect(s2.values.get('terminal.scrollback')).toBe(12)
+    await s2.set('terminal.scrollback', 16)
     expect(fs.readFileSync(settingsPath(h2), 'utf8')).toBe(marked.replace('12', '16'))
     // Reset in a file that is only a comment: nothing is written
     const h3 = home()
     fs.writeFileSync(settingsPath(h3), '// later\n')
     const s3 = open(h3)
-    await s3.reset('terminal.fontSize')
+    await s3.reset('terminal.scrollback')
     expect(fs.readFileSync(settingsPath(h3), 'utf8')).toBe('// later\n')
   })
 
@@ -297,21 +297,21 @@ describe('settings.json editing', () => {
     const s = open(h)
     let changes = 0
     s.onChange(() => changes++)
-    expect(s.values.get('terminal.fontSize')).toBe(14)
-    await s.set('terminal.fontSize', 18)
-    expect(s.values.get('terminal.fontSize')).toBe(18)
-    expect(s.store.get('terminal.fontSize')).toBe(18)
+    expect(s.values.get('terminal.scrollback')).toBe(14)
+    await s.set('terminal.scrollback', 18)
+    expect(s.values.get('terminal.scrollback')).toBe(18)
+    expect(s.store.get('terminal.scrollback')).toBe(18)
     expect(changes).toBe(1)
-    expect(fs.readFileSync(settingsPath(h), 'utf8')).toBe(COMMENTED.replace('"fontSize": 14', '"fontSize": 18'))
+    expect(fs.readFileSync(settingsPath(h), 'utf8')).toBe(COMMENTED.replace('"scrollback": 14', '"scrollback": 18'))
 
     await s.reset('general.branchPrefix')
     expect(s.values.get('general.branchPrefix')).toBe('kea/')
     expect(fs.readFileSync(settingsPath(h), 'utf8')).toContain('// my Kea settings')
 
-    await expect(s.set('terminal.fontSize', 'huge')).rejects.toMatchObject({ code: 'invalid_value' })
+    await expect(s.set('terminal.scrollback', 'huge')).rejects.toMatchObject({ code: 'invalid_value' })
     await expect(s.set('terminal.nope', 1)).rejects.toBeInstanceOf(RpcError)
     await expect(s.reset('nope.nope')).rejects.toMatchObject({ code: 'unknown_key' })
-    expect(s.values.get('terminal.fontSize')).toBe(18)
+    expect(s.values.get('terminal.scrollback')).toBe(18)
 
     // settings.json linked from someone's dotfiles: the file it points to is edited, the link stays a link
     const h2 = home()
@@ -320,11 +320,11 @@ describe('settings.json editing', () => {
     fs.writeFileSync(target, COMMENTED)
     fs.symlinkSync(target, settingsPath(h2))
     const linked = open(h2)
-    await linked.set('terminal.fontSize', 17)
+    await linked.set('terminal.scrollback', 17)
     expect(fs.lstatSync(settingsPath(h2)).isSymbolicLink()).toBe(true)
     expect(fs.readlinkSync(settingsPath(h2))).toBe(target)
-    expect(fs.readFileSync(target, 'utf8')).toBe(COMMENTED.replace('"fontSize": 14', '"fontSize": 17'))
-    expect(linked.values.get('terminal.fontSize')).toBe(17)
+    expect(fs.readFileSync(target, 'utf8')).toBe(COMMENTED.replace('"scrollback": 14', '"scrollback": 17'))
+    expect(linked.values.get('terminal.scrollback')).toBe(17)
   })
 
   it('U-SET-5 · a save that lands just as Kea begins to follow settings.json is not lost: the file is followed first and read after, so what it held when the watch began is what was read, and a later save is heard as ever', () => {
@@ -337,7 +337,7 @@ describe('settings.json editing', () => {
       // caller's to have read; only a change after that is reported. The save lands right before the watch begins.
       const service: WatchService = {
         file: (file, onChange) => {
-          fs.writeFileSync(file, COMMENTED.replace('"fontSize": 14', '"fontSize": 19'))
+          fs.writeFileSync(file, COMMENTED.replace('"scrollback": 14', '"scrollback": 19'))
           changed = onChange
           return { dispose: () => undefined, look: () => undefined }
         },
@@ -345,15 +345,15 @@ describe('settings.json editing', () => {
       }
       const s = new SettingsFile({ home: h, log: createMemoryLogger({ process: 'core' }), watcher: service })
       cleanup.push(() => s.dispose())
-      expect(s.values.get('terminal.fontSize'), 'the save made as the watch began').toBe(19)
-      expect(s.store.get('terminal.fontSize')).toBe(19)
+      expect(s.values.get('terminal.scrollback'), 'the save made as the watch began').toBe(19)
+      expect(s.store.get('terminal.scrollback')).toBe(19)
       vi.advanceTimersByTime(L.watchBatchMs)
-      expect(s.values.get('terminal.fontSize')).toBe(19)
+      expect(s.values.get('terminal.scrollback')).toBe(19)
       // a later save is reported and read
-      fs.writeFileSync(settingsPath(h), COMMENTED.replace('"fontSize": 14', '"fontSize": 21'))
+      fs.writeFileSync(settingsPath(h), COMMENTED.replace('"scrollback": 14', '"scrollback": 21'))
       changed!()
       vi.advanceTimersByTime(L.watchBatchMs)
-      expect(s.values.get('terminal.fontSize')).toBe(21)
+      expect(s.values.get('terminal.scrollback')).toBe(21)
     } finally {
       vi.useRealTimers()
     }
@@ -361,45 +361,45 @@ describe('settings.json editing', () => {
 
   it('U-SET-5 · a broken file keeps the last-known-good values and reports the parse error with line and column; it is never edited', async () => {
     const h = home()
-    fs.writeFileSync(settingsPath(h), '{ "terminal": { "fontSize": 15 } }\n')
+    fs.writeFileSync(settingsPath(h), '{ "terminal": { "scrollback": 15 } }\n')
     const s = open(h)
-    expect(s.values.get('terminal.fontSize')).toBe(15)
+    expect(s.values.get('terminal.scrollback')).toBe(15)
     expect(s.status.error).toBeNull()
 
-    const broken = '{\n  "terminal": {\n    "fontSize": 20\n    "fontFamily": "Menlo"\n  }\n}\n'
+    const broken = '{\n  "terminal": {\n    "scrollback": 20\n    "fontFamily": "Menlo"\n  }\n}\n'
     fs.writeFileSync(settingsPath(h), broken)
     s.reload()
-    expect(s.values.get('terminal.fontSize'), 'last known good').toBe(15)
-    expect(s.store.get('terminal.fontSize')).toBe(15)
+    expect(s.values.get('terminal.scrollback'), 'last known good').toBe(15)
+    expect(s.store.get('terminal.scrollback')).toBe(15)
     expect(s.statusStore.get(SETTINGS_STATUS_KEY)?.error).toEqual({ message: 'CommaExpected', line: 4, column: 5, offset: broken.indexOf('"fontFamily"') })
-    await expect(s.set('terminal.fontSize', 12)).rejects.toMatchObject({ code: 'file_invalid' })
+    await expect(s.set('terminal.scrollback', 12)).rejects.toMatchObject({ code: 'file_invalid' })
     expect(fs.readFileSync(settingsPath(h), 'utf8')).toBe(broken)
 
     // fixed by hand: applied, banner gone
     fs.writeFileSync(settingsPath(h), broken.replace('20\n', '20,\n'))
     s.reload()
-    expect(s.values.get('terminal.fontSize')).toBe(20)
+    expect(s.values.get('terminal.scrollback')).toBe(20)
     expect(s.values.get('terminal.fontFamily')).toBe('Menlo')
     expect(s.status.error).toBeNull()
 
     // broken at launch: the defaults, and the error
     const h2 = home()
-    const bad = '{ "terminal": { "fontSize": 30, } ]'
+    const bad = '{ "terminal": { "scrollback": 30, } ]'
     fs.writeFileSync(settingsPath(h2), bad)
     const s2 = open(h2)
-    expect(s2.values.get('terminal.fontSize')).toBe(DEFAULTS.fontSize)
-    expect(s2.store.get('terminal.fontSize')).toBe(DEFAULTS.fontSize)
+    expect(s2.values.get('terminal.scrollback')).toBe(DEFAULTS.scrollback)
+    expect(s2.store.get('terminal.scrollback')).toBe(DEFAULTS.scrollback)
     expect(s2.status.error).toMatchObject({ line: 1, column: bad.indexOf(']') + 1 })
   })
 
   it('U-SET-5 · invalid values fall back per key with a notice in settings.status; a deleted file means the defaults', () => {
     const h = home()
-    // one past the largest font size, and a valid cursor
-    fs.writeFileSync(settingsPath(h), JSON.stringify({ terminal: { fontSize: L.settingsFontSizeMax + 1, cursorStyle: 'bar' } }))
+    // one past the longest scrollback, and a valid cursor
+    fs.writeFileSync(settingsPath(h), JSON.stringify({ terminal: { scrollback: L.settingsScrollbackMax + 1, cursorStyle: 'bar' } }))
     const s = open(h)
-    expect(s.values.get('terminal.fontSize')).toBe(DEFAULTS.fontSize)
+    expect(s.values.get('terminal.scrollback')).toBe(DEFAULTS.scrollback)
     expect(s.values.get('terminal.cursorStyle')).toBe('bar')
-    expect(s.status.notices.map((n) => n.key)).toEqual(['terminal.fontSize'])
+    expect(s.status.notices.map((n) => n.key)).toEqual(['terminal.scrollback'])
     fs.rmSync(settingsPath(h))
     s.reload()
     expect(s.values.get('terminal.cursorStyle')).toBe(DEFAULTS.cursorStyle)

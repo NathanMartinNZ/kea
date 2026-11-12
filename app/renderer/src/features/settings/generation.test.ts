@@ -183,13 +183,13 @@ describe('Settings: sections generated from the schema', () => {
   })
 
   it('U-SET-6 · a row whose value differs from the default offers Reset, named for its key; a dangerous-modes switch that is on says in one sentence what it adds', () => {
-    const modified: Record<string, unknown> = { 'terminal.fontSize': (defaults.get<number>('terminal.fontSize') ?? 0) + 1, 'agents.one.allowDangerousModes': true }
+    const modified: Record<string, unknown> = { 'terminal.scrollback': (defaults.get<number>('terminal.scrollback') ?? 0) + 1, 'agents.one.allowDangerousModes': true }
     const value = (k: string) => (k in modified ? modified[k] : defaults.get(k))
     const terminal = drawSection(all, 'Terminal', value)
-    const size = all.find((r) => r.fullKey === 'terminal.fontSize')!
-    expect(read(terminal.get('terminal.fontSize')!).reset).toBe(`Reset ${size.label} to its default`)
+    const lines = all.find((r) => r.fullKey === 'terminal.scrollback')!
+    expect(read(terminal.get('terminal.scrollback')!).reset).toBe(`Reset ${lines.label} to its default`)
     // its neighbours are at their defaults: no Reset
-    for (const [key, markup] of terminal) if (key !== 'terminal.fontSize') expect(read(markup).reset, key).toBeNull()
+    for (const [key, markup] of terminal) if (key !== 'terminal.scrollback') expect(read(markup).reset, key).toBeNull()
 
     const cards = agentCards({ rows: all, agents: [{ id: 'one', displayName: 'Agent One' }] }, [])
     const draw = (v: (k: string) => unknown) => read(rowsIn(html(AgentCards, { cards, value: v, onSet: never, onReset: never, onCopy: () => {} })).get('agents.one.allowDangerousModes')!)
@@ -235,9 +235,9 @@ describe('Settings: what a row shows and writes', () => {
     expect(isModified(row('map', { default: {} }), { A: '1' })).toBe(true)
     expect(isModified(row('path', { default: null }), undefined)).toBe(false)
     // core's refusal names the key first; the row shows the rest, the schema's own words
-    const size = row('number', { fullKey: 'terminal.fontSize' })
-    expect(refusal(size, new Error('terminal.fontSize: Too big: expected number to be <=72'))).toBe('Too big: expected number to be <=72')
-    expect(refusal(size, new Error('settings.json does not parse'))).toBe('settings.json does not parse')
+    const lines = row('number', { fullKey: 'terminal.scrollback' })
+    expect(refusal(lines, new Error('terminal.scrollback: Too big: expected number to be <=100000'))).toBe('Too big: expected number to be <=100000')
+    expect(refusal(lines, new Error('settings.json does not parse'))).toBe('settings.json does not parse')
     expect(rowId(row('text', { fullKey: 'agents.one.extraArgs' }))).toBe('setting-agents-one-extraArgs')
     // a select names the registered adapters when its values are theirs
     expect(optionsOf(row('select', { optionsFrom: 'agents' }), [{ id: 'one', displayName: 'Agent One' }])).toEqual([{ value: 'one', label: 'Agent One' }])

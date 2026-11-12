@@ -70,7 +70,7 @@ describe('Match Ghostty config', () => {
     expect(parseGhosttyConfig(`font-family = ${'x'.repeat(L.settingsFontFamilyMaxChars + 1)}`).fontFamily, 'a font name longer than terminal.fontFamily allows').toBeNull()
   })
 
-  it('U-SET-4 · the theme is Kea Dark with what the file states laid over it; unstated selection and cursor follow Ghostty’s own defaults; the font is the file’s, the size inside terminal.fontSize’s range', () => {
+  it('U-SET-4 · the theme is Kea Dark with what the file states laid over it; unstated selection and cursor follow Ghostty’s own defaults; the font is the file’s, the size inside the terminal font range', () => {
     const dir = configDir()
     const file = path.join(dir, 'config')
     fs.writeFileSync(file, CONFIG)
@@ -89,8 +89,8 @@ describe('Match Ghostty config', () => {
     expect(t.cursorAccent).toBe('#1d1f21')
     expect(ghosttyFont('ghostty', g.config)).toEqual({ fontFamily: 'Berkeley Mono', fontSize: 14.5 })
     expect(ghosttyFont('kea-dark', g.config), 'another theme takes nothing from the file').toEqual({ fontFamily: null, fontSize: null })
-    expect(ghosttyFont('ghostty', { ...g.config, fontSize: 400 }).fontSize).toBe(L.settingsFontSizeMax)
-    expect(ghosttyFont('ghostty', { ...g.config, fontSize: 1 }).fontSize).toBe(L.settingsFontSizeMin)
+    expect(ghosttyFont('ghostty', { ...g.config, fontSize: 400 }).fontSize).toBe(L.terminalFontSizeMax)
+    expect(ghosttyFont('ghostty', { ...g.config, fontSize: 1 }).fontSize).toBe(L.terminalFontSizeMin)
     // the mirror's colours are the same theme's, and its scheme follows the file's colours
     expect(colorThemeOf('ghostty', g.config)).toMatchObject({ background: '#1d1f21', foreground: '#c5c8c6', cursor: '#ffaa00' })
     expect(isDarkTheme(t)).toBe(true)

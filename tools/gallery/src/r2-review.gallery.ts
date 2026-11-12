@@ -205,7 +205,7 @@ test('R-5 · the light theme', async ({ run, launch }) => {
   test.skip(!REVIEW, 'a review set: pnpm gallery --review')
   test.setTimeout(180_000)
   const set = new GallerySet('R-5', 'Under kea-light (the terminal theme; chrome keeps its colours)')
-  const kea = await openKea(run, launch, { settings: { terminal: { fontFamily: 'SF Mono', fontSize: 13, theme: 'kea-light' } } })
+  const kea = await openKea(run, launch, { settings: { general: { fontSize: 'default' }, terminal: { fontFamily: 'SF Mono', theme: 'kea-light' } } })
   const page = await kea.page()
   const root = tinyRepo({ name: 'atlas-web', parent: run.home }).root
   await addProject(kea, root, 'atlas-web')
@@ -257,7 +257,7 @@ test('R-6 · banner strip, setup strips, the reconnecting bar', async ({ run, la
   // ── the banner strip: a settings file that does not parse ──
   const settings = path.join(run.home, 'settings.json')
   const good = fs.readFileSync(settings, 'utf8')
-  fs.writeFileSync(settings, `${good.trimEnd().slice(0, -1)},\n  "terminal": { "fontSize": 900 }\n`)
+  fs.writeFileSync(settings, `${good.trimEnd().slice(0, -1)},\n  "terminal": { "scrollback": 900 }\n`)
   const banners = page.getByRole('region', { name: 'Banners' })
   await expect(banners.getByRole('status').first()).toBeVisible({ timeout: STEP_MS })
   await set.shot(kea, 'banner', 'The banner strip under the header: one 28 px line, a 5 px dot (--danger for an error), the message in --text-1, the fix in --text-3, one quiet action', 'Banner strip', { rect: { ...MAIN, height: 300 } })

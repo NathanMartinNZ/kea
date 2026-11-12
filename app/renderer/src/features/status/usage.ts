@@ -58,8 +58,8 @@ export function usageView(r: UsageReading | null, now: number): UsageView | null
     const reset = resetText(w.resetsAt, now)
     const full = w.usedPct >= 100
     parts.push({ id: w.id, text: full ? `${SHORT[w.id]} limit${SEP}${reset}` : `${SHORT[w.id]} ${pct}%`, level: usageLevel(w.usedPct) })
-    tips.push(`${TIP[w.id]}: ${pct} % used, resets ${reset}`)
-    spoken.push(full ? `${SPOKEN[w.id]} limit reached until ${reset}` : `${SPOKEN[w.id]} ${pct} %`)
+    tips.push(`${TIP[w.id]}: ${pct}% used, resets ${reset}`)
+    spoken.push(full ? `${SPOKEN[w.id]} limit reached until ${reset}` : `${SPOKEN[w.id]} ${pct}%`)
   }
   return {
     parts,

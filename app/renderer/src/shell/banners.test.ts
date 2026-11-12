@@ -17,7 +17,7 @@ describe('the banner strip', () => {
     expect(broken!.fix).toContain('last good settings')
 
     const notices = [
-      { key: 'terminal.fontSize', message: 'terminal.fontSize: too small — using the default' },
+      { key: 'terminal.scrollback', message: 'terminal.scrollback: too small — using the default' },
       { key: 'general.sessionOrder', message: 'general.sessionOrder: invalid value — using the default' },
     ]
     expect(settingsBanner(status({ notices: notices.slice(0, 1) }))).toMatchObject({ severity: 'warning', message: notices[0]!.message })

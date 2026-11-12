@@ -2,7 +2,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
-import { allSettingDefs, parseSettings, SETTINGS, type AgentSettingsExtension, type SettingsSection } from './settings.ts'
+import { L } from './generated/limits.ts'
+import { allSettingDefs, FONT_SIZES, fontSizeOffset, parseSettings, SETTINGS, terminalFontSize, terminalSettings, type AgentSettingsExtension, type SettingsSection } from './settings.ts'
 
 const claude: AgentSettingsExtension = {
   id: 'claude',
@@ -32,6 +33,39 @@ describe('settings schema', () => {
     expect(notices).toEqual([])
   })
 
+  it('U-SET-13 · each font size level moves the terminal size one step from Kea’s own (or a Ghostty config’s), inside the terminal font range; no setting holds a terminal size', () => {
+    const def = SETTINGS.find((d) => d.key === 'general.fontSize')!
+    expect(def.default).toBe('default')
+    expect(def.options).toEqual([
+      { value: 'xs', label: 'Extra small' },
+      { value: 'sm', label: 'Small' },
+      { value: 'default', label: 'Default' },
+      { value: 'lg', label: 'Large' },
+      { value: 'xl', label: 'Extra large' },
+    ])
+    const sizes = FONT_SIZES.map((level) => {
+      const { values, notices } = parseSettings({ general: { fontSize: level } }, [])
+      expect(notices).toEqual([])
+      expect(terminalSettings(values).fontSize).toBe(terminalFontSize(L.terminalFontSize, level))
+      return terminalSettings(values).fontSize
+    })
+    expect(sizes).toEqual([-2, -1, 0, 1, 2].map((n) => L.terminalFontSize + n * L.fontSizeStep))
+    expect(FONT_SIZES.map(fontSizeOffset)).toEqual([-2, -1, 0, 1, 2].map((n) => n * L.fontSizeStep))
+    // a Ghostty config's size is the base the level moves; the range holds at both ends
+    expect(terminalFontSize(L.terminalFontSize + 7, 'lg')).toBe(L.terminalFontSize + 7 + L.fontSizeStep)
+    expect(terminalFontSize(L.terminalFontSizeMax, 'xl')).toBe(L.terminalFontSizeMax)
+    expect(terminalFontSize(L.terminalFontSizeMin, 'xs')).toBe(L.terminalFontSizeMin)
+    // a terminal.fontSize left in a file is an unknown key: no notice, no effect
+    const old = parseSettings({ terminal: { fontSize: L.terminalFontSize + 5 } }, [])
+    expect(old.notices).toEqual([])
+    expect(terminalSettings(old.values).fontSize).toBe(L.terminalFontSize)
+    expect(SETTINGS.some((d) => d.key === 'terminal.fontSize')).toBe(false)
+    // a level the schema does not know is Default, with a notice
+    const bad = parseSettings({ general: { fontSize: 'huge' } }, [])
+    expect(bad.values.get('general.fontSize')).toBe('default')
+    expect(bad.notices.map((n) => n.key)).toEqual(['general.fontSize'])
+  })
+
   it('U-SET-1 · defaults apply when the file is empty', () => {
     const { values, notices } = parseSettings({}, [claude])
     expect(notices).toEqual([])
@@ -41,11 +75,11 @@ describe('settings schema', () => {
   })
 
   it('U-SET-1 · an invalid value falls back per key with a notice; valid neighbours are kept', () => {
-    const { values, notices } = parseSettings({ terminal: { fontSize: 'huge', fontFamily: 'Berkeley Mono' }, general: { onQuit: 'explode' } }, [claude])
-    expect(values.get('terminal.fontSize')).toBe(13)
+    const { values, notices } = parseSettings({ terminal: { scrollback: 'huge', fontFamily: 'Berkeley Mono' }, general: { onQuit: 'explode' } }, [claude])
+    expect(values.get('terminal.scrollback')).toBe(SETTINGS.find((d) => d.key === 'terminal.scrollback')!.default)
     expect(values.get('terminal.fontFamily')).toBe('Berkeley Mono')
     expect(values.get('general.onQuit')).toBe('menuBar')
-    expect(notices.map((n) => n.key).sort()).toEqual(['general.onQuit', 'terminal.fontSize'])
+    expect(notices.map((n) => n.key).sort()).toEqual(['general.onQuit', 'terminal.scrollback'])
   })
 
   it('U-SET-1 · unknown keys are ignored by validation (the file editor preserves them)', () => {

@@ -154,8 +154,12 @@ export const L = {
   osc52NoteMs: 2000,
   /** titles, bells and OSC 9/777 text truncated before display (chars) */
   oscTextMaxChars: 120,
-  /** ⌘+ / ⌘− change the terminal font size by this much, within terminal.fontSize's range (px) */
+  /** ⌘+ / ⌘− change the terminal font size by this much, within terminal_font_size_min to terminal_font_size_max (px) */
   terminalFontStep: 1,
+  /** the terminals' and the file view's font size at the Default font size, before the font size level and the ⌘+ / ⌘− zoom (px) */
+  terminalFontSize: 13,
+  /** each level of the Font size setting moves every text size in the window, the terminals' included, by this much (px) */
+  fontSizeStep: 1,
   /** the agent pane's narrowest width beside the work pane; below it the agent shows as a tab (cols) */
   agentMinCols: 60,
   /** the work pane's narrowest width beside the agent pane (cols) */
@@ -642,10 +646,10 @@ export const L = {
   settingsBranchPrefixMaxChars: 64,
   /** longest terminal.fontFamily (chars) */
   settingsFontFamilyMaxChars: 200,
-  /** smallest terminal.fontSize (px) */
-  settingsFontSizeMin: 6,
-  /** largest terminal.fontSize (px) */
-  settingsFontSizeMax: 72,
+  /** smallest terminal font size: a Ghostty config's size, the font size level and the ⌘− zoom stop here (px) */
+  terminalFontSizeMin: 6,
+  /** largest terminal font size: a Ghostty config's size, the font size level and the ⌘+ zoom stop here (px) */
+  terminalFontSizeMax: 72,
   /** smallest terminal.lineHeight (ratio) */
   settingsLineHeightMin: 1,
   /** largest terminal.lineHeight (ratio) */
@@ -858,7 +862,9 @@ export const LIMIT_META: Record<LimitName, { unit: string; why: string; whyLinux
   osc52MaxBytes: { unit: "bytes", why: "largest OSC 52 clipboard write applied" },
   osc52NoteMs: { unit: "ms", why: "'Copied by terminal' shown this long" },
   oscTextMaxChars: { unit: "chars", why: "titles, bells and OSC 9/777 text truncated before display" },
-  terminalFontStep: { unit: "px", why: "⌘+ / ⌘− change the terminal font size by this much, within terminal.fontSize's range" },
+  terminalFontStep: { unit: "px", why: "⌘+ / ⌘− change the terminal font size by this much, within terminal_font_size_min to terminal_font_size_max" },
+  terminalFontSize: { unit: "px", why: "the terminals' and the file view's font size at the Default font size, before the font size level and the ⌘+ / ⌘− zoom" },
+  fontSizeStep: { unit: "px", why: "each level of the Font size setting moves every text size in the window, the terminals' included, by this much" },
   agentMinCols: { unit: "cols", why: "the agent pane's narrowest width beside the work pane; below it the agent shows as a tab" },
   workMinCols: { unit: "cols", why: "the work pane's narrowest width beside the agent pane" },
   agentFirstShare: { unit: "ratio", why: "the agent pane's share of the main column until its divider is dragged" },
@@ -1102,8 +1108,8 @@ export const LIMIT_META: Record<LimitName, { unit: string; why: string; whyLinux
   settingsDaysMax: { unit: "days", why: "the largest day count any retention setting accepts (ten years)" },
   settingsBranchPrefixMaxChars: { unit: "chars", why: "longest general.branchPrefix" },
   settingsFontFamilyMaxChars: { unit: "chars", why: "longest terminal.fontFamily" },
-  settingsFontSizeMin: { unit: "px", why: "smallest terminal.fontSize" },
-  settingsFontSizeMax: { unit: "px", why: "largest terminal.fontSize" },
+  terminalFontSizeMin: { unit: "px", why: "smallest terminal font size: a Ghostty config's size, the font size level and the ⌘− zoom stop here" },
+  terminalFontSizeMax: { unit: "px", why: "largest terminal font size: a Ghostty config's size, the font size level and the ⌘+ zoom stop here" },
   settingsLineHeightMin: { unit: "ratio", why: "smallest terminal.lineHeight" },
   settingsLineHeightMax: { unit: "ratio", why: "largest terminal.lineHeight" },
   settingsScrollbackMax: { unit: "lines", why: "largest terminal.scrollback (the renderer keeps this many lines per open terminal)" },

@@ -25,7 +25,7 @@
   <ThemePreview theme={s.theme} themeId={s.p.theme} fontFamily={s.p.fontFamily} fontSize={s.p.fontSize} lineHeight={s.p.lineHeight} ghostty={s.ghostty} />
   {#snippet after()}
     {#if ghosttyFont}
-      <p class="settings-help settings-wide" role="status">While the theme matches the Ghostty config, the font and the font size it states are used instead of the two settings above.</p>
+      <p class="settings-help settings-wide" role="status">While the theme matches the Ghostty config, the font it states is used instead of the Font setting above, and the size it states is the one General › Font size makes smaller or larger.</p>
     {/if}
   {/snippet}
 </SectionPage>

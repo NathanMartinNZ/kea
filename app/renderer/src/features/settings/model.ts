@@ -90,7 +90,7 @@ export function parseText(row: SettingRow, text: string): Parsed {
   return { value: t }
 }
 
-/** The schema's message without the key core puts before it (`terminal.fontSize: Too big: …`). */
+/** The schema's message without the key core puts before it (`terminal.scrollback: Too big: …`). */
 export function refusal(row: SettingRow, e: unknown): string {
   const msg = e instanceof Error ? e.message : String(e)
   return msg.startsWith(`${row.fullKey}: `) ? msg.slice(row.fullKey.length + 2) : msg

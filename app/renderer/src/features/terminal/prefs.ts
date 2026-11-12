@@ -84,7 +84,7 @@ export class Prefs {
     return this.source.get()
   }
 
-  /** The appearance views apply: the settings with the zoom on the font size, kept inside the setting's range. */
+  /** The appearance views apply: the settings with the zoom on the font size, kept inside the terminal font range. */
   appearance(): Appearance {
     const p = this.source.get()
     return {
@@ -99,7 +99,7 @@ export class Prefs {
     }
   }
 
-  /** `⌘+` (1), `⌘−` (-1), `⌘0` (0, back to the setting). Steps past the range do nothing. */
+  /** `⌘+` (1), `⌘−` (-1), `⌘0` (0, back to the saved size). Steps past the range do nothing. */
   zoomBy(step: -1 | 0 | 1): void {
     const next = step === 0 ? 0 : this.zoom + step
     const size = this.source.get().fontSize + next * L.terminalFontStep
@@ -124,7 +124,7 @@ export class Prefs {
 }
 
 function clampFont(px: number): number {
-  return Math.min(L.settingsFontSizeMax, Math.max(L.settingsFontSizeMin, px))
+  return Math.min(L.terminalFontSizeMax, Math.max(L.terminalFontSizeMin, px))
 }
 
 export const prefs = new Prefs(defaultPrefsSource)

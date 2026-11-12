@@ -3,9 +3,9 @@
 // (tests/e2e/fixtures.ts → `KeaRun.launch` → `launchKea`): unfocused, a temporary KEA_HOME, repo-factory repos and
 // tools/fake-agent, so nothing a screen shows names a person, a home folder or a host.
 //
-// "Fonts pinned": the run's settings.json says the terminal's font and size outright (the schema's defaults, written
-// down so a later default cannot move the pictures), no Ghostty config is followed, and the chrome's font is the
-// system's, as in the app.
+// "Fonts pinned": the run's settings.json says the terminal's font and the font size level outright (the schema's
+// defaults, written down so a later default cannot move the pictures), no Ghostty config is followed, and the chrome's
+// font is the system's, as in the app.
 
 import fs from 'node:fs'
 import path from 'node:path'
@@ -43,7 +43,7 @@ export interface SetFile {
 
 /** The run's settings: `extra` over the pinned terminal font (see the header). */
 export function pinSettings(run: KeaRun, extra: Record<string, Record<string, unknown>> = {}): void {
-  const base: Record<string, Record<string, unknown>> = { terminal: { fontFamily: 'SF Mono', fontSize: 13 } }
+  const base: Record<string, Record<string, unknown>> = { general: { fontSize: 'default' }, terminal: { fontFamily: 'SF Mono' } }
   for (const [section, values] of Object.entries(extra)) base[section] = { ...base[section], ...values }
   fs.writeFileSync(path.join(run.home, 'settings.json'), `${JSON.stringify(base, null, 2)}\n`)
 }

@@ -43,6 +43,19 @@ export const SESSION_ORDER = ['stable', 'attention'] as const
 export const CURSOR_STYLES = ['block', 'bar', 'underline'] as const
 export const CLIPBOARD_WRITE = ['focused', 'always', 'never'] as const
 export const CHANGES_SCOPE = ['branch', 'uncommitted'] as const
+/** `general.fontSize`'s levels, smallest first; each step from `default` moves every text size by `L.fontSizeStep`. */
+export const FONT_SIZES = ['xs', 'sm', 'default', 'lg', 'xl'] as const
+export type FontSizeLevel = (typeof FONT_SIZES)[number]
+
+/** How far a font size level moves every text size from its default, in px (negative for the smaller levels). */
+export function fontSizeOffset(level: FontSizeLevel): number {
+  return (FONT_SIZES.indexOf(level) - FONT_SIZES.indexOf('default')) * L.fontSizeStep
+}
+
+/** A terminal's font size at a level: its base (Kea's, or a Ghostty config's) moved by the level, kept in range. */
+export function terminalFontSize(base: number, level: FontSizeLevel): number {
+  return Math.min(L.terminalFontSizeMax, Math.max(L.terminalFontSizeMin, base + fontSizeOffset(level)))
+}
 /**
  * `auto` is the first terminal app found, in the catalog's order (`app/core/src/editor/catalog.ts`): macOS's
  * apps, then the ones only Linux has. One settings file serves both systems, so the setting takes either
@@ -78,10 +91,10 @@ export const SETTINGS: readonly SettingDef[] = [
   { key: 'general.pruneArchivedBuildDirsDays', schema: days, default: 7, label: 'Remove build folders of archived sessions after (days)', help: '0 = never.', section: 'General', control: 'number' },
   { key: 'general.excludeBuildDirsFromBackup', schema: z.boolean(), default: true, label: 'Exclude build folders from Time Machine', section: 'General', control: 'toggle' },
   { key: 'general.sessionOrder', schema: z.enum(SESSION_ORDER), default: 'stable', label: 'Session order', section: 'General', control: 'select', options: sel(SESSION_ORDER, { stable: 'Stable (newest first)', attention: 'Needs me first' }) },
+  { key: 'general.fontSize', schema: z.enum(FONT_SIZES), default: 'default', label: 'Font size', help: `All of Kea’s text, the terminals and the file view included, ${L.fontSizeStep} px smaller or larger a step.`, section: 'General', control: 'select', options: sel(FONT_SIZES, { xs: 'Extra small', sm: 'Small', default: 'Default', lg: 'Large', xl: 'Extra large' }) },
 
   // the default font is this system's: SF Mono on macOS, JetBrains Mono on Linux
   { key: 'terminal.fontFamily', schema: z.string().min(1).max(L.settingsFontFamilyMaxChars), default: protocolOs.window.terminalFont, label: 'Font', section: 'Terminal', control: 'text' },
-  { key: 'terminal.fontSize', schema: z.number().min(L.settingsFontSizeMin).max(L.settingsFontSizeMax), default: 13, label: 'Font size', section: 'Terminal', control: 'number' },
   { key: 'terminal.lineHeight', schema: z.number().min(L.settingsLineHeightMin).max(L.settingsLineHeightMax), default: 1.2, label: 'Line height', section: 'Terminal', control: 'number' },
   { key: 'terminal.theme', schema: z.enum(TERMINAL_THEMES), default: 'kea-dark', label: 'Theme', help: '“Match Ghostty config” reads the colours and the font of ~/.config/ghostty/config, and follows the file as it changes. Kea’s own chrome keeps its colours.', section: 'Terminal', control: 'select', options: THEME_OPTIONS },
   { key: 'terminal.cursorStyle', schema: z.enum(CURSOR_STYLES), default: 'block', label: 'Cursor', section: 'Terminal', control: 'select', options: sel(CURSOR_STYLES, { block: 'Block', bar: 'Bar', underline: 'Underline' }) },
@@ -284,6 +297,7 @@ export type SettingsDescription = z.infer<typeof zSettingsDescription>
 /** The subset of settings the terminal renderer and mirror use (createTerminalOptions). */
 export type TerminalSettings = {
   fontFamily: string
+  /** Kea's terminal size (`L.terminalFontSize`) moved by `general.fontSize`'s level; no setting holds a terminal size. */
   fontSize: number
   lineHeight: number
   theme: string
@@ -296,7 +310,7 @@ export type TerminalSettings = {
 export function terminalSettings(v: SettingsValues): TerminalSettings {
   return {
     fontFamily: v.get('terminal.fontFamily'),
-    fontSize: v.get('terminal.fontSize'),
+    fontSize: terminalFontSize(L.terminalFontSize, v.get('general.fontSize')),
     lineHeight: v.get('terminal.lineHeight'),
     theme: v.get('terminal.theme'),
     cursorStyle: v.get('terminal.cursorStyle'),
@@ -310,7 +324,7 @@ export const DEFAULT_TERMINAL_SETTINGS: TerminalSettings = terminalSettings(pars
 
 // ── the settings stores and calls ──────────────────────────────────────────────────────────────────────
 
-/** Every setting's effective value by its full dotted key (`terminal.fontSize`, `agents.claude.defaults`). */
+/** Every setting's effective value by its full dotted key (`terminal.theme`, `agents.claude.defaults`). */
 export const SETTINGS_STORE = 'settings'
 /** One entry, key `SETTINGS_STATUS_KEY`: the file's state for the banner and the per-key notices. */
 export const SETTINGS_STATUS_STORE = 'settings.status'

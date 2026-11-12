@@ -1,14 +1,15 @@
 // The window's copy of core's `settings` and `settings.status` stores: every setting's effective value by full dotted
 // key, and the file's state for the banner that says it does not parse. Until core answers, values are the
-// schema's defaults. The terminal's preferences come from here (applied live), and so does the terminal theme: a
-// bundled palette by its id, or, for "Match Ghostty config", the colours and the font core read from the user's Ghostty
-// config (`settings.ghostty`), resolved by the same `resolveTheme` core uses for the mirror's colours, so what a
-// terminal shows and what its program is told agree.
+// schema's defaults. The window's type sizes follow the font size level from here, and the terminal's preferences come
+// from here too (both applied live), the terminal theme with them: a bundled palette by its id, or, for "Match Ghostty
+// config", the colours and the font core read from the user's Ghostty config (`settings.ghostty`), resolved by the same
+// `resolveTheme` core uses for the mirror's colours, so what a terminal shows and what its program is told agree.
 
-import { GHOSTTY_THEME, parseSettings, SETTINGS_GHOSTTY_KEY, SETTINGS_GHOSTTY_STORE, SETTINGS_STATUS_KEY, SETTINGS_STATUS_STORE, SETTINGS_STORE, type GhosttyConfig, type SettingsStatus, type SettingsValues } from '@kea/protocol'
+import { GHOSTTY_THEME, parseSettings, SETTINGS_GHOSTTY_KEY, SETTINGS_GHOSTTY_STORE, SETTINGS_STATUS_KEY, SETTINGS_STATUS_STORE, SETTINGS_STORE, terminalFontSize, type FontSizeLevel, type GhosttyConfig, type SettingsStatus, type SettingsValues } from '@kea/protocol'
 import { DEFAULT_THEME, ghosttyFont, resolveTheme, themeOf, type TerminalTheme } from '@kea/terminal'
 import { subscribe } from '../../lib/rpc.ts'
 import { prefs, staticPrefsSource, terminalPrefs, type TerminalPrefs } from '../terminal/prefs.ts'
+import { typeSizeVars } from './fontSize.ts'
 
 const DEFAULTS = parseSettings({}, []).values
 
@@ -25,14 +26,16 @@ function valuesOf(data: ReadonlyMap<string, unknown>): SettingsValues {
 
 /**
  * The terminal's preferences for these settings and this reading of the Ghostty config. With the `ghostty` theme the
- * colours are the file's over Kea Dark and the font is the file's where it states one; `colors` is the same
- * object for as long as the file's colours are (`themes`), so nothing is re-applied without a change.
+ * colours are the file's over Kea Dark and the font is the file's where it states one, its size moved by the font size
+ * level like Kea's own; `colors` is the same object for as long as the file's colours are (`themes`), so nothing is
+ * re-applied without a change.
  */
 export function resolvedPrefs(values: SettingsValues, ghostty: GhosttyConfig | null, themes: ThemeMemo = new ThemeMemo()): TerminalPrefs {
   const p = terminalPrefs(values)
   if (p.theme !== GHOSTTY_THEME) return p
   const font = ghosttyFont(p.theme, ghostty)
-  return { ...p, fontFamily: font.fontFamily ?? p.fontFamily, fontSize: font.fontSize ?? p.fontSize, colors: themes.of(ghostty) }
+  const fontSize = font.fontSize === null ? p.fontSize : terminalFontSize(font.fontSize, values.get<FontSizeLevel>('general.fontSize'))
+  return { ...p, fontFamily: font.fontFamily ?? p.fontFamily, fontSize, colors: themes.of(ghostty) }
 }
 
 /** The Ghostty theme last resolved, kept while the config it came from says the same. */
@@ -59,6 +62,7 @@ class SettingsMirror {
   private readonly listeners = new Set<Listener>() // bounded: the window's few settings readers
   private readonly prefsSource = staticPrefsSource(terminalPrefs(DEFAULTS))
   private readonly themes = new ThemeMemo()
+  private fontLevel: FontSizeLevel = 'default'
   private installed = false
 
   install(): void {
@@ -68,6 +72,7 @@ class SettingsMirror {
     subscribe<unknown>(SETTINGS_STORE, (data) => {
       // a copy: the RPC client keeps changing its own map
       this.current = valuesOf(new Map(data))
+      this.applyFontSize()
       this.applyPrefs()
       this.changed()
     })
@@ -108,6 +113,18 @@ class SettingsMirror {
   subscribe = (cb: Listener): (() => void) => {
     this.listeners.add(cb)
     return () => this.listeners.delete(cb)
+  }
+
+  /** Every text size in the window follows the font size level (the terminals' through `applyPrefs`). */
+  private applyFontSize(): void {
+    const level = this.current.get<FontSizeLevel>('general.fontSize')
+    if (level === this.fontLevel) return
+    this.fontLevel = level
+    const root = document.documentElement.style
+    for (const [property, value] of typeSizeVars(level)) {
+      if (value === null) root.removeProperty(property)
+      else root.setProperty(property, value)
+    }
   }
 
   /** The terminals' preferences follow the settings and the Ghostty config (live, every open terminal). */

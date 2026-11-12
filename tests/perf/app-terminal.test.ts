@@ -8,7 +8,7 @@
 // p99 over all of them. The other scenarios run once to warm up and then RUNS times, and their median is compared.
 
 import { afterEach, describe, expect, it } from 'vitest'
-import { L } from '@kea/protocol'
+import { FONT_SIZES, L } from '@kea/protocol'
 import { PROMPT, until, zooShellCommand, type Kea, type KeaRun } from '../support/app.ts'
 import { addProject, demoRepo, paneSession, startSession, tabOf, waitLive } from '../support/app-sessions.ts'
 import {
@@ -454,8 +454,8 @@ describe('terminal switching (app)', () => {
       const WARMUP_SWITCHES = 5
       // one more session than are kept warm besides the one shown: visited in turn, the next is always cold
       const SESSIONS = L.warmTerminals + 2
-      // 200 columns on a laptop's display: a smaller font and the sidebar hidden (⌘B; ⌘1…⌘n still select)
-      const { run, kea } = await startKea({ settings: { terminal: { fontSize: FONT_SIZE } } })
+      // 200 columns on a laptop's display: the smallest font size and the sidebar hidden (⌘B; ⌘1…⌘n still select)
+      const { run, kea } = await startKea({ settings: { general: { fontSize: FONT_SIZE } } })
       const page = await kea.page()
       await addProject(kea, demoRepo(run).root)
       const ids: string[] = []
@@ -570,8 +570,8 @@ async function fitColumns(kea: Kea, cols: number): Promise<void> {
   }
   if (now !== cols) throw new Error(`the terminal is ${now} columns at ${width} px, not ${cols}`)
 }
-/** The cold switch's terminal font size (`terminal.fontSize`): small enough for 200 columns on a laptop's display. */
-const FONT_SIZE = 10
+/** The cold switch's font size level (`general.fontSize`), the smallest: room for 200 columns on a laptop's display. */
+const FONT_SIZE = FONT_SIZES[0]
 /** fitColumns: the first widening, and how many corrections it makes at most. */
 const FIT_STEP_PX = 200
 const FIT_TRIES = 8

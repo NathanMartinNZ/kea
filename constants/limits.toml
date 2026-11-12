@@ -394,7 +394,17 @@ why = "titles, bells and OSC 9/777 text truncated before display"
 [terminal_font_step]
 value = 1
 unit = "px"
-why = "⌘+ / ⌘− change the terminal font size by this much, within terminal.fontSize's range"
+why = "⌘+ / ⌘− change the terminal font size by this much, within terminal_font_size_min to terminal_font_size_max"
+
+[terminal_font_size]
+value = 13
+unit = "px"
+why = "the terminals' and the file view's font size at the Default font size, before the font size level and the ⌘+ / ⌘− zoom"
+
+[font_size_step]
+value = 1
+unit = "px"
+why = "each level of the Font size setting moves every text size in the window, the terminals' included, by this much"
 
 [agent_min_cols]
 value = 60
@@ -1629,15 +1639,15 @@ value = 200
 unit = "chars"
 why = "longest terminal.fontFamily"
 
-[settings_font_size_min]
+[terminal_font_size_min]
 value = 6
 unit = "px"
-why = "smallest terminal.fontSize"
+why = "smallest terminal font size: a Ghostty config's size, the font size level and the ⌘− zoom stop here"
 
-[settings_font_size_max]
+[terminal_font_size_max]
 value = 72
 unit = "px"
-why = "largest terminal.fontSize"
+why = "largest terminal font size: a Ghostty config's size, the font size level and the ⌘+ zoom stop here"
 
 [settings_line_height_min]
 value = 1

@@ -27,7 +27,7 @@ function home(): string {
   return dir
 }
 
-const GOOD = '{ "terminal": { "fontSize": 15, "cursorStyle": "bar" }, "general": { "branchPrefix": "me/" } }\n'
+const GOOD = '{ "terminal": { "lineHeight": 1.5, "cursorStyle": "bar" }, "general": { "branchPrefix": "me/" } }\n'
 const DEFS = allSettingDefs([])
 
 /** Every key present and valid against its definition; `text`'s error (if any) inside the text. */
@@ -44,7 +44,7 @@ function expectSane(s: SettingsFile, text: string): void {
   expect(e.column).toBeLessThanOrEqual((lines[e.line - 1]?.length ?? 0) + 1)
 }
 
-const goodValues = { 'terminal.fontSize': 15, 'terminal.cursorStyle': 'bar', 'general.branchPrefix': 'me/' }
+const goodValues = { 'terminal.lineHeight': 1.5, 'terminal.cursorStyle': 'bar', 'general.branchPrefix': 'me/' }
 
 /** Each corruption leaves settings.json broken: the last good values stay, the banner has an error, edits are refused. */
 const BROKEN: [string, (file: string) => void][] = [
@@ -54,7 +54,7 @@ const BROKEN: [string, (file: string) => void][] = [
   ['a lone byte-order mark and a brace', (f) => fs.writeFileSync(f, '﻿{')],
   ['an unterminated comment', (f) => fs.writeFileSync(f, '{ "terminal": {} /* never closed')],
   ['nesting deeper than anyone writes', (f) => fs.writeFileSync(f, '['.repeat(100_000))],
-  ['a top-level array', (f) => fs.writeFileSync(f, '[{ "terminal": { "fontSize": 20 } }]')],
+  ['a top-level array', (f) => fs.writeFileSync(f, '[{ "terminal": { "lineHeight": 2 } }]')],
   ['a top-level number', (f) => fs.writeFileSync(f, '  // just a number\n  42\n')],
   ['a top-level null', (f) => fs.writeFileSync(f, 'null')],
   ['a directory in its place', (f) => fs.mkdirSync(f)],
@@ -88,7 +88,7 @@ describe('settings.json broken', () => {
         // unreadable: the error points at the start
       }
       expectSane(s, text)
-      await expect(s.set('terminal.fontSize', 12)).rejects.toMatchObject({ code: 'file_invalid' })
+      await expect(s.set('terminal.lineHeight', 1.3)).rejects.toMatchObject({ code: 'file_invalid' })
       expect(s.values.flat).toMatchObject(goodValues)
     })
   }
@@ -134,8 +134,8 @@ describe('settings.json broken', () => {
     expect(c.core.terminals.store.get(ptyId)).toMatchObject({ state: 'running' })
     expect(holderAlive(h.home, ptyId)).toBe(true)
     // fixed by hand: the watcher applies it and the error (the banner) goes, no restart
-    fs.writeFileSync(settingsPath(h.home), '{\n  "terminal": { "fontSize": 15 }\n}\n')
+    fs.writeFileSync(settingsPath(h.home), '{\n  "terminal": { "lineHeight": 1.5 }\n}\n')
     await until('the settings error clears', () => c.core.settings.status.error === null)
-    expect(c.core.settings.values.get('terminal.fontSize')).toBe(15)
+    expect(c.core.settings.values.get('terminal.lineHeight')).toBe(1.5)
   })
 })

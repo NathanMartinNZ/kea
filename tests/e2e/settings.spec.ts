@@ -7,6 +7,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { DEFAULT_TERMINAL_SETTINGS, L, PLATFORM_LINES, protocolOs, type PlatformReport } from '@kea/protocol'
 import { THEMES } from '@kea/terminal'
+import { TYPE_SIZE_PX } from '../../packages/ui/src/generated/tokens.ts'
 import type { Locator, Page } from '@playwright/test'
 import { harnessUserHome } from '../../tools/perf/src/launch.ts'
 import { PROMPT, STEP_MS, until, type Kea, type KeaRun } from '../support/app.ts'
@@ -67,7 +68,7 @@ async function ptySize(kea: Kea, tag: string): Promise<{ rows: number; cols: num
   return { rows: Number(m[1]), cols: Number(m[2]) }
 }
 
-test('E-SET-1 · change the font size and the theme in Settings: every open terminal re-renders at once, the PTY sizes follow, nothing restarts; a value out of range is refused at its row and never written; the comments in settings.json are still there', async ({ run, launch }) => {
+test('E-SET-1 · change the font size and the theme in Settings: the window’s text and every open terminal re-render at once, the PTY sizes follow, nothing restarts; a value out of range is refused at its row and never written; the comments in settings.json are still there', async ({ run, launch }) => {
   fs.writeFileSync(settingsFile(run), COMMENTED)
   const kea = await launch()
   await kea.waitScreen('the shell prompt', (s) => s.includes(PROMPT))
@@ -83,33 +84,40 @@ test('E-SET-1 · change the font size and the theme in Settings: every open term
   const holders = run.holders().map((h) => ({ ptyId: h.ptyId, pid: h.pid, childPid: h.childPid }))
   expect(holders).toHaveLength(2)
 
-  // ── the font size ────────────
-  const bigger = DEFAULT_TERMINAL_SETTINGS.fontSize + 6
-  let sheet = await openSettings(page, 'Terminal')
-  const fontSize = sheet.getByRole('spinbutton', { name: 'Font size' })
-  await expect(fontSize).toHaveValue(String(DEFAULT_TERMINAL_SETTINGS.fontSize))
+  // ── the font size: one level under General moves the window's text and every terminal ────────────
+  const moved = 2 * L.fontSizeStep
+  const bigger = DEFAULT_TERMINAL_SETTINGS.fontSize + moved
+  const type = () => page.evaluate(() => ({ body: getComputedStyle(document.body).fontSize, secondary: getComputedStyle(document.documentElement).getPropertyValue('--type-secondary-size').trim() }))
+  expect(await type(), 'the stylesheet’s sizes').toEqual({ body: `${TYPE_SIZE_PX.base}px`, secondary: `${TYPE_SIZE_PX.secondary}px` })
+  let sheet = await openSettings(page, 'General')
+  const fontSize = sheet.getByRole('combobox', { name: 'Font size' })
+  await expect(fontSize.getByRole('option')).toHaveText(['Extra small', 'Small', 'Default', 'Large', 'Extra large'])
+  await expect(fontSize).toHaveValue('default')
   await expect(sheet.getByRole('button', { name: 'Reset Font size to its default' }), 'at its default a row offers no Reset').toHaveCount(0)
-  await fontSize.fill(String(bigger))
-  await fontSize.press('Enter')
-  // no Save button: it is in force at once, in the file and in every live terminal (the warm one too)
+  await fontSize.selectOption({ label: 'Extra large' })
+  // no Save button: it is in force at once, in the file, in the window's text and in every live terminal (the warm one too)
   await until('both terminals drawn with the new font size', async () => Object.values(await drawn(kea)).every((v) => v.fontSize === bigger) || undefined)
   await until('the terminal on screen refitted to fewer columns and rows', async () => {
     const now = (await drawn(kea))[second]!
     return (now.cols < before[second]!.cols && now.rows < before[second]!.rows) || undefined
   })
+  expect(await type(), 'every type size moved as far').toEqual({ body: `${TYPE_SIZE_PX.base + moved}px`, secondary: `${TYPE_SIZE_PX.secondary + moved}px` })
   await expect(sheet.getByRole('button', { name: 'Reset Font size to its default' })).toBeVisible()
-  expect(fs.readFileSync(settingsFile(run), 'utf8')).toContain(`"fontSize": ${bigger}`)
+  expect(fs.readFileSync(settingsFile(run), 'utf8')).toContain('"fontSize": "xl"')
 
   // a value outside the range is refused at the row, with the schema's message, and is never written
-  await fontSize.fill(String(L.settingsFontSizeMax + 1))
-  await fontSize.press('Enter')
-  const refusal = sheet.locator('[data-setting="terminal.fontSize"]').getByRole('alert')
+  await sheet.getByRole('tab', { name: 'Terminal', exact: true }).click()
+  await expect(page.getByRole('dialog', { name: 'Settings: Terminal', exact: true })).toBeVisible()
+  const scrollback = sheet.getByRole('spinbutton', { name: 'Scrollback lines' })
+  await scrollback.fill(String(L.settingsScrollbackMax + 1))
+  await scrollback.press('Enter')
+  const refusal = sheet.locator('[data-setting="terminal.scrollback"]').getByRole('alert')
   await expect(refusal).toBeVisible({ timeout: STEP_MS })
-  await expect(refusal).toContainText(String(L.settingsFontSizeMax))
-  expect(fs.readFileSync(settingsFile(run), 'utf8')).toContain(`"fontSize": ${bigger}`)
+  await expect(refusal).toContainText(String(L.settingsScrollbackMax))
+  expect(fs.readFileSync(settingsFile(run), 'utf8')).not.toContain('"scrollback"')
   expect(Object.values(await drawn(kea)).map((v) => v.fontSize)).toEqual([bigger, bigger])
-  await fontSize.fill(String(bigger))
-  await fontSize.press('Enter')
+  await scrollback.fill(String(DEFAULT_TERMINAL_SETTINGS.scrollback))
+  await scrollback.press('Enter')
   await expect(refusal).toHaveCount(0)
 
   // Esc closes the sheet and the keyboard is back in the terminal: the shell says what size its PTY has now
@@ -138,13 +146,15 @@ test('E-SET-1 · change the font size and the theme in Settings: every open term
   // the padding around a terminal is its theme's background; Kea's own chrome keeps its tokens
   expect(lower(await page.evaluate(() => document.documentElement.style.getPropertyValue('--terminal-canvas')))).toBe(lower(light))
 
-  // Reset: the font size is the default again, the key leaves the file, the grid comes back
+  // Reset: the font size is the default again, the key leaves the file, the grid and the window's text come back
+  await sheet.getByRole('tab', { name: 'General', exact: true }).click()
   await sheet.getByRole('button', { name: 'Reset Font size to its default' }).click()
-  await expect(sheet.getByRole('spinbutton', { name: 'Font size' })).toHaveValue(String(DEFAULT_TERMINAL_SETTINGS.fontSize))
+  await expect(sheet.getByRole('combobox', { name: 'Font size' })).toHaveValue('default')
   await until('the terminal on screen back on its first grid', async () => {
     const now = (await drawn(kea))[first]!
     return (now.cols === before[first]!.cols && now.rows === before[first]!.rows && now.fontSize === DEFAULT_TERMINAL_SETTINGS.fontSize) || undefined
   })
+  expect(await type()).toEqual({ body: `${TYPE_SIZE_PX.base}px`, secondary: `${TYPE_SIZE_PX.secondary}px` })
   await page.getByRole('dialog', { name: /^Settings: / }).getByRole('button', { name: 'Done' }).click()
   await expect(sheet).toHaveCount(0)
   expect(await ptySize(kea, 'size3')).toEqual({ rows: before[first]!.rows, cols: before[first]!.cols })

@@ -26,15 +26,15 @@ describe('the usage meter', () => {
       { id: 'session', text: '5h 25%', level: 'plain' },
       { id: 'week', text: '7d 67%', level: 'plain' },
     ])
-    expect(v.tip).toBe('Session limit: 25 % used, resets 15:10 · Weekly: 67 % used, resets Mon 09:00 · as of 14:02')
-    expect(v.label).toBe('Usage: session 25 %, weekly 67 %')
+    expect(v.tip).toBe('Session limit: 25% used, resets 15:10 · Weekly: 67% used, resets Mon 09:00 · as of 14:02')
+    expect(v.label).toBe('Usage: session 25%, weekly 67%')
   })
 
   it('U-LAYOUT-8 · a share is rounded down to a whole percent, in the parts, the tooltip and the name alike', () => {
     const v = usageView(reading(42.9, 17.999), NOW)!
     expect(texts(v)).toEqual(['5h 42%', '7d 17%'])
-    expect(v.tip).toBe('Session limit: 42 % used, resets 15:10 · Weekly: 17 % used, resets Mon 09:00 · as of 14:02')
-    expect(v.label).toBe('Usage: session 42 %, weekly 17 %')
+    expect(v.tip).toBe('Session limit: 42% used, resets 15:10 · Weekly: 17% used, resets Mon 09:00 · as of 14:02')
+    expect(v.label).toBe('Usage: session 42%, weekly 17%')
     expect(texts(usageView(reading(0.4, null), NOW)!)).toEqual(['5h 0%'])
   })
 
@@ -54,11 +54,11 @@ describe('the usage meter', () => {
     const v = usageView(reading(100, 67), NOW)!
     expect(texts(v)).toEqual([`5h limit · ${clockTime(SESSION_RESET)}`, '7d 67%'])
     expect(v.parts[0]).toEqual({ id: 'session', text: '5h limit · 15:10', level: 'danger' })
-    expect(v.tip).toBe('Session limit: 100 % used, resets 15:10 · Weekly: 67 % used, resets Mon 09:00 · as of 14:02')
-    expect(v.label).toBe('Usage: session limit reached until 15:10, weekly 67 %')
+    expect(v.tip).toBe('Session limit: 100% used, resets 15:10 · Weekly: 67% used, resets Mon 09:00 · as of 14:02')
+    expect(v.label).toBe('Usage: session limit reached until 15:10, weekly 67%')
     const week = usageView(reading(30, 100), NOW)!
     expect(texts(week)).toEqual(['5h 30%', '7d limit · Mon 09:00'])
-    expect(week.label).toBe('Usage: session 30 %, weekly limit reached until Mon 09:00')
+    expect(week.label).toBe('Usage: session 30%, weekly limit reached until Mon 09:00')
     // a session window that resets after midnight names the day
     const late = at(11, 23, 30)
     expect(texts(usageView(reading(100, null, { seenAt: late, sessionReset: at(12, 2, 15) }), late)!)).toEqual(['5h limit · Thu 02:15'])
@@ -66,8 +66,8 @@ describe('the usage meter', () => {
 
   it('U-LAYOUT-8 · a window past its reset is left out; with none left the meter is hidden; one window alone is shown alone', () => {
     expect(texts(usageView(reading(25, 67, { sessionReset: NOW - 1 }), NOW)!)).toEqual(['7d 67%'])
-    expect(usageView(reading(25, 67, { sessionReset: NOW }), NOW)!.label).toBe('Usage: weekly 67 %')
-    expect(usageView(reading(25, 67, { weekReset: NOW - 1 }), NOW)!.tip).toBe('Session limit: 25 % used, resets 15:10 · as of 14:02')
+    expect(usageView(reading(25, 67, { sessionReset: NOW }), NOW)!.label).toBe('Usage: weekly 67%')
+    expect(usageView(reading(25, 67, { weekReset: NOW - 1 }), NOW)!.tip).toBe('Session limit: 25% used, resets 15:10 · as of 14:02')
     expect(usageView(reading(25, 67, { sessionReset: NOW - 1, weekReset: NOW - 1 }), NOW)).toBeNull()
     expect(usageView(reading(null, null), NOW)).toBeNull()
     expect(usageView(null, NOW)).toBeNull()

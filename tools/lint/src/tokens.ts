@@ -18,7 +18,7 @@ import type { Violation } from './types.ts'
 /** The spacing scale plus 0 and the 1px / 2px hairline offsets. */
 const ALLOWED_SPACING_PX = new Set<number>([0, 1, 2, ...SPACE_PX])
 /** The largest type size. */
-const MAX_FONT_PX = Math.max(...TYPE_SIZE_PX)
+const MAX_FONT_PX = Math.max(...Object.values(TYPE_SIZE_PX))
 const KEYWORDS = new Set(['inherit', 'initial', 'unset', 'revert', 'revert-layer'])
 
 const HEX_RE = /(?<![\w&#-])#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3,4})(?![\w-])/g

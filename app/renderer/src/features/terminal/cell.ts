@@ -1,8 +1,8 @@
-// The width of a terminal cell at the saved font settings (`terminal.fontSize`, `terminal.fontFamily`; never the zoom,
-// which is not saved), as the WebGL renderer lays it out: the advance of `W` in the terminal font, rounded down to
-// device pixels. The split's minimums are columns, and this turns them into px. Measured once the face has loaded
-// (`document.fonts.ready` does not wait for a face nothing has asked for yet); kept in the window's layout so a
-// window's first frame uses the last measurement.
+// The width of a terminal cell at the saved font settings (`terminal.fontFamily` and the size `general.fontSize`
+// gives; never the zoom, which is not saved), as the WebGL renderer lays it out: the advance of `W` in the terminal
+// font, rounded down to device pixels. The split's minimums are columns, and this turns them into px. Measured once the
+// face has loaded (`document.fonts.ready` does not wait for a face nothing has asked for yet); kept in the window's
+// layout so a window's first frame uses the last measurement.
 
 import { terminalFontStack } from '@kea/terminal'
 
