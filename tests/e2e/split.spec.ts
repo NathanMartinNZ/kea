@@ -7,7 +7,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { Page } from '@playwright/test'
 import { clockTime, L } from '@kea/protocol'
-import { SPACE_PX } from '../../packages/ui/src/generated/tokens.ts'
+import { COLOR, SIZE_PX, SPACE_PX } from '../../packages/ui/src/generated/tokens.ts'
+import { ICON_PATHS } from '../../packages/ui/src/icons.ts'
 import { writeAgentShim } from '../../tools/fake-agent/src/index.ts'
 import { harnessUserHome } from '../../tools/perf/src/launch.ts'
 import { PROMPT, STEP_MS, until, type Kea, type KeaRun } from '../support/app.ts'
@@ -58,7 +59,7 @@ function activePane(page: Page): Promise<string | null> {
   return page.evaluate(() => document.querySelector('[data-active-pane]')?.getAttribute('data-active-pane') ?? null)
 }
 
-/** The strip as a person reads it: the terminals' tab titles, `+`, then `│` and the file tabs' titles. */
+/** The strip as a person reads it: the terminals' tab titles, `+`, then `│` (the files' own tab list) and the file tabs' titles. */
 function strip(page: Page): Promise<string[]> {
   return page.evaluate(() => {
     const out: string[] = []
@@ -527,6 +528,83 @@ test('E-TERM-21 · the work pane keeps its place: a click on its tab gives it th
   await expect(page.locator('.find-bar')).toHaveCount(0)
   const searches = await page.evaluate(() => (window as unknown as { __keaPerf: { resources(): Record<string, number> } }).__keaPerf.resources()['renderer.searchAddons'])
   expect(searches, 'the resource report’s search addons').toBe(0)
+})
+
+/**
+ * The share (0–1) of the device pixels in the top `--size-focus-line` rows of the element at `selector` that are
+ * painted in `--text-2`, the focus line's colour; its outer column on either side is left out (a tab's hairline edges).
+ */
+async function focusLineShare(page: Page, selector: string): Promise<number> {
+  const r = (await page.locator(selector).boundingBox())!
+  const shot = await page.screenshot({ clip: { x: r.x + 1, y: r.y, width: r.width - 2, height: SIZE_PX['focus-line'] } })
+  return page.evaluate(
+    async ([b64, hex]) => {
+      const img = new Image()
+      img.src = `data:image/png;base64,${b64}`
+      await img.decode()
+      const canvas = document.createElement('canvas')
+      canvas.width = img.width
+      canvas.height = img.height
+      const g = canvas.getContext('2d')!
+      g.drawImage(img, 0, 0)
+      const d = g.getImageData(0, 0, canvas.width, canvas.height).data
+      const want = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16))
+      let n = 0
+      for (let i = 0; i < d.length; i += 4) if (Math.abs(d[i]! - want[0]!) + Math.abs(d[i + 1]! - want[1]!) + Math.abs(d[i + 2]! - want[2]!) <= 24) n++
+      return n / (d.length / 4)
+    },
+    [shot.toString('base64'), COLOR['text-2']] as const,
+  )
+}
+
+/** The work pane's strip as drawn: each tab's title (`+` for New Terminal) and the path of the first icon in it. */
+function stripIcons(page: Page): Promise<[string, string | null][]> {
+  return page.evaluate(() =>
+    [...document.querySelectorAll('.work-pane .tabstrip .tab')].map((t) => [
+      t.classList.contains('add') ? '+' : (t.querySelector('.tab-title')?.textContent ?? t.textContent ?? '').trim(),
+      t.querySelector('svg path')?.getAttribute('d') ?? null,
+    ]),
+  )
+}
+
+test('E-TERM-24 · the strips as painted: in the split the pane with the keyboard draws the focus line across the top of its active tab, a terminal’s or a file’s, from edge to edge, or across the top of the agent’s status row, and the other pane draws none; each tab leads with its icon, a terminal’s or a file’s, and + is the plus icon; in one column the active tab has the line', async ({ launch }) => {
+  const kea = await launch()
+  const page = await kea.page()
+  await kea.pretendFocused(true)
+  const { id } = await splitSession(kea, 'lines')
+  const tab = '.work-pane .tab.active'
+  const row = '.agent-pane .status-row'
+  const drawn = (selector: string, what: string) => until(what, async () => ((await focusLineShare(page, selector)) > 0.9 ? true : undefined))
+
+  // a terminal tab with the keyboard in the work pane
+  await kea.newTab()
+  await until('the work pane with the keyboard', async () => ((await region(page)) === 'work' ? true : undefined))
+  await drawn(tab, 'the line across the top of the active terminal tab')
+  expect(await focusLineShare(page, row), 'no line over the status row').toBeLessThan(0.05)
+
+  // a file tab
+  expect(await openFile(kea, { sessionId: id, path: 'README.md', mode: 'file' })).toBe(true)
+  await expect.poll(() => viewerShown(kea)).toMatchObject({ path: 'README.md' })
+  await drawn(tab, 'the line across the top of the active file tab')
+  expect(await stripIcons(page)).toEqual([
+    ['Terminal 1', ICON_PATHS.terminal],
+    ['+', ICON_PATHS.plus],
+    ['README.md', ICON_PATHS.file],
+  ])
+
+  // a press on the status row gives the agent the keyboard (in the file `⌘]` indents): its row has the line, the work
+  // pane's tab none
+  await page.locator(row).click()
+  await until('the agent pane with the keyboard', async () => ((await region(page)) === 'agent' ? true : undefined))
+  await drawn(row, 'the line across the top of the status row')
+  expect(await focusLineShare(page, tab), 'no line over the work pane’s tab').toBeLessThan(0.05)
+
+  // one column: the Agent tab, shown with the keyboard, has the line and leads with a terminal's icon
+  await kea.setLayout({ agentBeside: false })
+  await until('one column', async () => (!(await kea.layout()).split ? true : undefined))
+  await until('the Agent tab shown', async () => ((await page.locator(tab).getAttribute('data-kind')) === 'agent' ? true : undefined))
+  await drawn(tab, 'the line across the top of the Agent tab')
+  expect(await page.locator(tab).locator('svg path').first().getAttribute('d')).toBe(ICON_PATHS.terminal)
 })
 
 // ── the usage meter: Claude's usage limits at the status row's right end ──

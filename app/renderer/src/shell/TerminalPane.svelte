@@ -44,8 +44,8 @@ pane (this strip without the Agent tab, its terminals then its files, one shown)
 and moves the agent's view between the panes without disposing it; it activates the registry for both at once. The
 work pane starts with no tab: its empty state is the file view's, and no shell starts until one is asked for. The pane
 that has the keyboard, or last had it, is the session's active pane (kept per session in the window): the commands act
-on it, a session shown again gives it the keyboard (the agent's when none is known), and a line under its strip or
-status row marks it. Tab commands act on the work pane; Next and Previous Tab from the agent pane leave the keyboard
+on it, a session shown again gives it the keyboard (the agent's when none is known), and a line across the top of its
+active tab or of its status row marks it. Tab commands act on the work pane; Next and Previous Tab from the agent pane leave the keyboard
 there. A file tab that closes hands the work pane to the tab before it and the keyboard back to the pane it came from.
 In the split the session counts as viewed whatever the work pane shows, and the agent pane's status row says Needs you
 instead of the Agent tab's dot.
@@ -876,7 +876,7 @@ instead of the Agent tab's dot.
             onauxclick={(e) => {
               if (e.button === 1 && t.kind === 'shell') void askClose(id)
             }}
-            >{#if t.kind === 'shell'}<span class="tab-title">{tabTitle(t)}</span>{@render closeButton()}{:else}{tabTitle(t)}{/if}{#if t.kind === 'agent' && id !== active && needsYou}<span class="tab-dot" aria-hidden="true"></span>{/if}</button
+            ><Icon name="terminal" class="tab-icon" /><span class="tab-title">{tabTitle(t)}</span>{#if t.kind === 'shell'}{@render closeButton()}{/if}{#if t.kind === 'agent' && id !== active && needsYou}<span class="tab-dot" aria-hidden="true"></span>{/if}</button
           >
         {/each}
       </div>
@@ -892,11 +892,12 @@ instead of the Agent tab's dot.
           onmousedown={keepFocus}
           onclick={() => {
             if (canOpenShell) void openShell()
-          }}>+</button
+          }}><Icon name="plus" /></button
         >
       {/if}
       {#if files.tabs.length > 0}
-        <!-- file and diff tabs: after the terminals; the preview tab's title is italic until it is pinned -->
+        <!-- file and diff tabs: after the terminals, told apart by their icon; the preview tab's title is italic until it
+             is pinned -->
         <div class="tabs file-tabs" role="tablist" aria-label="Open files">
           {#each files.tabs as t (t.id)}
             <!-- svelte-ignore a11y_role_supports_aria_props (Chromium exposes aria-description on any role) -->
@@ -920,7 +921,7 @@ instead of the Agent tab's dot.
               ondblclick={() => pinFile(t.id)}
               onauxclick={(e) => {
                 if (e.button === 1) closeFileAsking(t.id)
-              }}><span class="tab-title">{fileTabTitle(t.path)}</span>{@render closeButton()}</button
+              }}><Icon name="file" class="tab-icon" /><span class="tab-title">{fileTabTitle(t.path)}</span>{@render closeButton()}</button
             >
           {/each}
         </div>

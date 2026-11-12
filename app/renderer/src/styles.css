@@ -92,12 +92,13 @@ kbd {
 
 /* tab strip */
 
+/* the strip's bottom hairline is painted beneath its tabs: the active tab covers it and runs into what it shows */
 .tabstrip {
   display: flex;
   align-items: stretch;
   justify-content: flex-start;
   background: var(--surface-1);
-  border-bottom: 1px solid var(--line);
+  box-shadow: inset 0 calc(-1 * var(--size-hairline)) 0 var(--line);
   min-width: 0;
 }
 
@@ -108,9 +109,13 @@ kbd {
   min-width: 0;
 }
 
+/* a tab: its icon (a terminal's or a file's), then its title */
 .tab {
   -webkit-app-region: no-drag;
   position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
   border: 0;
   background: transparent;
   color: var(--text-3);
@@ -118,24 +123,42 @@ kbd {
   white-space: nowrap;
   max-width: var(--size-sidebar);
   overflow: hidden;
-  text-overflow: ellipsis;
 }
 
+.tab-icon {
+  color: var(--text-3);
+}
+
+.tab:not(.active):not(.add):hover {
+  color: var(--text-2);
+  background: var(--surface-2);
+}
+
+/* the active tab: hairline edges, and the terminal's ground, which it runs into */
 .tab.active {
   color: var(--text-1);
   background: var(--surface-0);
+  box-shadow:
+    inset var(--size-hairline) 0 0 var(--line),
+    inset calc(-1 * var(--size-hairline)) 0 0 var(--line);
+}
+
+/* the strip's first tab has no left edge: the strip starts at a divider or at the window's edge */
+.tabs:first-child > .tab.active:first-child {
+  box-shadow: inset calc(-1 * var(--size-hairline)) 0 0 var(--line);
+}
+
+.tab.active .tab-icon {
+  color: var(--text-2);
 }
 
 .tab:focus-visible {
   outline-offset: -2px;
 }
 
-/* a tab that can be closed (a shell, a file or diff): its title, then its close button, which keeps its place when
-   hidden, so a tab's width never changes under the pointer; a long title is cut, never the button */
+/* a tab that can be closed (a shell, a file or diff) ends with its close button, which keeps its place when hidden, so
+   a tab's width never changes under the pointer; a long title is cut, never the button */
 .tab.closable {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
   padding-right: var(--space-1);
 }
 
@@ -143,6 +166,23 @@ kbd {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* New Terminal: a quiet icon button in the strip, as the Files bar's are */
+.tab.add {
+  flex: none;
+  align-self: center;
+  justify-content: center;
+  width: var(--size-tree-row);
+  height: var(--size-tree-row);
+  margin: 0 var(--space-1);
+  padding: 0;
+  border-radius: var(--radius-md);
+}
+
+.tab.add:not([aria-disabled='true']):hover {
+  color: var(--text-1);
+  background: var(--surface-2);
 }
 
 .tab-close {

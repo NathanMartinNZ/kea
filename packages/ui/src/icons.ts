@@ -25,6 +25,8 @@ export const ICON_PATHS = {
   gear: gearPath(),
   search: 'M11.5 7a4.5 4.5 0 1 1-9 0a4.5 4.5 0 1 1 9 0zM10.25 10.25L13.5 13.5',
   folder: 'M2 4.5v8h12v-6.5h-6.5l-1.5-1.5z',
+  /** A terminal (the tab strip's terminal tabs): a prompt's chevron and its cursor. */
+  terminal: 'M3.5 4.5l3.5 3.5-3.5 3.5M8.5 11.5h4',
   /** A file (the tree's one file glyph): a page with its corner turned down. */
   file: 'M4 2.5v11h8.5v-7.5l-3.5-3.5zM9 2.5v3.5h3.5',
   /** New File: the page, a plus at its foot. */

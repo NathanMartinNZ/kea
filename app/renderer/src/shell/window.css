@@ -1558,10 +1558,22 @@ code.sheet-row-title,
   color: var(--danger);
 }
 
-/* the pane with the keyboard, or that last had it: a line under its strip or status row */
-.terminal-pane.split .work-pane.active .tabstrip,
+/* the focus line: across the top of the active tab of the pane with the keyboard, or that last had it (in one column,
+   of the strip's one pane), and across the top of the agent's status row; laid over the tab, so nothing in it covers
+   the line */
+.terminal-pane:not(.split) .tab.active::before,
+.terminal-pane.split .work-pane.active .tab.active::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--size-focus-line);
+  background: var(--text-2);
+}
+
 .agent-pane.active .status-row {
-  box-shadow: inset 0 calc(-1 * var(--size-focus-line)) 0 var(--text-3);
+  box-shadow: inset 0 var(--size-focus-line) 0 var(--text-2);
 }
 
 /* the work pane with no tab: the file view's empty state */
@@ -1587,9 +1599,4 @@ code.sheet-row-title,
 /* New Terminal where no shell can open: drawn, with its reason as its tooltip */
 .tab.add[aria-disabled='true'] {
   color: var(--line-strong);
-}
-
-/* the open files after the terminals and New Terminal: a line between them */
-.tabs.file-tabs {
-  border-left: var(--size-hairline) solid var(--line);
 }
