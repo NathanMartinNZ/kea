@@ -1,5 +1,5 @@
-// Main's hand-offs to the browser (Open in Browser): every request is answered within its deadline, at most a fixed
-// number are in main at once, and each window has one page slot. The deadline reaches only main's wait, never a
+// Main's hand-offs to the browser (Open in Browser, web links): every request is answered within its deadline, at most
+// a fixed number are in main at once, and each window has one page slot and one link slot. The deadline reaches only main's wait, never a
 // program a route started. Free of Electron, with the clock passed in, so it is unit-tested in Node.
 
 /** Words for a hand-off that had not started by its deadline (it never starts). */
@@ -7,11 +7,12 @@ export const BROWSER_DID_NOT_ANSWER = 'The browser did not answer'
 /** Words for a hand-off still waiting at its deadline on a call that cannot be taken back. */
 export const BROWSER_NOT_YET = 'The browser has not answered yet'
 /** Words for a request refused because main is at its cap. */
-export const HANDOFFS_BUSY = 'Kea is still opening earlier pages'
-/** Words for a route that failed without saying why. */
-export const PAGE_NOT_OPENED = 'The page could not be opened'
+export const HANDOFFS_BUSY = 'Kea is still opening earlier links or pages'
 
-export type HandoffKind = 'page'
+export type HandoffKind = 'page' | 'link'
+
+/** Words for a route that failed without saying why. */
+export const NOT_OPENED: Readonly<Record<HandoffKind, string>> = { page: 'The page could not be opened', link: 'The link could not be opened' }
 
 /** What a route is given for one hand-off. */
 export interface Handoff {
@@ -106,11 +107,11 @@ export class BrowserHandoffs {
     try {
       settled = run(h)
     } catch {
-      settled = Promise.resolve(PAGE_NOT_OPENED)
+      settled = Promise.resolve(NOT_OPENED[kind])
     }
     settled.then(
       (message) => this.settle(e, message),
-      () => this.settle(e, PAGE_NOT_OPENED),
+      () => this.settle(e, NOT_OPENED[kind]),
     )
   }
 

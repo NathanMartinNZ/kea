@@ -23,6 +23,23 @@ describe('link policy', () => {
   })
 })
 
+describe('link length', () => {
+  it('U-TERM-13 · an address longer than L.linkOpenMaxChars once percent-encoded is offered for copying only, an emoji path that grows past it included', () => {
+    const base = 'https://x.dev/'
+    // as long as main takes: opens
+    const atCap = base + 'a'.repeat(L.linkOpenMaxChars - base.length)
+    expect(linkAction(atCap)).toEqual({ open: true, url: atCap })
+    // one more: copied, never sent
+    const over = atCap + 'a'
+    expect(linkAction(over)).toEqual({ open: false, target: over, reason: 'long' })
+    // short as typed, long once encoded: 😀 is 2 UTF-16 units and 12 characters encoded (%F0%9F%98%80)
+    const emoji = base + '😀'.repeat(Math.ceil((L.linkOpenMaxChars - base.length) / 12) + 1)
+    expect(emoji.length).toBeLessThan(L.linkOpenMaxChars)
+    expect(linkAction(emoji)).toEqual({ open: false, target: emoji, reason: 'long' })
+    expect(new URL('https://x.dev/😀').href).toHaveLength(26)
+  })
+})
+
 /** A terminal buffer of `cols` columns holding `text` as one logical line starting at row `top` (wide characters take two cells). */
 function buffer(lines: readonly string[], cols: number): BufferLike {
   const rows: { isWrapped: boolean; cells: { chars: string; width: number }[] }[] = []

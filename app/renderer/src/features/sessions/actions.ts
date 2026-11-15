@@ -2,11 +2,11 @@
 // window shows afterwards. Failures with no place of their own in the UI become a toast.
 
 import type { Project } from '@kea/protocol'
-import { pickFolder, reveal } from '../../lib/bridge.ts'
+import { openExternal, pickFolder, reveal } from '../../lib/bridge.ts'
 import { call } from '../../lib/rpc.ts'
 import { agentGrid } from '../../shell/agentGrid.ts'
 import { listed, moveIndex, orderProjects, orderSessions } from './model.ts'
-import { failed, openComposer, projects, selectSession, sessions, ui } from './state.svelte.ts'
+import { failed, openComposer, projects, selectSession, sessions, showToast, ui } from './state.svelte.ts'
 
 /** Why a project was registered at a path other than the one picked. */
 function registeredNote(registered: 'asGiven' | 'repoRoot' | 'mainWorktree', p: Project): string | undefined {
@@ -166,6 +166,12 @@ export async function resyncFiles(id: string): Promise<void> {
 
 export function revealPath(path: string): void {
   reveal(path)
+}
+
+/** Open a web link in the default browser (main checks it again); a link that did not open says why in a toast. */
+export async function openWebLink(url: string): Promise<void> {
+  const message = await openExternal(url)
+  if (message !== null) showToast({ message })
 }
 
 /** Copy text; the clipboard write needs the window focused, which a click gives it. */

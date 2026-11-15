@@ -133,6 +133,39 @@ describe('browserHandoffs', () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 
+  it('U-FV-43 · links: one link slot per window beside its page slot, a replaced link dropped unstarted, links and pages counted under one cap', async () => {
+    const handoffs = new BrowserHandoffs({ deadlineMs: L.browserHandoffDeadlineMs, max: L.browserHandoffsMax })
+    const r = route()
+    // a page and a link from one window: neither replaces the other
+    const page = answers()
+    const link = answers()
+    handoffs.start(1, 'page', r.run, page.answer)
+    handoffs.start(1, 'link', r.run, link.answer)
+    expect(r.calls.map((c) => c.h.queueSignal.aborted)).toEqual([false, false])
+    expect(handoffs.gauge()).toEqual({ inFlight: 2, timers: 2, slots: 2 })
+    // a newer link drops the older one that has not started; the page is untouched
+    const newer = answers()
+    handoffs.start(1, 'link', r.run, newer.answer)
+    expect(r.calls.map((c) => c.h.queueSignal.aborted)).toEqual([false, true, false])
+    for (const c of r.calls) c.settle(null)
+    await Promise.resolve()
+    await Promise.resolve()
+    expect([page.got, link.got, newer.got]).toEqual([[null], [], [null]])
+    // the cap counts both kinds: half the windows' pages, half their links, then one more of either is refused
+    const held = Array.from({ length: L.browserHandoffsMax }, (_, i) => {
+      const a = answers()
+      handoffs.start(200 + Math.floor(i / 2), i % 2 === 0 ? 'page' : 'link', r.run, a.answer)
+      return a
+    })
+    const refused = answers()
+    handoffs.start(999, 'link', r.run, refused.answer)
+    expect(refused.got).toEqual([HANDOFFS_BUSY])
+    expect(HANDOFFS_BUSY).toBe('Kea is still opening earlier links or pages')
+    vi.advanceTimersByTime(L.browserHandoffDeadlineMs)
+    expect(held.every((a) => a.got[0] === BROWSER_DID_NOT_ANSWER)).toBe(true)
+    expect(handoffs.gauge()).toEqual({ inFlight: 0, timers: 0, slots: 0 })
+  })
+
   it("U-FV-43 · macOS's open is untouched by main's deadline: it gets the hand-off's queue signal, keeps its own timeout, and its start marks the hand-off started", async () => {
     const seen: RunProcessOptions[] = []
     let started = 0

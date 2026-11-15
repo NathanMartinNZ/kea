@@ -11,6 +11,7 @@ import { L } from '@kea/protocol'
 import { BUDGETS } from '../../tools/perf/src/generated/budgets.ts'
 import { counterCommand, counterNumbers, PROMPT, ringMax, shq, STEP_MS, until, writeFifo, type Kea, type KeaProbe } from '../support/app.ts'
 import { holdersUnharmed, isAlive, lastOnScreen, ringContinuity, ringGrows, seamContinuous, startWorkload } from '../support/app-chaos.ts'
+import { opened } from '../support/app-server.ts'
 import { skipNote } from '../support/skip.ts'
 import { loseWebglContext, startGlWatch, startRenderWatch, stopGlWatch, stopRenderWatch } from '../support/app-render.ts'
 import { expect, test } from './fixtures.ts'
@@ -231,19 +232,17 @@ const OSC52_TEXT = 'kea-test osc52 payload'
 test('E-TERM-10 · untrusted output: OSC 52 from a background terminal never reaches the clipboard; ⌘-click on an OSC 8 link to a non-web scheme opens nothing and offers Copy link, while a web link opens', async ({ run, launch }) => {
   const kea = await launch()
   const page = await kea.page()
-  // nothing here may reach the person's clipboard or browser: both ends are recorders from the start
+  // nothing here may reach the person's clipboard or browser: the clipboard is a recorder from the start, and main
+  // records links under the harness instead of opening them
   await page.evaluate(() => {
-    const w = window as unknown as { __keaClipboard: string[]; __keaOpened: string[] }
+    const w = window as unknown as { __keaClipboard: string[] }
     w.__keaClipboard = []
-    w.__keaOpened = []
     Object.defineProperty(navigator.clipboard, 'writeText', { configurable: true, value: async (t: string) => void w.__keaClipboard.push(t) })
-    window.open = (url?: string | URL) => (w.__keaOpened.push(String(url)), null)
   })
-  const recorded = () =>
-    page.evaluate(() => {
-      const w = window as unknown as { __keaClipboard: string[]; __keaOpened: string[] }
-      return { __keaClipboard: [...w.__keaClipboard], __keaOpened: [...w.__keaOpened] }
-    })
+  const recorded = async () => ({
+    __keaClipboard: await page.evaluate(() => [...(window as unknown as { __keaClipboard: string[] }).__keaClipboard]),
+    __keaOpened: await opened(kea),
+  })
   const dropped: string[] = []
   page.on('console', (m) => void (m.text().includes('OSC 52 clipboard write dropped') && dropped.push(m.text())))
 
@@ -287,7 +286,10 @@ test('E-TERM-10 · untrusted output: OSC 52 from a background terminal never rea
   await screen.click({ position: web, modifiers: [MOD_CLICK] })
   await until('the web link to be opened', async () => (await recorded()).__keaOpened.length > 0 || undefined)
   expect((await recorded()).__keaOpened, 'only the web link opened').toEqual(['https://example.invalid/kea-test'])
-  expect(kea.logLines('main').filter((l) => l.msg === 'link not opened'), 'no link reached main').toEqual([])
+  // main answered it handed over: no toast
+  await until('main’s answer', () => kea.logLines('main').find((l) => l.msg === 'browser hand-off' && l.kind === 'link'))
+  expect(kea.logLines('main').filter((l) => l.msg === 'browser hand-off').map((l) => [l.kind, l.answer])).toEqual([['link', 'handed over']])
+  expect(await page.locator('.toast[role=alert]').count(), 'no failure').toBe(0)
   expect((await recorded()).__keaClipboard, 'clipboard writes').toEqual([])
   await kea.assertUnfocused()
 })

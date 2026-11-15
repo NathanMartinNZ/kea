@@ -23,7 +23,7 @@ import { CoreAvailability, RpcPortHandout, shutdownChildren } from './lifecycle.
 import { findMenuItem, menuTemplate, windowMenuState, windowMenuTree, type WindowMenuState } from './menu.ts'
 import { BackgroundTray, DockIcon, isQuitChoice, lastWindowAction, markQuitSheetSeen, MenuBarItemRemoval, QuitSheetAnswer, quitAction, quitSheetSeen, trayTemplate, trayTitle, trayTooltip, type QuitChoice } from './menuBar.ts'
 import { trayIcon } from './trayIcon.ts'
-import { openLink, RecordingOpener, type ExternalOpener } from './external.ts'
+import { handLink, openLink, RecordingOpener, type ExternalOpener } from './external.ts'
 import { firstLaunchSize, FolderQueue, PICK_PURPOSES, readWindowState, revealablePath, writeWindowState, type PickPurpose } from './native.ts'
 import { Notifier, RecordingSurfaces, type NativeNotification, type NativeSurfaces } from './notifier.ts'
 import { mainOs, type DesktopServiceState, type IdleSource, type OpenVia } from './os/index.ts'
@@ -337,12 +337,27 @@ ipcMain.on('kea:reveal', (e, p: unknown) => {
   else shell.showItemInFolder(ok)
 })
 
-// Main's hand-offs to the browser: each answered by its deadline, at most L.browserHandoffsMax at once, one page per
-// window (browserHandoffs.ts). A route that settles after its answer is logged.
+// Main's hand-offs to the browser: each answered by its deadline, at most L.browserHandoffsMax at once, one page and
+// one link per window (browserHandoffs.ts). A route that settles after its answer is logged. Links go through
+// Electron's `shell.openExternal` on both systems; pages through the OS layer's `browser`.
+const handoffRoute = (kind: 'page' | 'link'): string => (kind === 'page' ? mainOs.browser.route : 'electron')
 const handoffs = new BrowserHandoffs({
   deadlineMs: L.browserHandoffDeadlineMs,
   max: L.browserHandoffsMax,
-  onLate: (kind, message) => log.info('browser hand-off settled late', { kind, route: mainOs.browser.route, result: message ?? 'handed over' }),
+  onLate: (kind, message) => log.info('browser hand-off settled late', { kind, route: handoffRoute(kind), result: message ?? 'handed over' }),
+})
+
+// A web link (a terminal's, the server chip's, About's release notes): checked again here (external.ts), then handed
+// to the system, or recorded under --kea-perf; the answer carries why not in words, or null
+ipcMain.on('kea:openLink', (e, req: unknown) => {
+  const w = fromOurWindow(e)
+  const { reqId, url } = (typeof req === 'object' && req !== null ? req : {}) as { reqId?: unknown; url?: unknown }
+  if (!w || !Number.isInteger(reqId)) return
+  const answer = (message: string | null) => {
+    log.info('browser hand-off', { kind: 'link', route: handoffRoute('link'), answer: message ?? 'handed over' })
+    if (!w.isDestroyed()) w.webContents.send('kea:linkOpened', { reqId, message })
+  }
+  handoffs.start(w.webContents.id, 'link', (h) => handLink(url, browser, h.called), answer)
 })
 
 // Open in Browser (viewer.openInBrowser): a web page inside a working directory this window shows (page.ts), in the
@@ -354,7 +369,7 @@ ipcMain.on('kea:openPage', (e, req: unknown) => {
   if (!w || !Number.isInteger(reqId)) return
   const dirs = keaFileDirs.of(w.webContents.id)
   const answer = (message: string | null) => {
-    log.info('browser hand-off', { kind: 'page', route: mainOs.browser.route, answer: message ?? 'handed over' })
+    log.info('browser hand-off', { kind: 'page', route: handoffRoute('page'), answer: message ?? 'handed over' })
     if (!w.isDestroyed()) w.webContents.send('kea:pageOpened', { reqId, message })
   }
   handoffs.start(
@@ -786,7 +801,7 @@ const recorder = DEV && PERF ? new RecordingSurfaces() : null
 // Where a link goes (external.ts). Under `--kea-perf` it is recorded, never opened: a browser would take the keyboard,
 // as the file manager would for a reveal.
 const openedLinks = HOLD_OPENS ? new RecordingOpener() : null
-const browser: ExternalOpener = openedLinks ?? { open: (url) => void shell.openExternal(url) }
+const browser: ExternalOpener = openedLinks ?? { open: (url) => shell.openExternal(url) }
 /** A click activates Kea (reopening the window from the menu bar) on that session's Agent tab. */
 const notifier = new Notifier({ native: recorder ?? electronSurfaces, log, onClick: (sessionId) => openKea(sessionId ? { sessionId } : {}, 'notification') })
 
@@ -1552,7 +1567,7 @@ app.on('web-contents-created', (_e, contents: WebContents) => {
     if (!url.startsWith('kea://app/')) e.preventDefault()
   })
   contents.on('will-attach-webview', (e) => e.preventDefault())
-  // links from the terminal: only http, https and mailto reach the system; no window ever opens
+  // a window.open (the window asks with kea:openLink): only http, https and mailto reach the system; no window ever opens
   contents.setWindowOpenHandler(({ url }) => {
     if (openLink(url, browser) === null) log.warn('link not opened', { scheme: url.slice(0, url.indexOf(':') + 1).slice(0, 32) })
     return { action: 'deny' }

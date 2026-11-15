@@ -64,12 +64,12 @@ Main accepts a message only from the main frame of one of Kea's own windows, and
 it.
 
 - From the window: `kea:hello`, `kea:menuState`, `kea:openStream`, `kea:pickFolder`, `kea:reveal`, `kea:openPage`,
-  `kea:openSettingsFile`, `kea:openHomeItem`, `kea:mainCommand`, `kea:editRole`, `kea:openMenu`, `kea:quitChoice`,
-  `kea:notificationState`, `kea:openNotificationSettings`, `kea:resources`, `kea:resourceReports`, `kea:handoff`,
+  `kea:openLink`, `kea:openSettingsFile`, `kea:openHomeItem`, `kea:mainCommand`, `kea:editRole`, `kea:openMenu`,
+  `kea:quitChoice`, `kea:notificationState`, `kea:openNotificationSettings`, `kea:resources`, `kea:resourceReports`, `kea:handoff`,
   `kea:takeHandoff`, `kea:documents`, `kea:takeDocuments`, `kea:reviewAck`, `kea:reviewAnswer`, `kea:unsavedCount`,
   `kea:updateState`, `kea:checkUpdates`, `kea:restartToUpdate` and `kea:updateNoticeShown`.
 - To the window: `kea:rpc` and `kea:stream` (with their ports), `kea:streamError`, `kea:streamsReset`, `kea:coreAway`,
-  `kea:command`, `kea:history`, `kea:folder`, `kea:pageOpened`, `kea:showSession`, `kea:quitSheet`, `kea:screenReader`, `kea:wake`,
+  `kea:command`, `kea:history`, `kea:folder`, `kea:pageOpened`, `kea:linkOpened`, `kea:showSession`, `kea:quitSheet`, `kea:screenReader`, `kea:wake`,
   `kea:gpuReset`, `kea:lowMemory`, `kea:resources`, `kea:resourceReports`, `kea:notificationState`, `kea:handoffAsk`,
   `kea:giveDocuments`, `kea:handedDocuments`, `kea:review`, `kea:reviewDecided`, `kea:closeDone` and `kea:updateState`.
 
@@ -86,7 +86,7 @@ it.
 | `notifier.ts` | Notifications and the badge: core's policy decides what to post or withdraw, main shows it, one notification per tag |
 | `native.ts` | The folder picker, Reveal, and the window's saved bounds |
 | `handoff.ts` | On Wayland a minimized window cannot be brought back, so Kea makes a new one in its place; the old window's composer drafts and unsaved files are handed to the new one (the files in memory only, the old window kept until the new one has them). A restart Kea makes itself carries the drafts the same way, through a file |
-| `external.ts`, `links.ts` | The one place a link leaves Kea for the system browser: `http`, `https` and `mailto` only |
+| `external.ts`, `links.ts` | The one place a link leaves Kea for the system browser: `http`, `https` and `mailto` only, no longer than `L.linkOpenMaxChars`; the window's request is answered with why not in words |
 | `keaFile.ts` | `kea-file://`: serves an image only when its real path lies inside a working directory the window shows, it is a regular file, and it is no larger than `L.imageMaxBytes` |
 | `browserHandoffs.ts` | Main's hand-offs to the browser: each answered within `L.browserHandoffDeadlineMs` (one not started by then is dropped, one started is handed over, and nothing started is stopped), at most `L.browserHandoffsMax` at once, one page per window. Free of Electron |
 | `page.ts` | Open in Browser: a web page (`.html`, `.htm`, `.xhtml`) whose real path lies inside a working directory the asking window shows, a regular file without an execute bit, handed to the OS layer's `browser` (macOS: the app the system opens `https` addresses with; Linux: the desktop's app for the page's type) |

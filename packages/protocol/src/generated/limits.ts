@@ -622,6 +622,8 @@ export const L = {
   viewerHistoryMaxBytes: 4194304,
   /** what one undo step's change or stored selection range is counted as, beside the characters it holds (bytes) */
   viewerHistoryEntryBytes: 64,
+  /** the longest address, percent-encoded, a link may hand to the browser; a longer one is offered for copying only, and main refuses one before parsing it (characters) */
+  linkOpenMaxChars: 32768,
   /** how long main waits for a page or link to start opening in the browser, a queued launch included; one not started by then is dropped and said not to have answered, one started is handed over (ms) */
   browserHandoffDeadlineMs: 8000,
   /** how long the window waits for main's answer to a page or link it asked to open; with none by then it says the browser did not answer (ms) */
@@ -1102,6 +1104,7 @@ export const LIMIT_META: Record<LimitName, { unit: string; why: string; whyLinux
   viewerUnsavedBytes: { unit: "bytes", why: "the text, last saved text and undo history of a window's unsaved files together; at this size further files open read-only" },
   viewerHistoryMaxBytes: { unit: "bytes", why: "one document's undo history; past this it is cleared and the notice says so" },
   viewerHistoryEntryBytes: { unit: "bytes", why: "what one undo step's change or stored selection range is counted as, beside the characters it holds" },
+  linkOpenMaxChars: { unit: "characters", why: "the longest address, percent-encoded, a link may hand to the browser; a longer one is offered for copying only, and main refuses one before parsing it" },
   browserHandoffDeadlineMs: { unit: "ms", why: "how long main waits for a page or link to start opening in the browser, a queued launch included; one not started by then is dropped and said not to have answered, one started is handed over" },
   browserAnswerDeadlineMs: { unit: "ms", why: "how long the window waits for main's answer to a page or link it asked to open; with none by then it says the browser did not answer" },
   browserHandoffsMax: { unit: "hand-offs", why: "pages and links main is handing to the browser at once, from every window; one more is refused at once" },

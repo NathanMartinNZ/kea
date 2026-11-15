@@ -3,9 +3,8 @@
 // one without gets the toast.
 
 import type { ServerResult } from '@kea/protocol'
-import { openExternal } from '../../lib/bridge.ts'
 import { call } from '../../lib/rpc.ts'
-import { copyText } from '../sessions/actions.ts'
+import { copyText, openWebLink } from '../sessions/actions.ts'
 import { failed, showToast } from '../sessions/state.svelte.ts'
 import { wantTab } from '../status/viewing.svelte.ts'
 import { activeView } from '../terminal/views.ts'
@@ -68,9 +67,9 @@ export function dismissHint(sessionId: string): void {
   void call('server.dismissHint', { sessionId }).catch(() => undefined)
 }
 
-/** The chip's click. Main opens it (http and https only; a test build records it instead). */
+/** The chip's click. Main opens it (http and https only; a test build records it instead); a failure says why. */
 export function openInBrowser(url: string): void {
-  openExternal(url)
+  void openWebLink(url)
 }
 
 /** The chip's Copy URL. */

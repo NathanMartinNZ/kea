@@ -621,6 +621,8 @@ pub const VIEWER_UNSAVED_BYTES: u64 = 33554432;
 pub const VIEWER_HISTORY_MAX_BYTES: u64 = 4194304;
 /// what one undo step's change or stored selection range is counted as, beside the characters it holds (bytes)
 pub const VIEWER_HISTORY_ENTRY_BYTES: u64 = 64;
+/// the longest address, percent-encoded, a link may hand to the browser; a longer one is offered for copying only, and main refuses one before parsing it (characters)
+pub const LINK_OPEN_MAX_CHARS: u64 = 32768;
 /// how long main waits for a page or link to start opening in the browser, a queued launch included; one not started by then is dropped and said not to have answered, one started is handed over (ms)
 pub const BROWSER_HANDOFF_DEADLINE_MS: u64 = 8000;
 /// how long the window waits for main's answer to a page or link it asked to open; with none by then it says the browser did not answer (ms)

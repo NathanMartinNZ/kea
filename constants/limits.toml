@@ -1577,6 +1577,11 @@ value = 64
 unit = "bytes"
 why = "what one undo step's change or stored selection range is counted as, beside the characters it holds"
 
+[link_open_max_chars]
+value = 32768
+unit = "characters"
+why = "the longest address, percent-encoded, a link may hand to the browser; a longer one is offered for copying only, and main refuses one before parsing it"
+
 [browser_handoff_deadline_ms]
 value = 8000
 unit = "ms"

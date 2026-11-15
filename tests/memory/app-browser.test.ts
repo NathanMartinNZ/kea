@@ -1,7 +1,7 @@
 // Leak cycles of main's hand-offs to the browser on Linux, against the real app (tests/support/app.ts): a dev build
 // that hands pages to the system for real (`--kea-perf-real-browser`), with a stand-in as the desktop's handler
-// (tests/support/browser-stand-in.ts), so `xdg-open` runs and nothing opens. Bursts of Open in Browser requests through
-// the window's bridge, the window reloaded between bursts so its slot goes with its connection.
+// (tests/support/browser-stand-in.ts), so `xdg-open` runs and nothing opens. Bursts of Open in Browser requests and web
+// links through the window's bridge, the window reloaded between bursts so its slots go with its connection.
 
 import fs from 'node:fs'
 import path from 'node:path'
@@ -20,8 +20,10 @@ afterEach(async () => {
 
 /** Bursts, each followed by a reload of the window. */
 const CYCLES = 5
-/** Requests per burst: a newer one replaces an older one that has not started, so most never start. */
+/** Requests per burst, pages and links in turn: a newer one replaces an older one of its kind that has not started. */
 const BURST = 12
+/** The link the bursts open (the stand-in records it; the address is never looked up). */
+const LINK = 'https://example.invalid/kea-burst'
 
 /** Main's `main.browserHandoffs` row. */
 function handoffs(kea: Kea): Promise<{ inFlight: number; timers: number; slots: number }> {
@@ -37,7 +39,7 @@ function answersOf(kea: Kea): Record<string, unknown>[] {
 }
 
 describe('browser hand-offs', () => {
-  it('L-FV-8 · bursts of pages, each answered or dropped unstarted, reach the desktop’s handler; main’s hand-offs in flight, their timers and the window’s slot return to none', async (ctx) => {
+  it('L-FV-8 · bursts of pages and links, each answered or dropped unstarted, reach the desktop’s handler; main’s hand-offs in flight, their timers and the window’s slots return to none', async (ctx) => {
     skipWhere(ctx, harnessOs.system === 'linux' ? null : 'the stand-in is a Linux desktop handler; macOS opens a page with the default browser by name')
     const run = KeaRun.create()
     runs.push(run)
@@ -56,24 +58,33 @@ describe('browser hand-offs', () => {
       const handed = standIn.handed().length
       const page = await kea.page()
       await page.evaluate(
-        ({ p, n, base }) => {
-          const kea = (window as unknown as { kea: { openPage(reqId: number, path: string): void } }).kea
-          for (let i = 0; i < n; i++) kea.openPage(base + i, p)
+        ({ p, url, n, base }) => {
+          const kea = (window as unknown as { kea: { openPage(reqId: number, path: string): void; openLink(reqId: number, url: string): void } }).kea
+          for (let i = 0; i < n; i++) {
+            if (i % 2 === 0) kea.openPage(base + i, p)
+            else kea.openLink(base + i, url)
+          }
         },
-        { p: file, n: BURST, base: 1_000_000 + cycle * BURST },
+        { p: file, url: LINK, n: BURST, base: 1_000_000 + cycle * BURST },
       )
-      // the last request of the burst is never replaced: at least it is answered, and handed to the stand-in
-      await until('the burst answered', () => answersOf(kea).length > answered || undefined)
-      await until('the stand-in reached', () => standIn.handed().length > handed || undefined)
+      // the last page and the last link of the burst are never replaced: at least they are answered and handed over
+      await until('the burst’s page and link answered', () => {
+        const kinds = new Set(answersOf(kea).slice(answered).map((a) => a.kind))
+        return (kinds.has('page') && kinds.has('link')) || undefined
+      })
+      await until('the stand-in reached by both', () => {
+        const got = standIn.handed().slice(handed)
+        return (got.includes(LINK) && got.some((h) => h !== LINK)) || undefined
+      })
       const g = await until('no hand-off in flight', async () => {
         const now = await handoffs(kea)
         return now.inFlight === 0 && now.timers === 0 ? now : undefined
       })
-      expect(g.slots, 'an answered page leaves its slot').toBe(0)
+      expect(g.slots, 'an answered request leaves its slot').toBe(0)
       const mine = answersOf(kea).slice(answered)
       expect(mine.length).toBeLessThanOrEqual(BURST)
-      expect(mine.every((a) => a.kind === 'page' && a.answer === 'handed over'), JSON.stringify(mine)).toBe(true)
-      expect(standIn.handed().slice(handed).every((h) => h === file || h === `file://${file}`), 'only the page').toBe(true)
+      expect(mine.every((a) => a.answer === 'handed over'), JSON.stringify(mine)).toBe(true)
+      expect(standIn.handed().slice(handed).every((h) => h === LINK || h === file || h === `file://${file}`), 'only the page and the link').toBe(true)
       await kea.reloadWindow()
     }
     expect(await handoffs(kea)).toEqual({ inFlight: 0, timers: 0, slots: 0 })

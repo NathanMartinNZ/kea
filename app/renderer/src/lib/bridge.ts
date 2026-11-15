@@ -5,7 +5,8 @@
 // (`gpuReset`), core going away (main's `coreAway`; the next RPC port means it is back) and main's requests for this
 // renderer's resource report, answered by the reporter `setResourceReporter` installs, and the window's own question
 // for every process's report (`resourceReports`: Copy diagnostics and the dev HUD); the native pieces of the window's
-// UI: the folder picker (`pickFolder`), `reveal`, `openPage` (Open in Browser), `openSettingsFile` and `pathForFile`
+// UI: the folder picker (`pickFolder`), `reveal`, `openPage` (Open in Browser), `openExternal` (a web link),
+// `openSettingsFile` and `pathForFile`
 // for dropped files; the first-quit sheet main asks for and its answer, and a session main asks the window to show; main's update state and
 // the window's update actions (`onUpdateState`, `checkUpdates`, `restartToUpdate`, `updateNoticeShown`); main's review
 // of the window's unsaved files before anything closes them, answered by the host `setReviewHost` installs (the bridge
@@ -35,6 +36,7 @@ interface PreloadApi {
   pickFolder(reqId: number, purpose: 'add' | 'locate'): void
   reveal(path: string): void
   openPage(reqId: number, path: string): void
+  openLink(reqId: number, url: string): void
   openSettingsFile(): void
   openHomeItem(which: 'keybindings' | 'reports' | 'logs'): void
   askNotificationState(reqId: number): void
@@ -88,6 +90,9 @@ let handoffSource: (() => WindowHandoff) | null = null
 /** Open in Browser's request to main, while it is out (one at a time: a newer one replaces it). */
 // bounded: one request and its timer, at most L.browserAnswerDeadlineMs
 const pageWait = new AnswerWait(L.browserAnswerDeadlineMs, BROWSER_DID_NOT_ANSWER)
+/** A web link's request to main, while it is out (one at a time: a newer one replaces it). */
+// bounded: one request and its timer, at most L.browserAnswerDeadlineMs
+const linkWait = new AnswerWait(L.browserAnswerDeadlineMs, BROWSER_DID_NOT_ANSWER)
 /** Settings › Notifications' question to main, while it is out (one at a time: a newer one replaces it). */
 let notificationAsk: { reqId: number; done(denied: boolean): void } | null = null
 /** What answers main's review of the window's unsaved files (the viewer's); null: the bridge answers proceed. */
@@ -172,9 +177,11 @@ window.addEventListener('message', (e: MessageEvent) => {
       done(typeof p === 'string' ? p : null)
       return
     }
-    case 'pageOpened': {
+    case 'pageOpened':
+    case 'linkOpened': {
       const m = (d as { message?: unknown }).message
-      pageWait.answer(d.reqId, typeof m === 'string' ? m : null)
+      const wait = d.kea === 'pageOpened' ? pageWait : linkWait
+      wait.answer(d.reqId, typeof m === 'string' ? m : null)
       return
     }
     case 'notificationState': {
@@ -507,9 +514,16 @@ export function onShowSession(cb: (sessionId: string) => void): () => void {
   return () => showSessionListeners.delete(cb)
 }
 
-/** Open a link in the default browser. Main opens only http, https and mailto and denies the window itself. */
-export function openExternal(url: string): void {
-  window.open(url, '_blank', 'noopener,noreferrer')
+/**
+ * Open a web link in the default browser. Main checks it again (http, https and mailto, at most L.linkOpenMaxChars)
+ * and hands it to the system; the answer is why not in words, or null once it is handed over (and for a link a newer
+ * one replaced). With no answer by L.browserAnswerDeadlineMs it says the browser did not answer.
+ */
+export function openExternal(url: string): Promise<string | null> {
+  const reqId = nextReq++
+  const answer = linkWait.begin(reqId)
+  window.kea.openLink(reqId, url)
+  return answer
 }
 
 /** Main's update state now (asked for at the first call) and at each change. Returns an unsubscribe function. */

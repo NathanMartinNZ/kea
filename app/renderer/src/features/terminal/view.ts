@@ -22,8 +22,9 @@ import { WebLinksAddon } from '@xterm/addon-web-links'
 import { L, fromDomPort, protocolOs, type Channel, type StreamToRenderer } from '@kea/protocol'
 import { applyAppearance, createTerminalOptions, installRendererSwallow, ModeTracker, rendererTerminalOptions, type Disposable } from '@kea/terminal'
 import { COLOR } from '@kea/ui/tokens'
-import { onStreamsReset, openExternal, openStream } from '../../lib/bridge.ts'
+import { onStreamsReset, openStream } from '../../lib/bridge.ts'
 import { modClick, terminalKeyOverride } from '../commands/keys.ts'
+import { openWebLink } from '../sessions/actions.ts'
 import { AtlasGuard, followAtlas, type AtlasCanvas, type AtlasClearReason } from './atlas.ts'
 import { cursorPoint, listenForMenu } from './contextMenu.ts'
 import { ClearOnCopy, isUserSelection, selectionKey } from './ctrlCopy.ts'
@@ -648,7 +649,7 @@ export class TerminalView {
   private onLink(e: MouseEvent, target: string): void {
     if (!modClick(e)) return
     const a = linkAction(target)
-    if (a.open) return openExternal(a.url)
+    if (a.open) return void openWebLink(a.url)
     // A `file:` target opens in the editor when it is a file of this session's worktree (fileLinks.ts)
     const at = { x: e.clientX, y: e.clientY }
     void openFileUrl(this.ptyId, target).then((opened) => {

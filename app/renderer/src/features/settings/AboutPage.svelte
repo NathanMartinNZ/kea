@@ -6,10 +6,10 @@ sent it to core, read when the page opens (`diagnostics.platform`).
 <script lang="ts">
   import { untrack } from 'svelte'
   import { settingRows, type PlatformReport } from '@kea/protocol'
-  import { checkUpdates, openExternal, platform, restartToUpdate, updateNoticeShown } from '../../lib/bridge.ts'
+  import { checkUpdates, platform, restartToUpdate, updateNoticeShown } from '../../lib/bridge.ts'
   import { External } from '../../lib/reactive.svelte.ts'
   import { call } from '../../lib/rpc.ts'
-  import { copyText } from '../sessions/actions.ts'
+  import { copyText, openWebLink } from '../sessions/actions.ts'
   import { showToast } from '../sessions/state.svelte.ts'
   import { buildFacts } from './about.ts'
   import AboutView from './AboutView.svelte'
@@ -67,7 +67,7 @@ sent it to core, read when the page opens (`diagnostics.platform`).
   })
 </script>
 
-<AboutView {build} {report} {error} updates={shown} onUpdateAction={act} onNotes={(url) => openExternal(url)}>
+<AboutView {build} {report} {error} updates={shown} onUpdateAction={act} onNotes={(url) => void openWebLink(url)}>
   {#snippet autoRow()}
     {#if shown.auto}
       <Rows rows={AUTO_ROWS} value={(key) => values.current.get(key)} agents={[]} onSet={(row, value) => call('settings.set', { key: row.fullKey, value })} onReset={(row) => call('settings.reset', { key: row.fullKey })} />
