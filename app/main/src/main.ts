@@ -26,7 +26,7 @@ import { trayIcon } from './trayIcon.ts'
 import { handLink, openLink, RecordingOpener, type ExternalOpener } from './external.ts'
 import { firstLaunchSize, FolderQueue, PICK_PURPOSES, readWindowState, revealablePath, writeWindowState, type PickPurpose } from './native.ts'
 import { Notifier, RecordingSurfaces, type NativeNotification, type NativeSurfaces } from './notifier.ts'
-import { mainOs, type DesktopServiceState, type IdleSource, type OpenVia } from './os/index.ts'
+import { mainOs, type DesktopServiceState, type IdleSource, type OpenVia, type OverlayStyle } from './os/index.ts'
 import { webglState } from './platformLines.ts'
 import { PlatformReports } from './platformReport.ts'
 import { RendererLog } from './rendererLog.ts'
@@ -450,6 +450,19 @@ ipcMain.on('kea:editRole', (e, role: unknown) => {
   if (w && isEditRole(role)) runEditRole(w, role)
 })
 
+/** Linux's window controls: the header's colours, as tall as the header less its bottom line. */
+const OVERLAY: OverlayStyle = { color: COLOR['surface-1'], symbolColor: COLOR['text-2'], height: SIZE_PX['window-controls'] }
+
+/** A modal opened over the whole window or the last one closed: the OS layer dims the title-bar controls with its backdrop. */
+function setModal(w: BrowserWindow, open: boolean): void {
+  if (isAvailable(mainOs.windowChrome)) mainOs.windowChrome.modal(w, { open, overlay: OVERLAY, scrim: COLOR.scrim })
+}
+
+ipcMain.on('kea:modalOpen', (e, open: unknown) => {
+  const w = fromOurWindow(e)
+  if (w && typeof open === 'boolean') setModal(w, open)
+})
+
 /**
  * `handoff`: the window is made in place of one rebuilt on Wayland, and its preload asks for what that one handed over.
  */
@@ -472,7 +485,7 @@ function createWindow(o: { handoff?: boolean } = {}): BrowserWindow {
     // header; on Linux the Window Controls Overlay in the header's colours, above its bottom line
     ...chrome.options({
       trafficLights: { x: SIZE_PX['traffic-light-x'], y: SIZE_PX['traffic-light-y'] },
-      overlay: { color: COLOR['surface-1'], symbolColor: COLOR['text-2'], height: SIZE_PX['window-controls'] },
+      overlay: OVERLAY,
     }),
     backgroundColor: COLOR['surface-0'], // painted before the renderer's first frame
     // the perf and test harnesses type through CDP: their window can never become key, even if macOS activates Kea
@@ -528,7 +541,9 @@ function createWindow(o: { handoff?: boolean } = {}): BrowserWindow {
     if (!w.isDestroyed()) w.webContents.forcefullyCrashRenderer()
   })
   w.webContents.on('did-start-navigation', (d) => {
-    if (d.isMainFrame && !d.isSameDocument) disconnect(id) // reload: its connection scopes go
+    if (!d.isMainFrame || d.isSameDocument) return
+    disconnect(id) // reload: its connection scopes go
+    setModal(w, false) // and any modal with its page
   })
   // the window's warnings and errors are its log, written by main (rendererLog.ts)
   w.webContents.on('console-message', (m) => rendererLog.message(id, m))

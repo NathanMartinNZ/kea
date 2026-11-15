@@ -1,5 +1,5 @@
 <!--
-Discard Changes…: the tree's one mutating action is always confirmed, in a sheet at the top of the main pane. It says
+Discard Changes…: the tree's one mutating action is always confirmed, in a modal over the window. It says
 what will happen to the file — put back as the comparison base has it, or moved to the Trash — and which unsaved
 changes are lost, and the safe button is the default. Core does only what the sheet said: every request carries what is to be done to the file, the scope the
 sentence was written in and the commit it compared against (`discardRequests`), and when any of the three no longer

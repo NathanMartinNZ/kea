@@ -10,13 +10,26 @@ import type { UpdateHow } from '../updates/how.ts'
 /** Which display server the window is on: macOS's own, or Linux's Wayland or X11. */
 export type DisplayServer = 'quartz' | 'wayland' | 'x11'
 
+/** The Window Controls Overlay's look: its colour, its buttons' colour (`#rrggbb`) and its height in px. */
+export interface OverlayStyle {
+  color: string
+  symbolColor: string
+  height: number
+}
+
 /** `windowChrome`: the window's title bar, and how the window is made and placed. */
 export interface WindowChrome {
   /**
    * The title-bar options: macOS's traffic lights at `trafficLights` (from the design tokens); Linux's Window Controls
    * Overlay in `overlay`'s colours and height.
    */
-  options(o: { trafficLights: { x: number; y: number }; overlay: { color: string; symbolColor: string; height: number } }): Partial<BrowserWindowConstructorOptions>
+  options(o: { trafficLights: { x: number; y: number }; overlay: OverlayStyle }): Partial<BrowserWindowConstructorOptions>
+  /**
+   * A modal opened over the whole window (`open`) or the last one closed: title-bar controls drawn over the page dim
+   * under `scrim` (the modal backdrop's colour, `rgba(…)`) while one is open, and come back in `overlay`'s colours when
+   * none is. A destroyed window, or one without such controls, is left alone.
+   */
+  modal(win: BrowserWindow, o: { open: boolean; overlay: OverlayStyle; scrim: string }): void
   /** The window is created shown (on GNOME's Wayland session a window created hidden may never get `ready-to-show`). */
   readonly createShown: boolean
   /** A saved position is restored (on Wayland a window cannot place itself, and `getBounds()` has no real position). */

@@ -1,5 +1,5 @@
 <!--
-The Keyboard Shortcuts sheet (`app.shortcuts`): the keyboard list in a sheet at the top of the main pane.
+The Keyboard Shortcuts sheet (`app.shortcuts`): the keyboard list in a modal over the window.
 Esc or Done closes it and the keyboard goes back where it was. Locatable as `role=dialog` "Keyboard shortcuts".
 -->
 <script lang="ts">

@@ -1,7 +1,7 @@
-// Linux's side of main's OS layer (index.ts): the window under the Window Controls Overlay with the header's menu
-// button, the tray only where a StatusNotifierItem host is, notifications and the badge through the freedesktop service
-// and LauncherEntry, Wayland's raising rules, the idle source, the renderer sandbox's state and the platform report's
-// Linux lines. What Linux lacks says why.
+// Linux's side of main's OS layer (index.ts): the window under the Window Controls Overlay (dimmed under a modal)
+// with the header's menu button, the tray only where a StatusNotifierItem host is, notifications and the badge through
+// the freedesktop service and LauncherEntry, Wayland's raising rules, the idle source, the renderer sandbox's state and
+// the platform report's Linux lines. What Linux lacks says why.
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -12,7 +12,7 @@ import { LINUX_REPO_FILES } from '@kea/protocol/os/linux'
 import { installCommand, NOT_FROM_RELEASE, packageManagerCommand, type UpdateHow } from '../updates/how.ts'
 import { GPU_DRIVER_FIX, terminalRendererLine, updateChannelLine } from '../platformLines.ts'
 import { sessionBusPath, watchBusNames, type BusNames } from './dbus.ts'
-import type { DesktopServiceState, DisplayServer, IdleSource, InstallKind, MainOs, MenuParts, OpenVia, RaiseHow, ReportInput, UpdateHowInput } from './index.ts'
+import type { DesktopServiceState, DisplayServer, IdleSource, InstallKind, MainOs, MenuParts, OpenVia, OverlayStyle, RaiseHow, ReportInput, UpdateHowInput } from './index.ts'
 
 // ── the platform report's Linux lines ───────────────────────────────────────────────────────
 
@@ -354,6 +354,39 @@ export function raiseHow(o: { display: DisplayServer; minimized: boolean; via: O
   return o.minimized ? 'rebuild' : 'remap'
 }
 
+/** `#rrggbb`, `rgb(r,g,b)` or `rgba(r,g,b,a)` as its channels (0–255) and alpha (0–1); null in any other form. */
+function rgba(colour: string): [number, number, number, number] | null {
+  const hex = /^#([0-9a-f]{6})$/i.exec(colour.trim())
+  if (hex) {
+    const n = Number.parseInt(hex[1]!, 16)
+    return [(n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff, 1]
+  }
+  const fn = /^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*(?:,\s*([\d.]+)\s*)?\)$/i.exec(colour.trim())
+  if (!fn) return null
+  const c: [number, number, number, number] = [Number(fn[1]), Number(fn[2]), Number(fn[3]), fn[4] === undefined ? 1 : Number(fn[4])]
+  return c.slice(0, 3).every((v) => v <= 0xff) && c[3] <= 1 ? c : null
+}
+
+/**
+ * `colour` (`#rrggbb`) seen through `scrim` (the modal backdrop's colour, with its alpha), as the opaque `#rrggbb` the
+ * overlay takes: each channel is `colour × (1 − alpha) + scrim × alpha`. Null when either is in a form `rgba` does not
+ * read.
+ */
+export function underScrim(colour: string, scrim: string): string | null {
+  const c = rgba(colour)
+  const s = rgba(scrim)
+  if (!c || !s) return null
+  const a = s[3]
+  return `#${[0, 1, 2].map((i) => Math.round(c[i]! * (1 - a) + s[i]! * a).toString(16).padStart(2, '0')).join('')}`
+}
+
+/** `overlay` under `scrim`: both of its colours mixed, its height kept; null when a colour cannot be read. */
+export function overlayUnderScrim(overlay: OverlayStyle, scrim: string): OverlayStyle | null {
+  const color = underScrim(overlay.color, scrim)
+  const symbolColor = underScrim(overlay.symbolColor, scrim)
+  return color && symbolColor ? { color, symbolColor, height: overlay.height } : null
+}
+
 /** The command table's navigation commands, gathered in Linux's Go menu from their categories. */
 export const GO_COMMANDS: readonly string[] = ['session.next', 'session.previous', 'session.jumpNeedsYou', 'session.jumpTo', 'terminal.nextTab', 'terminal.previousTab', 'terminal.focus', 'files.goToFile', 'files.revealInTree', 'view.cycleFocus']
 /** The App commands Linux shows in Help only (macOS has them in the app menu as well). */
@@ -522,6 +555,17 @@ export const linux: MainOs = {
   windowChrome: {
     // the overlay in the header's colours and height; no menu bar under it (the header's menu button opens the menu)
     options: (o) => ({ titleBarStyle: 'hidden', titleBarOverlay: o.overlay, autoHideMenuBar: true }),
+    // the overlay is drawn over the page, out of a modal backdrop's reach: while a modal is open it takes the
+    // backdrop's dimming itself, and its own colours again when the last one closes
+    modal: (win, o) => {
+      const style = o.open ? overlayUnderScrim(o.overlay, o.scrim) : o.overlay
+      if (!style || win.isDestroyed()) return
+      try {
+        win.setTitleBarOverlay(style)
+      } catch {
+        // Electron refuses to restyle a window made without the overlay
+      }
+    },
     createShown: true,
     restoresPosition: (display) => display !== 'wayland',
     // the page sets its own colours (it reads no `prefers-color-scheme`); GTK's dialogs and menus follow this

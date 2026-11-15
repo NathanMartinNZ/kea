@@ -1,6 +1,6 @@
 <!--
 "View log": the session's log — its creation steps, git's output, setup and teardown — as core keeps it
-(`sessions.creationLog`, the newest L.creationLogMaxBytes), also for a session just deleted. A sheet over the main pane,
+(`sessions.creationLog`, the newest L.creationLogMaxBytes), also for a session just deleted. A modal over the window,
 read-only, scrolled to its end; Esc or Close goes. Locatable as `role=dialog` "Session log".
 -->
 <script lang="ts">

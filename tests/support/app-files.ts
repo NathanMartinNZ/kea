@@ -391,3 +391,35 @@ export function stopFsmonitorDaemon(worktree: string): void {
   if (fsmonitorRuns(worktree)) gitExit(worktree, 'fsmonitor--daemon', 'stop')
   if (fsmonitorRuns(worktree)) throw new Error(`git's fsmonitor daemon of ${worktree} is still running`)
 }
+
+/**
+ * Dispatch a drag of one file from another app with no place on disk at the element `selector`, as a drop there would
+ * come: whether a place took the drag (its `dragover` prevented) and whether the window's own handler, which adds a
+ * dropped folder as a project, saw it.
+ */
+export async function dropFile(page: Page, selector: string): Promise<{ taken: boolean; window: boolean }> {
+  return page.evaluate((sel) => {
+    const el = document.querySelector(sel)
+    if (!el) throw new Error(`nothing at ${sel}`)
+    const dt = new DataTransfer()
+    dt.items.add(new File(['x'], 'dropped.txt', { type: 'text/plain' }))
+    let set = 'unset'
+    Object.defineProperty(dt, 'dropEffect', { get: () => set, set: (v: string) => void (set = v) })
+    let window = false
+    const seen = (): void => {
+      window = true
+    }
+    const top = document.body
+    top.addEventListener('dragover', seen)
+    top.addEventListener('drop', seen)
+    const r = el.getBoundingClientRect()
+    const at: DragEventInit = { clientX: r.left + r.width / 2, clientY: r.top + Math.min(r.height / 2, 30), bubbles: true, cancelable: true, dataTransfer: dt }
+    el.dispatchEvent(new DragEvent('dragenter', at))
+    const over = new DragEvent('dragover', at)
+    el.dispatchEvent(over)
+    el.dispatchEvent(new DragEvent('drop', at))
+    top.removeEventListener('dragover', seen)
+    top.removeEventListener('drop', seen)
+    return { taken: over.defaultPrevented, window }
+  }, selector)
+}

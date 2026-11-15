@@ -69,7 +69,7 @@
   {:else}
     <p>{sum.lost}</p>
     {#if preview.branch && preview.isolation === 'worktree'}
-      <label class="sheet-check"><input type="checkbox" checked={deleteBranch} onchange={(e) => (deleteBranch = e.currentTarget.checked)} />Delete the branch <code>{preview.branch}</code> too{deleteBranch && preview.ownCommits > 0 ? ` (${plural(preview.ownCommits, 'commit only it holds', 'commits only it holds')})` : ''}</label>
+      <label class="sheet-check"><input type="checkbox" checked={deleteBranch} onchange={(e) => (deleteBranch = e.currentTarget.checked)} /><span>Delete the branch <code>{preview.branch}</code> too{deleteBranch && preview.ownCommits > 0 ? ` (${plural(preview.ownCommits, 'commit only it holds', 'commits only it holds')})` : ''}</span></label>
     {/if}
     {#if sum.keeps}
       <p class="sheet-meta">{sum.keeps}</p>

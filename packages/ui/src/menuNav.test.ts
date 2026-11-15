@@ -83,6 +83,21 @@ describe('menu keyboard model', () => {
     expect(new OpenMenus(null).opened(() => {}).gone).toBeTypeOf('function') // no window (a server render)
   })
 
+  it('U-MENU-2 · closing them all asks the open menu to close; the open-menu class goes once it has gone', () => {
+    const on = new Set<string>()
+    const menus = new OpenMenus({ classList: { toggle: (c: string, force: boolean) => void (force ? on.add(c) : on.delete(c)) } })
+    const closed: string[] = []
+    const a = menus.opened(() => closed.push('a'))
+    menus.closeAll()
+    expect(closed).toEqual(['a'])
+    expect(on.has(MENU_OPEN_CLASS)).toBe(true) // until its owner lets it go
+    a.gone()
+    expect(menus.count).toBe(0)
+    expect(on.has(MENU_OPEN_CLASS)).toBe(false)
+    menus.closeAll() // none open: nothing to ask
+    expect(closed).toEqual(['a'])
+  })
+
   it('U-MENU-2 · a menu opened in another’s place while the keyboard was in that one gives the keyboard back where that one would have; opened from elsewhere, where it was', () => {
     const menus = new OpenMenus<string>(null)
     // the terminal menu, opened from the terminal

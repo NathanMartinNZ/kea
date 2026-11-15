@@ -14,6 +14,7 @@
   --accent: #F5793A;
   --accent-hover: #FF8D55;
   --accent-wash: rgba(245,121,58,.14);
+  --scrim: rgba(0,0,0,.5);
   --on-accent: #1A0E06;
   --ok: #7FBF7A;
   --warn: #D9B45B;
@@ -76,6 +77,10 @@
   --size-composer-prompt-max: 240px;
   --size-settings-label: 200px;
   --size-settings-nav: 200px;
+  --size-dialog: 480px;
+  --size-dialog-wide: 720px;
+  --size-settings-dialog-width: 880px;
+  --size-settings-dialog-height: 640px;
   --size-menu-min: 200px;
   --size-divider-hit: 7px;
   --size-window-min-width: 880px;

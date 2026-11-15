@@ -7,10 +7,13 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
+import type { Page } from '@playwright/test'
 import { until, type Kea, type KeaRun } from '../support/app.ts'
 import { inMenuBar, menuBar, menuBarState, NO_DOCK, NO_MENU_BAR, pressQuit, quitSheet } from '../support/app-menubar.ts'
 import { clickFile } from '../support/app-files.ts'
 import { addProject, demoRepo, paneSession, selectSession, sessionMenu, sessionRow, startSession, waitLive, waitRow } from '../support/app-sessions.ts'
+import { runCommand } from '../support/app-server.ts'
+import { clickNotification, ingest, permission, waitNotifications } from '../support/app-status.ts'
 import { fileTab, fileTabs, viewerShown } from '../support/app-tabs.ts'
 import { commitAll, sessionWorktree, viewerRows, viewerText, waitBody, writeFiles } from '../support/app-viewer.ts'
 import {
@@ -597,6 +600,100 @@ test('E-FV-17 · deleting a session with an unsaved file asks about it; after Do
   await sheet.getByRole('button', { name: DONT_SAVE }).click()
   expect(await exited).toEqual({ code: 0, signal: null })
   await kea.gone()
+  expect(diskText(worktree, FILE), 'nothing written').toBe(original)
+})
+
+/** Records, in the page, every change of the sidebar's `inert` and of the window's class, in order. */
+function watchBackdrop(page: Page): Promise<void> {
+  return page.evaluate(() => {
+    const aside = document.querySelector('aside.sidebar-column')!
+    const root = document.documentElement
+    const records: { inert: boolean; old: string | null }[] = []
+    const take = (ms: MutationRecord[]): void => void records.push(...ms.map((m) => ({ inert: m.target === aside, old: m.oldValue })))
+    const observer = new MutationObserver(take)
+    observer.observe(aside, { attributes: true, attributeFilter: ['inert'], attributeOldValue: true })
+    observer.observe(root, { attributes: true, attributeFilter: ['class'], attributeOldValue: true })
+    const w = window as unknown as { __backdrop: () => string[] }
+    w.__backdrop = () => {
+      take(observer.takeRecords())
+      observer.disconnect()
+      // each record says what was there before it; what it left is the next record's before, or what is there now
+      const open = (cls: string | null): boolean => (cls ?? '').split(' ').includes('kea-modal-open')
+      const classes = records.filter((r) => !r.inert)
+      const out: string[] = []
+      for (const r of records) {
+        if (r.inert) {
+          out.push(r.old === null ? 'inert on' : 'inert off')
+          continue
+        }
+        const next = classes[classes.indexOf(r) + 1]
+        const after = next ? open(next.old) : root.classList.contains('kea-modal-open')
+        if (after !== open(r.old)) out.push(after ? 'class on' : 'class off')
+      }
+      return out
+    }
+  })
+}
+
+/** What `watchBackdrop` saw, in order; the watch ends. */
+function backdropChanges(page: Page): Promise<string[]> {
+  return page.evaluate(() => (window as unknown as { __backdrop: () => string[] }).__backdrop())
+}
+
+test('E-FV-17 · Delete with an unsaved file keeps one backdrop from the Delete sheet to the end of the question about the file: the window behind never comes back between them, and Cancel gives the keyboard back where it was before Delete; a session shown from a notification cancels the question, and an open Close tab question, the file kept unsaved', async ({ run, launch }) => {
+  test.setTimeout(120_000)
+  const kea = await launch()
+  const page = await kea.page()
+  const original = numbered(20)
+  const { id, worktree } = await sessionWith(kea, run, { [FILE]: original })
+  const others = [await startSession(kea, 'other', { background: true }), await startSession(kea, 'third', { background: true })]
+  for (const o of others) await waitLive(kea, o)
+  await selectSession(kea, id)
+  await openEditable(kea, FILE)
+  await typeAtLineEnd(kea, 2, ' // mine')
+  await waitEdit(kea, 'unsaved', (s) => s.unsaved)
+  const editing = () => page.evaluate(() => !!document.activeElement?.closest('.viewer .cm-content'))
+  expect(await editing(), 'the keyboard in the file').toBe(true)
+
+  // ── Delete, then the question about the file, then Cancel: one backdrop throughout ──
+  await watchBackdrop(page)
+  expect(await runCommand(kea, 'session.delete', { id })).toBe(true)
+  const del = page.getByRole('alertdialog', { name: 'Delete session' })
+  await del.getByRole('button', { name: 'Delete' }).click()
+  const ask = unsavedSheet(page, NAME)
+  await expect(ask).toBeVisible()
+  await expect(del).toHaveCount(0)
+  await ask.getByRole('button', { name: CANCEL }).click()
+  await expect(ask).toHaveCount(0)
+  await until('the keyboard back in the file', async () => (await editing()) || undefined)
+  expect(await backdropChanges(page), 'covered once, uncovered once').toEqual(['inert on', 'class on', 'inert off', 'class off'])
+  await waitRow(kea, id, 'the session still there', (r) => r.lifecycle === 'live')
+
+  // ── a session shown from a notification cancels the question ──
+  const notify = async (sessionId: string) => {
+    await kea.pretendFocused(false)
+    await ingest(kea, sessionId, 'hook', permission(`npm test ${sessionId}`))
+    await waitNotifications(kea, 'the session’s notification', (p) => p.live.includes(`s:${sessionId}`))
+    expect(await clickNotification(kea, `s:${sessionId}`)).toBe(true)
+    await until('the session in the main pane', async () => (await paneSession(page)) === sessionId || undefined)
+    await kea.pretendFocused(true)
+  }
+  expect(await runCommand(kea, 'session.delete', { id })).toBe(true)
+  await del.getByRole('button', { name: 'Delete' }).click()
+  await expect(ask).toBeVisible()
+  await notify(others[0]!)
+  await expect(ask).toHaveCount(0)
+  await waitRow(kea, id, 'the session still there', (r) => r.lifecycle === 'live')
+  await expect(sessionRow(page, id).locator('[data-unsaved]')).toHaveText('unsaved')
+
+  // ── and an open Close tab question ──
+  await selectSession(kea, id)
+  await openEditable(kea, FILE)
+  await page.keyboard.press(sysKey('Meta+w'))
+  await expect(ask).toBeVisible()
+  await notify(others[1]!)
+  await expect(ask).toHaveCount(0)
+  await expect(sessionRow(page, id).locator('[data-unsaved]')).toHaveText('unsaved')
   expect(diskText(worktree, FILE), 'nothing written').toBe(original)
 })
 

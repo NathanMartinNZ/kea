@@ -7,6 +7,8 @@
 //   renderer.terminals, .webglContexts, .atlasBytes, .atlasPages, .streamPorts, .searchAddons, .scrollMarks   views.ts (terminalResources)
 //   renderer.commandHandlers     handlers registered in the command registry (≤ one per command of the table)
 //   renderer.menuStateEntries    entries in the last menu state sent to main
+//   renderer.modals              modals open and sequences holding their backdrop (shell/modals.ts: ≤ one per kind of
+//                                sheet, one hold per sequence running)
 //   renderer.keyChords           chords the key router matches (≤ the table's keys plus one per command)
 //   renderer.keyOverrides, .keyNotices   entries of keybindings.json in use, and entries left out with their reason
 //                                (each ≤ `keybindingsMaxEntries`)
@@ -45,6 +47,7 @@ import { folderPicksPending, setResourceReporter } from '../../lib/bridge.ts'
 import { rpcStats } from '../../lib/rpc.ts'
 import { bindingsResources } from '../commands/bindings.svelte.ts'
 import { menuStateEntries } from '../commands/install.ts'
+import { modals } from '../../shell/modals.ts'
 import { bindingChords } from '../commands/keys.ts'
 import { commands } from '../commands/registry.ts'
 import { palette, paletteHolds, usage } from '../palette/state.svelte.ts'
@@ -68,6 +71,7 @@ const GAUGES: readonly Gauge[] = [
   { rows: ['terminals', 'webglContexts', 'atlasBytes', 'atlasPages', 'streamPorts', 'searchAddons', 'scrollMarks'], read: terminalResources },
   { rows: ['commandHandlers'], read: () => ({ commandHandlers: commands.size }) },
   { rows: ['menuStateEntries'], read: () => ({ menuStateEntries: menuStateEntries() }) },
+  { rows: ['modals'], read: () => ({ modals: modals.count }) },
   { rows: ['keyChords', 'keyOverrides', 'keyNotices'], read: () => ({ keyChords: bindingChords(), ...bindingsResources() }) },
   { rows: ['paletteOpen', 'paletteCandidates', 'paletteRows', 'paletteUsage'], read: () => ({ paletteOpen: palette.open ? 1 : 0, paletteCandidates: paletteHolds.candidates, paletteRows: paletteHolds.rows, paletteUsage: usage.size }) },
   { rows: ['tooltips'], read: () => ({ tooltips: document.querySelectorAll('.kea-tooltip').length }) },

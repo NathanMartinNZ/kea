@@ -1,8 +1,11 @@
-/* Settings: a sheet that fills the main pane, the section list on the left and the selected page on the right. Rows are
-   the project-settings rows of window.css (`.settings-row`), which the generated sections share. Tokens only (DS-2). */
+/* Settings: a modal of a fixed size (capped at the window, so it does not jump between pages), the section list on the
+   left and the selected page on the right. Rows are the project-settings rows of window.css (`.settings-row`), which
+   the generated sections share. Tokens only (DS-2). */
 
 .confirm-sheet.settings-sheet {
-  bottom: 0;
+  width: var(--size-settings-dialog-width);
+  height: var(--size-settings-dialog-height);
+  max-height: 100%;
 }
 
 .settings-sheet > .sheet-body {

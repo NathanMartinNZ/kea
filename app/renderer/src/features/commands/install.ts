@@ -5,6 +5,7 @@
 import { MAIN_COMMANDS } from '@kea/protocol'
 import { installBindings } from './bindings.svelte.ts'
 import { chordOf, copyHintDue, routeKey, type RouteContext } from './keys.ts'
+import { gate, gatedMenuState } from './modalGate.ts'
 import { commands } from './registry.ts'
 import { currentKeyScopes } from './scope.ts'
 import { editRole, onCommand, setMenuState } from '../../lib/bridge.ts'
@@ -48,7 +49,8 @@ export function installCommands(): void {
       const ctx: RouteContext = {
         inTerminal: view !== undefined,
         scopes: currentKeyScopes(),
-        has: (id, args) => !MAINS.has(id) && commands.available(id, args),
+        // while a modal is open, only what it allows (modalGate.ts)
+        has: (id, args) => !MAINS.has(id) && gate(id) && commands.available(id, args),
         ctrlCopyPaste: prefs.get().ctrlCopyPaste,
         userSelection: view?.userSelection() ?? false,
       }
@@ -93,7 +95,7 @@ export function installCommands(): void {
   )
 
   onCommand((c) => {
-    commands.run(c.id, c.args)
+    if (gate(c.id)) commands.run(c.id, c.args)
   })
 
   // menu bar: one report per change, coalesced to a microtask, only when it differs from the last one
@@ -104,7 +106,8 @@ export function installCommands(): void {
     scheduled = true
     queueMicrotask(() => {
       scheduled = false
-      const state = commands.menuState()
+      // the menu bar greys what a modal on screen does not allow
+      const state = gatedMenuState(commands.menuState())
       const json = JSON.stringify(state)
       if (json === last) return
       last = json

@@ -1,7 +1,7 @@
 <!--
-The sheets attached to the top of the main pane: the confirmations to remove a project, archive a session and delete
-one; restoring a deleted session, a session's log, and the first-quit sheet. The safe button is the default and has
-focus; the destructive one is `--danger` text, not filled; Esc cancels. Settings, with a project's settings as its
+The sheets drawn as modals over the window (SheetFrame.svelte): the confirmations to remove a project, archive a
+session and delete one; restoring a deleted session, a session's log, and the first-quit sheet. The safe button is the
+default and has focus; the destructive one is `--danger` text, not filled; Esc or a click on the backdrop cancels. Settings, with a project's settings as its
 Projects page, is its own sheet (features/settings/Settings.svelte).
 -->
 <script lang="ts">

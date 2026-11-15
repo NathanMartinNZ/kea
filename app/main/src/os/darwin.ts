@@ -74,6 +74,8 @@ export const darwin: MainOs = {
   // (an editable file, say) instead of the terminal or field the user clicked
   windowChrome: {
     options: (o) => ({ titleBarStyle: 'hiddenInset', trafficLightPosition: o.trafficLights, acceptFirstMouse: true }),
+    // the traffic lights are the system's, drawn above the page: they stay as they are under a modal's backdrop
+    modal: () => undefined,
     createShown: false,
     restoresPosition: () => true,
     nativeTheme: null,

@@ -10,7 +10,9 @@ import { signalKnown } from '../../tools/perf/src/launch.ts'
 import { KeaRun, PROMPT, STEP_MS, until, zooShellCommand, type Kea } from '../support/app.ts'
 import { BYTE_BUDGET, expectBytesFlat, expectCountsFlat, RendererProbe, runCycles } from '../support/app-leak.ts'
 import { addProject, demoRepo, projectRow, sessionMenu, sessionRow, startSession, waitLive, waitRow } from '../support/app-sessions.ts'
-import { sysKey } from '../support/keys.ts'
+import { TrashWorld, tree, waitTree } from '../support/app-files.ts'
+import { sessionWorktree } from '../support/app-viewer.ts'
+import { listKey, sysKey } from '../support/keys.ts'
 
 const runs: KeaRun[] = []
 const probes: RendererProbe[] = []
@@ -216,6 +218,68 @@ describe('window and connection leaks (app)', () => {
     await waitRow(kea, id, 'still live, untouched by the sheets', (r) => r.lifecycle === 'live')
     expectCountsFlat(unanswered, () => true)
     await expectBytesFlat(kea, renderer, unanswered, HEAPS, 'L-MEM-18 (closed unanswered)')
+  })
+
+  it('L-MEM-24 · open and close a confirmation (Move to Trash) and Settings, ×50: nothing of the modals left (no layer, nothing inert, no modal class, no modal open), DOM nodes, listeners and every other count equal; heaps within budget', async () => {
+    const run = KeaRun.create()
+    runs.push(run)
+    new TrashWorld(run)
+    const kea = await run.launch()
+    await kea.waitScreen('the first shell prompt', (s) => s.includes(PROMPT))
+    const renderer = await RendererProbe.open(kea)
+    probes.push(renderer)
+    const page = await kea.page()
+    await kea.pretendFocused(true)
+    const repo = demoRepo(run)
+    await addProject(kea, repo.root)
+    const id = await startSession(kea, 'modals')
+    await waitLive(kea, id)
+    await waitTree(kea, 'the root is listed', (rows) => rows.some((r) => r.path === 'README.md'))
+    // the first row (a folder) selected from the keyboard: a file clicked would open in the viewer, which keeps a call
+    // to core open while it shows it
+    await tree(page).focus()
+    await page.keyboard.press('Home')
+    const first = (await waitTree(kea, 'a row selected', (rows) => rows.some((r) => r.selected))).find((r) => r.selected)!.path
+    const shown = (role: 'dialog' | 'alertdialog', name: RegExp | string) => page.getByRole(role, { name }).waitFor({ state: 'visible', timeout: STEP_MS })
+    const gone = (role: 'dialog' | 'alertdialog', name: RegExp | string) => page.getByRole(role, { name }).waitFor({ state: 'detached', timeout: STEP_MS })
+    const atRest = () => until('the window at rest', () => page.evaluate(() => (globalThis as unknown as { __keaProbe: { rpcPending(): number } }).__keaProbe.rpcPending() === 0))
+    const left = () =>
+      page.evaluate(() => ({
+        layers: document.querySelectorAll('.modal-layer').length,
+        inert: document.querySelectorAll('[inert]').length,
+        modalClass: document.documentElement.classList.contains('kea-modal-open'),
+      }))
+    const cycles = await runCycles({
+      kea,
+      renderer,
+      batch: 5,
+      cycle: async () => {
+        // Move to Trash from the file list, which gets the keyboard back as it closes
+        await page.keyboard.press(listKey('files.trash'))
+        await shown('alertdialog', 'Move to Trash')
+        await atRest()
+        await page.keyboard.press('Escape')
+        await gone('alertdialog', 'Move to Trash')
+        await page.waitForFunction(() => !!document.activeElement?.closest('.file-panel [role=tree]'), undefined, { timeout: STEP_MS })
+        // Settings, from there
+        await page.keyboard.press(sysKey('Meta+,'))
+        await shown('dialog', /^Settings: /)
+        await atRest()
+        await page.keyboard.press('Escape')
+        await gone('dialog', /^Settings: /)
+        await page.waitForFunction(() => !!document.activeElement?.closest('.file-panel [role=tree]'), undefined, { timeout: STEP_MS })
+      },
+      // the panel's own state saved (a moment after the row was selected), as core writes it
+      quiesce: async () => {
+        await until('the panel at rest', async () => (await page.evaluate(() => (window as unknown as { __keaPerf: { resources(): Record<string, number> } }).__keaPerf.resources()['renderer.filePanelTimers'])) === 0 || undefined)
+      },
+    })
+    expect(cycles.cycles.at(-1)).toBe(50)
+    expect(cycles.points.map((p) => p.counts['renderer.modals']), 'modals open at each checkpoint').toEqual(cycles.points.map(() => 0))
+    expect(await left()).toEqual({ layers: 0, inert: 0, modalClass: false })
+    expect(fs.existsSync(path.join(sessionWorktree(repo.root), first)), 'every Move to Trash cancelled').toBe(true)
+    expectCountsFlat(cycles, () => true)
+    await expectBytesFlat(kea, renderer, cycles, HEAPS, 'L-MEM-24')
   })
 
   it('L-MEM-5 · reload the window 100 times: core and ptyhost ports, streams and scopes, and main’s listeners back to baseline; heaps within budget', async () => {

@@ -8,7 +8,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import zlib from 'node:zlib'
 import { fixtureGitEnv } from '../../tools/repo-factory/src/tiny.ts'
-import type { CDPSession } from '@playwright/test'
+import type { CDPSession, Page } from '@playwright/test'
 import { until, STEP_MS, type Kea } from './app.ts'
 
 export interface ViewerState {
@@ -307,3 +307,32 @@ export function png(w: number, h: number): Buffer {
 }
 
 export { git as gitIn }
+
+/**
+ * The vertical scrollbar of the element at `selector` as painted: its width (CSS px) and how many of its device pixels
+ * differ from the bottom of its track, which the thumb of a container scrolled to the top never covers.
+ */
+export async function scrollbarPaint(page: Page, selector: string): Promise<{ width: number; painted: number }> {
+  const clip = await page.locator(selector).evaluate((el: HTMLElement) => {
+    const r = el.getBoundingClientRect()
+    const width = el.offsetWidth - el.clientWidth
+    return { x: r.right - width, y: r.top, width, height: el.clientHeight }
+  })
+  const shot = await page.screenshot({ clip })
+  const painted = await page.evaluate(async (b64) => {
+    const img = new Image()
+    img.src = `data:image/png;base64,${b64}`
+    await img.decode()
+    const canvas = document.createElement('canvas')
+    canvas.width = img.width
+    canvas.height = img.height
+    const g = canvas.getContext('2d')!
+    g.drawImage(img, 0, 0)
+    const d = g.getImageData(0, 0, canvas.width, canvas.height).data
+    const ground = d.slice(d.length - 4)
+    let n = 0
+    for (let i = 0; i < d.length; i += 4) if (Math.abs(d[i]! - ground[0]!) + Math.abs(d[i + 1]! - ground[1]!) + Math.abs(d[i + 2]! - ground[2]!) > 20) n++
+    return n
+  }, shot.toString('base64'))
+  return { width: clip.width, painted }
+}

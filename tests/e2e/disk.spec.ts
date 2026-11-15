@@ -346,6 +346,9 @@ test('E-DIAG-1 · Copy diagnostics from the menu bar puts versions, the platform
   await expect(hud.locator('[data-hud-calls]')).toContainText('stores followed')
   await expect(hud.locator('[data-hud-bytes]')).toContainText('B/s')
   expect((await resources())['renderer.hudTimers']).toBe(2)
+  // the HUD is behind Settings' backdrop and takes nothing until Settings closes
+  await page.keyboard.press('Escape')
+  await expect(advanced).toHaveCount(0)
   // pressed by key: "Read" keeps the keyboard while every process is asked and after it, as "Read again" (a button that
   // disabled itself meanwhile would drop it)
   const read = hud.getByRole('button', { name: 'Read', exact: true })
@@ -358,6 +361,8 @@ test('E-DIAG-1 · Copy diagnostics from the menu bar puts versions, the platform
   await hud.getByRole('button', { name: 'Hide the performance HUD' }).click()
   await expect(hud).toHaveCount(0)
   expect((await resources())['renderer.hudTimers']).toBe(0)
+  await page.keyboard.press(sysKey('Meta+,'))
+  await page.getByRole('dialog', { name: /^Settings: / }).getByRole('tab', { name: 'Advanced', exact: true }).click()
   await expect(advanced.getByRole('checkbox', { name: 'Show the performance HUD' })).not.toBeChecked()
   await kea.assertUnfocused()
 })

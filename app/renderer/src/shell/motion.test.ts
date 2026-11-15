@@ -6,6 +6,7 @@ import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { MENU_OPEN_CLASS } from '@kea/ui'
+import { MODAL_OPEN_CLASS } from './modals.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(here, '../../../..')
@@ -146,6 +147,14 @@ describe('motion', () => {
     expect(sources.filter((f) => scripted.test(readFileSync(f, 'utf8').replace(/<style[^>]*>[\s\S]*?<\/style>/g, ''))).map((f) => relative(ROOT, f))).toEqual([])
   })
 
+  it('DS-8 · the modal backdrop fades in as a floating layer does, as it appears, and stands still under reduced motion', () => {
+    const shown = sheet.rules.filter((r) => r.selector === '.modal-host.open')
+    expect(shown.filter((r) => !r.reduced).map((r) => r.decls.get('animation'))).toEqual(['kea-float-in var(--motion-float-in) linear'])
+    expect(shown.filter((r) => r.reduced).map((r) => r.decls.get('animation'))).toEqual(['none'])
+    // a box and its layer have no motion of their own: one fade, the backdrop's, however many modals open
+    for (const s of ['.modal-layer', '.confirm-sheet']) expect(sheet.rules.filter((r) => r.selector === s && [...r.decls.keys()].some((k) => MOVES.test(k))), s).toEqual([])
+  })
+
   it('DS-8 · under reduced motion nothing moves: every rule that animates or transitions is switched off by a later rule of the same selector in the same file, the spinner (a static glyph) and the panel collapse (instant) among them', () => {
     const live = sheet.rules.filter((r) => !r.reduced).flatMap((r) => [...r.decls].filter(([p, v]) => MOVES.test(p) && v !== 'none').map(([prop]) => ({ r, prop })))
     expect(live.length).toBeGreaterThan(4)
@@ -162,6 +171,34 @@ describe('motion', () => {
     expect(reduced.find((r) => r.selector === '.window')?.decls.get('transition')).toBe('none')
     // and a reduced-motion rule only ever switches motion off
     expect(reduced.flatMap((r) => [...r.decls].filter(([p, v]) => !MOVES.test(p) || v !== 'none').map(([p, v]) => `${r.file} ${r.selector} { ${p}: ${v} }`))).toEqual([])
+  })
+})
+
+/** The one rule of `selector` (outside reduced motion) that sets `prop`. */
+const declared = (selector: string, prop: string) => sheet.rules.filter((r) => !r.reduced && r.selector === selector && r.decls.has(prop)).map((r) => r.decls.get(prop))
+
+describe('modals', () => {
+  it('DS-14 · the modal host sits over every pane layer, the toast and the HUD, and under the menus, the palette, the session popover and the tooltip; its layer keeps the box below the header strip and the rest of the window’s edges at --space-8; the box is no longer pinned to a pane, and its widths are the dialog tokens', () => {
+    const z = (selector: string) => Number(declared(selector, 'z-index')[0])
+    const host = z('.modal-host')
+    expect(host).toBe(8)
+    for (const below of ['.toast', '.hud']) expect(z(below), below).toBeLessThan(host)
+    for (const above of ['.kea-menu', '.palette', '.session-popover', '.kea-tooltip']) expect(z(above), above).toBeGreaterThan(host)
+    // nothing else in the window reaches the host's level: every other z-index is a pane's layer, under it, or floats above
+    const others = sheet.rules.filter((r) => r.decls.has('z-index') && r.selector !== '.modal-host').map((r) => ({ where: `${r.file} ${r.selector}`, z: Number(r.decls.get('z-index')) }))
+    expect(others.filter((o) => o.z === host).map((o) => o.where)).toEqual([])
+    expect(declared('.modal-host', 'position')).toEqual(['fixed'])
+    expect(declared('.modal-host', 'background')).toEqual(['var(--scrim)'])
+    expect(declared('.modal-layer', 'padding')).toEqual(['var(--size-header) var(--space-8) var(--space-8)'])
+    expect(declared('.modal-layer', 'position')).toEqual(['fixed'])
+    for (const p of ['position', 'top', 'left', 'right', 'bottom', 'z-index', 'border-bottom']) expect(declared('.confirm-sheet', p), p).toEqual([])
+    expect(declared('.confirm-sheet', 'width')).toEqual(['var(--size-dialog)'])
+    expect(declared('.confirm-sheet', 'max-width')).toEqual(['100%'])
+    expect(declared('.confirm-sheet', 'max-height')).toEqual(['100%'])
+    expect(declared('.confirm-sheet', 'border-radius')).toEqual(['var(--radius-lg)'])
+    expect(declared('.confirm-sheet.wide', 'width')).toEqual(['var(--size-dialog-wide)'])
+    expect(declared('.confirm-sheet.settings-sheet', 'width')).toEqual(['var(--size-settings-dialog-width)'])
+    expect(declared('.confirm-sheet.settings-sheet', 'height')).toEqual(['var(--size-settings-dialog-height)'])
   })
 })
 
@@ -225,10 +262,18 @@ describe('drag regions', () => {
         'app/renderer/src/shell/window.css .column-header h1: no-drag',
         'app/renderer/src/shell/window.css .header-cluster: no-drag',
         `app/renderer/src/shell/window.css .${MENU_OPEN_CLASS} .column-header: no-drag`,
+        `app/renderer/src/shell/window.css .${MODAL_OPEN_CLASS} .column-header: no-drag`,
+        'app/renderer/src/shell/window.css .modal-host: no-drag',
+        'app/renderer/src/shell/window.css .modal-layer: no-drag',
+        'app/renderer/src/shell/window.css .confirm-sheet: no-drag',
         'app/renderer/src/styles.css .tab: no-drag',
         'packages/ui/src/ui.css .kea-menu: no-drag',
       ].sort(),
     )
+  })
+
+  it('DS-9 · while a modal is open no header drags the window, and neither does the backdrop, a layer or a box: a press over a header is the backdrop’s', () => {
+    for (const s of [`.${MODAL_OPEN_CLASS} .column-header`, '.modal-host', '.modal-layer', '.confirm-sheet']) expect(region(s), s).toEqual(['no-drag'])
   })
 
   it('DS-9 · every control in a header sits in a cluster: a header holds clusters and spacers only', () => {
@@ -260,6 +305,7 @@ const NO_HAND: Record<string, string> = {
   'viewer-image': 'its image has the zoom cursors',
   'status-row': 'a press on the agent pane’s status line gives the agent the keyboard, as a press on its empty space does: the window’s own text keeps the arrow',
   'session-title': 'a double-click renames the session and a single click does nothing: the window’s own text keeps the arrow',
+  'modal-layer': 'a click on a modal’s backdrop cancels it, but the backdrop is no control: it keeps the arrow',
 }
 
 /** The classes a tag sets: the plain words of `class="…"` and the quoted words in its `{…}` parts, or of `class={…}`. */

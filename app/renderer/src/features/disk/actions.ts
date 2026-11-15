@@ -3,12 +3,15 @@
 // from the palette, the menu bar or a key it asks first (RemoveBuildFoldersSheet.svelte): the folders are deleted for
 // good, not moved to the Trash. Each is the same call the rest of the window makes; a session is asked about with its
 // normal sheet, one session at a time, and since the window shows one sheet at a time that sheet stands in Settings'
-// place: when the last one closes, Settings › Disk is shown again. Failures with no place of their own become a toast;
+// place: when the last one closes, Settings › Disk is shown again. The questions hold the modal backdrop between them
+// (shell/modals.ts), and a session shown from outside ends them. Failures with no place of their own become a toast;
 // success is never toasted.
 
+import { tick } from 'svelte'
 import type { BuildFoldersRemoved } from '@kea/protocol'
 import { call } from '../../lib/rpc.ts'
 import { watch } from '../../lib/reactive.svelte.ts'
+import { modals } from '../../shell/modals.ts'
 import { failed, sessions, ui, type Sheet } from '../sessions/state.svelte.ts'
 import { openSettings } from '../settings/state.svelte.ts'
 import { unsavedView } from '../viewer/unsaved.svelte.ts'
@@ -30,6 +33,25 @@ function ask(sheet: Sheet): Promise<boolean> {
       },
     )
   })
+}
+
+/**
+ * An action's questions, asked one after another under one backdrop: `begin` holds it from the first question (once),
+ * `ended` says a session shown from outside ended them, `done` lets the backdrop go once Settings, shown again, is on
+ * screen (so the backdrop neither goes nor fades in again between them).
+ */
+function questions(): { begin(): void; ended(): boolean; done(): Promise<void> } {
+  let release: (() => void) | null = null
+  let ended = false
+  return {
+    begin: () => void (release ??= modals.hold(() => (ended = true))),
+    ended: () => ended,
+    done: async () => {
+      if (!release) return
+      await tick()
+      release()
+    },
+  }
 }
 
 /** Back to the view, with its selection, once the last sheet of an action has closed. */
@@ -66,24 +88,31 @@ export async function removeBuildFolders(ids: readonly string[]): Promise<Map<st
 /** Archive each; one that has something running is asked about with the archive sheet first. */
 export async function archiveSessions(ids: readonly string[]): Promise<void> {
   let asked = false
-  for (const id of ids) {
-    const s = sessions.get(id)
-    if (!s || (s.lifecycle !== 'live' && s.lifecycle !== 'detached')) continue
-    setBusy(id, true)
-    try {
-      const r = await call('sessions.archive', { id })
-      if (!r.archived && r.reasons.length) {
-        asked = true
-        // the sheet's own Archive button archives it (sessions/Sheets.svelte)
-        if (!(await ask({ kind: 'archive', sessionId: id, reasons: r.reasons }))) return leave()
+  const q = questions()
+  try {
+    for (const id of ids) {
+      if (q.ended()) return leave()
+      const s = sessions.get(id)
+      if (!s || (s.lifecycle !== 'live' && s.lifecycle !== 'detached')) continue
+      setBusy(id, true)
+      try {
+        const r = await call('sessions.archive', { id })
+        if (!r.archived && r.reasons.length) {
+          asked = true
+          q.begin()
+          // the sheet's own Archive button archives it (sessions/Sheets.svelte)
+          if (!(await ask({ kind: 'archive', sessionId: id, reasons: r.reasons })) || q.ended()) return leave()
+        }
+      } catch (e) {
+        failed(`Couldn't archive ${titleOf(id)}`, e)
+      } finally {
+        setBusy(id, false)
       }
-    } catch (e) {
-      failed(`Couldn't archive ${titleOf(id)}`, e)
-    } finally {
-      setBusy(id, false)
     }
+    if (asked) comeBack()
+  } finally {
+    await q.done()
   }
-  if (asked) comeBack()
 }
 
 /**
@@ -92,12 +121,18 @@ export async function archiveSessions(ids: readonly string[]): Promise<void> {
  */
 export async function deleteSessions(ids: readonly string[]): Promise<void> {
   let asked = false
-  for (const id of ids) {
-    if (!sessions.get(id) || unsavedView.sessions.has(id)) continue
-    asked = true
-    if (!(await ask({ kind: 'delete', sessionId: id }))) return leave()
+  const q = questions()
+  try {
+    for (const id of ids) {
+      if (!sessions.get(id) || unsavedView.sessions.has(id)) continue
+      asked = true
+      q.begin()
+      if (!(await ask({ kind: 'delete', sessionId: id })) || q.ended()) return leave()
+    }
+    if (asked) comeBack()
+  } finally {
+    await q.done()
   }
-  if (asked) comeBack()
 }
 
 /** Restore a deleted session; true when it is back. */

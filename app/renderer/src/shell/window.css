@@ -996,26 +996,77 @@ textarea.field {
   color: var(--text-2);
 }
 
-/* ── sheets: attached to the top of the main pane; the default button is the safe one ── */
+/* ── modals: every confirmation and Settings, centred over the whole window on one backdrop (shell/modals.ts) ── */
 
+/* the host: over everything but the menus, the palette, the session popover and the tooltip; drawn while a modal is
+   open or a sequence holds it between its steps. It paints the backdrop once however many modals are open, and fades
+   in only when it appears (a sequence's later steps, and a modal stacked on another, show at once). No header drags the window while it is open (below), so a press there is the backdrop's. */
+.modal-host {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 8;
+  background: var(--scrim);
+  -webkit-app-region: no-drag;
+}
+
+.modal-host.open {
+  display: block;
+  animation: kea-float-in var(--motion-float-in) linear;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modal-host.open {
+    animation: none;
+  }
+}
+
+.kea-modal-open .column-header {
+  -webkit-app-region: no-drag;
+}
+
+/* one modal's layer: the box centred in the window below the header strip, `--space-8` from the other edges. A press
+   and its release both on it cancel the modal (SheetFrame.svelte). Covered by a newer modal, it is inert. */
+.modal-layer {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  padding: var(--size-header) var(--space-8) var(--space-8);
+  -webkit-app-region: no-drag;
+}
+
+/* the parts of the window a modal covers that are wrapped only to be covered: they take no room in the window's grid */
+.covered {
+  display: contents;
+}
+
+/* the box. One taller than its room scrolls its body; its title and its buttons stay in view (the default button has
+   the keyboard, and a box that scrolled as a whole opened at its end) */
 .confirm-sheet {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 4;
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+  width: var(--size-dialog);
+  max-width: 100%;
   max-height: 100%;
   box-sizing: border-box;
-  /* a sheet taller than the pane scrolls its body; its title and its buttons stay in view (the default button has
-     the keyboard, and a sheet that scrolled as a whole opened at its end) */
   overflow: hidden;
-  padding: var(--space-3) var(--space-4);
+  padding: var(--space-4);
+  border-radius: var(--radius-lg);
   background: var(--surface-1);
-  border-bottom: 1px solid var(--line-strong);
   box-shadow: var(--shadow-float);
+  -webkit-app-region: no-drag;
+}
+
+.confirm-sheet:focus {
+  outline: none;
+}
+
+.confirm-sheet.wide {
+  width: var(--size-dialog-wide);
 }
 
 .sheet-title {
@@ -1043,11 +1094,17 @@ textarea.field {
   color: var(--text-3);
 }
 
+/* the box level with its words' first line (the base line height less the box, halved): the words are one item, so a
+   long branch name wraps under them, not beside */
 .sheet-check {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: var(--space-2);
   margin: var(--space-1) 0;
+}
+
+.sheet-check input[type='checkbox'] {
+  margin-top: var(--space-1);
 }
 
 .sheet-list,
@@ -1092,6 +1149,7 @@ code.sheet-row-title,
   flex: none;
   justify-content: flex-end;
   gap: var(--space-2);
+  margin-top: var(--space-2);
 }
 
 /* the default button, what ↵ does, rests on --surface-2: it shows without a keyboard focus ring. This block is the

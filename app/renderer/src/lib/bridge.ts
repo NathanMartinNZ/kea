@@ -1,9 +1,10 @@
 // The page side of the preload bridge: `rpc` (the port to core, replaced when core restarts), `openStream(ptyId)` (a
 // port to ptyhost for one terminal), the menu bar (the renderer reports which commands it can run, main sends back the
 // one chosen; on Linux main sends the application menu for the window to draw, `onWindowMenu`, and takes its picks
-// back), the wake signal after sleep, the memory watchdog's request for the GPU process's memory back
-// (`gpuReset`), core going away (main's `coreAway`; the next RPC port means it is back) and main's requests for this
-// renderer's resource report, answered by the reporter `setResourceReporter` installs, and the window's own question
+// back), whether a modal is open over the window (`setModalOpen`), the wake signal after sleep, the memory watchdog's
+// request for the GPU process's memory back (`gpuReset`), core going away (main's `coreAway`; the next RPC port means
+// it is back) and main's requests for this renderer's resource report, answered by the reporter `setResourceReporter`
+// installs, and the window's own question
 // for every process's report (`resourceReports`: Copy diagnostics and the dev HUD); the native pieces of the window's
 // UI: the folder picker (`pickFolder`), `reveal`, `openPage` (Open in Browser), `openExternal` (a web link),
 // `openSettingsFile` and `pathForFile`
@@ -31,6 +32,7 @@ interface PreloadApi {
   hello(): void
   requestStream(ptyId: string, reqId: number): void
   setMenuState(state: MenuState): void
+  setModalOpen(open: boolean): void
   sendResources(reqId: number, report: ResourceReport): void
   askResourceReports(reqId: number): void
   pickFolder(reqId: number, purpose: 'add' | 'locate'): void
@@ -363,6 +365,14 @@ export function coreConnected(): boolean {
 /** Tell main which commands this window can run now; it rebuilds the menu bar. */
 export function setMenuState(state: MenuState): void {
   window.kea.setMenuState(state)
+}
+
+/**
+ * Tell main a modal opened over the whole window (true) or the last one closed (false): on Linux it dims the window's
+ * controls with the modal's backdrop, and restores them.
+ */
+export function setModalOpen(open: boolean): void {
+  window.kea.setModalOpen(open)
 }
 
 /** The function that answers main's resource-report requests; one per window. */

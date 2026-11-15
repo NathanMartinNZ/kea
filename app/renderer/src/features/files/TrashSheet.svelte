@@ -1,5 +1,5 @@
 <!--
-Move to Trash: always asked first, in a sheet at the top of the main pane, as Discard Changes… is. It names the exact
+Move to Trash: always asked first, in a modal over the window, as Discard Changes… is. It names the exact
 path and says whether a folder goes with everything in it, and which unsaved changes are lost; Cancel is the default. Core moves the entry with the
 system's trash tool, never deletes it, and refuses when the path is now the other kind (a file where the sheet named a
 folder). Locatable as `alertdialog` "Move to Trash".

@@ -12,17 +12,9 @@ shows its items in the menu's place after a back row that names the menu it came
 Locatable as `role=menu` named by `label`, items as `role=menuitem` (a submenu's with `aria-haspopup`), separators as
 `role=separator`.
 -->
-<script module lang="ts">
-  import { OpenMenus } from './menuNav.ts'
-
-  let menus: OpenMenus<HTMLElement> | null = null
-  /** The window's open menus, made at the first opening (a module of a server render has no document). */
-  const openMenus = (): OpenMenus<HTMLElement> => (menus ??= new OpenMenus<HTMLElement>(document.documentElement))
-</script>
-
 <script lang="ts">
   import { untrack } from 'svelte'
-  import { ariaShortcut, drillKey, levelItems, levelStart, MENU_BACK, menuMove, pressCloses, restoresFocus, type MenuProps } from './menuNav.ts'
+  import { ariaShortcut, drillKey, levelItems, levelStart, MENU_BACK, menuMove, openMenus, pressCloses, restoresFocus, type MenuProps } from './menuNav.ts'
 
   let p: MenuProps = $props()
   let el: HTMLDivElement | undefined = $state()

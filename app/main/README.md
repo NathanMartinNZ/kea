@@ -63,7 +63,7 @@ granted is the sanitised clipboard write. The preload (`app/preload`) is the win
 Main accepts a message only from the main frame of one of Kea's own windows, and checks its payload before acting on
 it.
 
-- From the window: `kea:hello`, `kea:menuState`, `kea:openStream`, `kea:pickFolder`, `kea:reveal`, `kea:openPage`,
+- From the window: `kea:hello`, `kea:menuState`, `kea:modalOpen`, `kea:openStream`, `kea:pickFolder`, `kea:reveal`, `kea:openPage`,
   `kea:openLink`, `kea:openSettingsFile`, `kea:openHomeItem`, `kea:mainCommand`, `kea:editRole`, `kea:openMenu`,
   `kea:quitChoice`, `kea:notificationState`, `kea:openNotificationSettings`, `kea:resources`, `kea:resourceReports`, `kea:handoff`,
   `kea:takeHandoff`, `kea:documents`, `kea:takeDocuments`, `kea:reviewAck`, `kea:reviewAnswer`, `kea:unsavedCount`,
@@ -125,7 +125,7 @@ is handed the Electron object it acts on, so the decisions are unit-tested in No
 
 | Capability | macOS | Linux |
 |---|---|---|
-| `windowChrome` | A hidden-inset title bar, the traffic lights inside the sidebar header | The Window Controls Overlay in the header's colours; the window is created shown; a saved position is restored only on X11 |
+| `windowChrome` | A hidden-inset title bar, the traffic lights inside the sidebar header, unchanged under a modal | The Window Controls Overlay in the header's colours, dimmed with a modal's backdrop while one is open; the window is created shown; a saved position is restored only on X11 |
 | `raise` | Restore and focus | On Wayland, hide and show an open window, and rebuild a minimized one (`handoff.ts`); restore and focus on X11 |
 | `edited` | The dot in the close button while a window has unsaved files (`setDocumentEdited`) | Not available |
 | `menu` | The menu bar, with the app menu, Services and Hide | File … Help, opened from the header's menu button or `Alt` |

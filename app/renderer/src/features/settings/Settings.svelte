@@ -1,9 +1,10 @@
 <!--
-Settings (`⌘,`): a sheet over the main pane with the section list on the left (in pages.ts' order) and
+Settings (`⌘,`): a modal over the window with the section list on the left (in pages.ts' order) and
 the selected page on the right. Changes apply as they are made, so there is no Save button; "Open
 settings.json" is at the bottom. Locatable as `role=dialog` named `Settings: <page>`; opened on a project
 (`project.settings`) it is `Settings: Project settings · <name>`. The list is a vertical `tablist`: ↑ ↓ Home End move
-between pages, Tab goes into the page; Esc closes and focus goes back where it was (SheetFrame).
+between pages, Tab goes into the page; Esc, `⌘,` or a click on the backdrop closes it and focus goes back where it was
+(SheetFrame).
 -->
 <script lang="ts">
   import { tick } from 'svelte'
@@ -37,7 +38,7 @@ between pages, Tab goes into the page; Esc closes and focus goes back where it w
 </script>
 
 {#if sheet}
-  <SheetFrame title="Settings" {label} role="dialog" class="settings-sheet" onCancel={closeSettings}>
+  <SheetFrame title="Settings" {label} role="dialog" kind="settings" class="settings-sheet" onCancel={closeSettings}>
     {#snippet buttons()}
       <button class="link-button settings-file" onclick={openSettingsFile}>Open settings.json</button>
       <button class="button" onclick={closeSettings}>Done</button>

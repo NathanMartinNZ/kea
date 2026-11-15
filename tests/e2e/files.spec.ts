@@ -13,7 +13,7 @@ import type { Locator, Page } from '@playwright/test'
 import { protocolOs } from '@kea/protocol'
 import { until, type Kea } from '../support/app.ts'
 import { agentEvents, claudeByDefault, fakeAgentTerminal, startFakeSession } from '../support/app-fake-agent.ts'
-import { changeRow, changeRowInView, changeRows, changesList, clickChange, clickFile, diffStatText, finder, finderRows, fsmonitorHint, fsmonitorProblem, fsmonitorRuns, GIT_MS, gitConfig, panelModes, panelRegion, showMode, SlowGit, stopFsmonitorDaemon, TrashWorld, tree, treeRow, treeRows, treeText, waitChanges, waitTree } from '../support/app-files.ts'
+import { changeRow, changeRowInView, changeRows, changesList, clickChange, clickFile, diffStatText, dropFile, finder, finderRows, fsmonitorHint, fsmonitorProblem, fsmonitorRuns, GIT_MS, gitConfig, panelModes, panelRegion, showMode, SlowGit, stopFsmonitorDaemon, TrashWorld, tree, treeRow, treeRows, treeText, waitChanges, waitTree } from '../support/app-files.ts'
 import { clipboard, EditorWorld, recordClipboard } from '../support/app-server.ts'
 import { addProject, agentTerminal, demoRepo, menuCommands, projectRow, selectSession, startSession, waitLive } from '../support/app-sessions.ts'
 import { fileTabs, pinFileTab, viewerShown } from '../support/app-tabs.ts'
@@ -973,38 +973,6 @@ test('E-FT-11 · a row dragged onto a folder and onto the Files bar moves there;
   await page.keyboard.up(copyKey)
   await until('a copy beside it', () => there(worktree, 'a copy.md') || undefined)
 })
-
-/**
- * Dispatch a drag of one file from another app with no place on disk at the element `selector`, as a drop there would
- * come: whether a place took the drag (its `dragover` prevented) and whether the window's own handler, which adds a
- * dropped folder as a project, saw it.
- */
-async function dropFile(page: Page, selector: string): Promise<{ taken: boolean; window: boolean }> {
-  return page.evaluate((sel) => {
-    const el = document.querySelector(sel)
-    if (!el) throw new Error(`nothing at ${sel}`)
-    const dt = new DataTransfer()
-    dt.items.add(new File(['x'], 'dropped.txt', { type: 'text/plain' }))
-    let set = 'unset'
-    Object.defineProperty(dt, 'dropEffect', { get: () => set, set: (v: string) => void (set = v) })
-    let window = false
-    const seen = (): void => {
-      window = true
-    }
-    const top = document.body
-    top.addEventListener('dragover', seen)
-    top.addEventListener('drop', seen)
-    const r = el.getBoundingClientRect()
-    const at: DragEventInit = { clientX: r.left + r.width / 2, clientY: r.top + Math.min(r.height / 2, 30), bubbles: true, cancelable: true, dataTransfer: dt }
-    el.dispatchEvent(new DragEvent('dragenter', at))
-    const over = new DragEvent('dragover', at)
-    el.dispatchEvent(over)
-    el.dispatchEvent(new DragEvent('drop', at))
-    top.removeEventListener('dragover', seen)
-    top.removeEventListener('drop', seen)
-    return { taken: over.defaultPrevented, window }
-  }, selector)
-}
 
 test('E-FT-12 · files dragged from another app onto the file panel’s body are the panel’s, never a new project: refused with no session and in Changes, copied in Files, where an item with no place on disk is left out with a toast; onto the panel’s header or beside the panel the window still takes them', async ({ run, launch }) => {
   const kea = await launch()

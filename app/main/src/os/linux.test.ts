@@ -1,15 +1,16 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import type { App, MenuItemConstructorOptions, Notification } from 'electron'
+import type { App, BrowserWindow, MenuItemConstructorOptions, Notification } from 'electron'
 import { COMMANDS, need, PLATFORM_LINES, zPlatformReport } from '@kea/protocol'
 import { darwin as protocolDarwin } from '@kea/protocol/os/darwin'
 import { linux as protocolLinux } from '@kea/protocol/os/linux'
+import { COLOR, SIZE_PX } from '@kea/ui/tokens'
 import { afterEach, describe, expect, it } from 'vitest'
 import { findMenuItem, menuTemplate, windowMenuTree, type MenuInput } from '../menu.ts'
 import { GPU_DRIVER_FIX, terminalRendererLine } from '../platformLines.ts'
 import { darwin } from './darwin.ts'
-import { desktopFileFound, desktopLines, displayServer, foldSubtitle, GO_COMMANDS, idleSource, inotifyWatches, lingerOn, linux, linuxFacts, linuxLines, linuxVersion, osReleaseName, raiseHow, sandboxedBy, sandboxLine, serviceOf, statParent, zygotePids, type LinuxFacts } from './linux.ts'
+import { desktopFileFound, desktopLines, displayServer, foldSubtitle, GO_COMMANDS, idleSource, inotifyWatches, lingerOn, linux, linuxFacts, linuxLines, linuxVersion, osReleaseName, overlayUnderScrim, raiseHow, sandboxedBy, sandboxLine, serviceOf, statParent, underScrim, zygotePids, type LinuxFacts } from './linux.ts'
 
 const FIXTURES = path.resolve(import.meta.dirname, '../../../../fixtures/os/linux')
 
@@ -232,6 +233,52 @@ describe('the window on Linux', () => {
     const chrome = need(linux.windowChrome)
     expect([chrome.restoresPosition('x11'), chrome.restoresPosition('wayland'), chrome.createShown]).toEqual([true, false, true])
     expect(chrome.options({ trafficLights: { x: 1, y: 2 }, overlay: { color: '#111210', symbolColor: '#A3A79A', height: 43 } })).toEqual({ titleBarStyle: 'hidden', titleBarOverlay: { color: '#111210', symbolColor: '#A3A79A', height: 43 }, autoHideMenuBar: true })
+  })
+
+  // The overlay is drawn over the page, out of a modal backdrop's reach: while a modal is open it shows its colours
+  // mixed under the scrim token (its colour at its alpha), and its own again once the last modal closes. A destroyed
+  // window, or one Electron made without the overlay, is left alone; macOS's traffic lights stay as they are.
+  it('U-PLT-69 · under a modal the window controls dim with the backdrop and come back after; a destroyed window is skipped', () => {
+    // the mix, by hand: each channel × (1 − alpha) + the scrim's × alpha, rounded
+    expect(underScrim('#111210', 'rgba(0,0,0,.5)')).toBe('#090908')
+    expect(underScrim('#A3A79A', 'rgba( 0, 0, 0, 0.5 )')).toBe('#52544d')
+    expect(underScrim('#000000', 'rgba(255,255,255,.25)')).toBe('#404040')
+    expect(underScrim('#123456', 'rgb(1,2,3)')).toBe('#010203')
+    for (const [colour, scrim] of [['#123', 'rgba(0,0,0,.5)'], ['#111210', 'hsla(0,0%,0%,.5)'], ['#111210', 'rgba(0,0,0,2)'], ['#111210', 'rgba(256,0,0,.5)']] as const) expect(underScrim(colour, scrim), `${colour} under ${scrim}`).toBeNull()
+    // the tokens main passes: the scrim token is read, and both of the overlay's colours are mixed under it
+    const overlay = { color: COLOR['surface-1'], symbolColor: COLOR['text-2'], height: SIZE_PX['window-controls'] }
+    const dimmed = overlayUnderScrim(overlay, COLOR.scrim)
+    expect(dimmed).not.toBeNull()
+    expect(dimmed).toEqual({ color: underScrim(COLOR['surface-1'], COLOR.scrim), symbolColor: underScrim(COLOR['text-2'], COLOR.scrim), height: overlay.height })
+    expect([dimmed?.color, dimmed?.symbolColor]).not.toEqual([overlay.color.toLowerCase(), overlay.symbolColor.toLowerCase()])
+    // a modal opens, then the last one closes: dimmed, then the overlay's own options
+    const calls: unknown[] = []
+    let destroyed = false
+    const win = { isDestroyed: () => destroyed, setTitleBarOverlay: (o: unknown) => calls.push(o) } as unknown as BrowserWindow
+    const chrome = need(linux.windowChrome)
+    chrome.modal(win, { open: true, overlay, scrim: COLOR.scrim })
+    chrome.modal(win, { open: false, overlay, scrim: COLOR.scrim })
+    expect(calls).toEqual([dimmed, overlay])
+    // a scrim it cannot read leaves the overlay as it is
+    chrome.modal(win, { open: true, overlay, scrim: 'transparent' })
+    expect(calls).toHaveLength(2)
+    // a destroyed window is skipped
+    destroyed = true
+    chrome.modal(win, { open: true, overlay, scrim: COLOR.scrim })
+    chrome.modal(win, { open: false, overlay, scrim: COLOR.scrim })
+    expect(calls).toHaveLength(2)
+    // a window made without the overlay: Electron throws, and the modal goes on without it
+    const plain = {
+      isDestroyed: () => false,
+      setTitleBarOverlay: () => {
+        throw new Error('Titlebar overlay is not enabled')
+      },
+    } as unknown as BrowserWindow
+    expect(() => chrome.modal(plain, { open: true, overlay, scrim: COLOR.scrim })).not.toThrow()
+    // macOS does nothing
+    destroyed = false
+    need(darwin.windowChrome).modal(win, { open: true, overlay, scrim: COLOR.scrim })
+    expect(calls).toHaveLength(2)
   })
 })
 

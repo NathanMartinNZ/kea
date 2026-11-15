@@ -6,13 +6,16 @@ menu button on Linux. Column widths come from layout.ts; the dividers between th
 
 Landmarks (for people and for tests): `complementary` "Sidebar", `region` "File panel", `main` "Session"; each divider
 is a `separator` "Resize sidebar" / "Resize file panel" with its width as its value.
+
+Modals (every confirmation and Settings) draw in the modal host over the whole window, on its backdrop; while one is
+open the columns, the dividers, the toast and the HUD are covered: `inert` (modals.ts).
 -->
 <script lang="ts">
   import { untrack } from 'svelte'
   import type { Attachment } from 'svelte/attachments'
   import { protocolOs } from '@kea/protocol'
-  import { Icon, Tooltip } from '@kea/ui'
-  import { pathForFile } from '../lib/bridge.ts'
+  import { closeMenus, Icon, Tooltip } from '@kea/ui'
+  import { pathForFile, setModalOpen } from '../lib/bridge.ts'
   import { commandTip, named } from '../features/commands/bindings.svelte.ts'
   import { registerAppCommands } from '../features/commands/commands.ts'
   import { commands } from '../features/commands/registry.ts'
@@ -27,6 +30,7 @@ is a `separator` "Resize sidebar" / "Resize file panel" with its width as its va
   import FilesLayers from '../features/files/FilesLayers.svelte'
   import { panelIsGit } from '../features/files/state.svelte.ts'
   import { registerPaletteCommands } from '../features/palette/commands.ts'
+  import { closePalette } from '../features/palette/state.svelte.ts'
   import PaletteLayer from '../features/palette/PaletteLayer.svelte'
   import { registerServerCommands } from '../features/server/commands.ts'
   import { registerSettingsCommands } from '../features/settings/commands.ts'
@@ -41,7 +45,7 @@ is a `separator` "Resize sidebar" / "Resize file panel" with its width as its va
   import ConditionsFooter from '../features/status/ConditionsFooter.svelte'
   import UpdateLine from '../features/settings/UpdateLine.svelte'
   import SessionPopover from '../features/status/SessionPopover.svelte'
-  import { statusUi } from '../features/status/ui.svelte.ts'
+  import { closePopover, statusUi } from '../features/status/ui.svelte.ts'
   import { viewingState } from '../features/status/viewing.svelte.ts'
   import { registerViewerCommands } from '../features/viewer/commands.ts'
   import { orphanUnsavedFiles, takeHandedDocuments } from '../features/viewer/review.svelte.ts'
@@ -58,6 +62,7 @@ is a `separator` "Resize sidebar" / "Resize file panel" with its width as its va
   import { forgetWhatGoes } from './forget.ts'
   import { askSavedTab } from './savedTab.ts'
   import { escapeToMain, leaveHiddenColumns, registerRegionCommands } from './regions.ts'
+  import { modals } from './modals.ts'
 
   const d = $derived(drawnNow())
   /** A sidebar narrower than `--size-sidebar-compact` drops each row's secondary text and hover buttons. */
@@ -132,6 +137,35 @@ is a `separator` "Resize sidebar" / "Resize file panel" with its width as its va
   }
 
   const keepFocus = (e: MouseEvent) => e.preventDefault()
+
+  // ── modals: drawn in the host over the whole window; what they cover is inert ──
+
+  /** The modals' host: their layers draw in it, on its backdrop, which appears with the first and goes with the last. */
+  const modalHost: Attachment<HTMLElement> = (host) => {
+    modals.host = host
+    modals.install({
+      root: document.documentElement,
+      keys: window,
+      active: () => (document.activeElement instanceof HTMLElement ? document.activeElement : null),
+      opening: () => {
+        closeMenus()
+        closePalette()
+        closePopover()
+      },
+      shown: (open) => {
+        host.classList.toggle('open', open)
+        setModalOpen(open)
+      },
+      changed: () => commands.changed(),
+    })
+    return () => {
+      modals.install(null)
+      modals.host = null
+    }
+  }
+
+  /** A part of the window behind the modals. */
+  const covered: Attachment<HTMLElement> = (el) => modals.cover(el)
 </script>
 
 {#snippet modeButton(m: PanelMode, label: string)}
@@ -141,7 +175,7 @@ is a `separator` "Resize sidebar" / "Resize file panel" with its width as its va
 <!-- svelte-ignore a11y_no_static_element_interactions (a folder dropped anywhere in the window adds a project; ⌘O is
   the keyboard path; Esc here only moves focus back to the main pane) -->
 <div class={cls} style:grid-template-columns="{d.sidebar}px {d.tree}px minmax(0, 1fr)" ondragover={onFolderDragOver} ondrop={onFolderDrop} onkeydown={escapeToMain}>
-  <aside class="column sidebar-column" class:sidebar-compact={compact} aria-label="Sidebar" hidden={d.sidebar === 0}>
+  <aside class="column sidebar-column" class:sidebar-compact={compact} aria-label="Sidebar" hidden={d.sidebar === 0} {@attach covered}>
     <div class="column-header sidebar-header">
       {#if menuIn === 'sidebar'}
         <div class="header-cluster"><WindowMenuButton /></div>
@@ -162,7 +196,7 @@ is a `separator` "Resize sidebar" / "Resize file panel" with its width as its va
     </div>
   </aside>
   <!-- the file panel: the column, its header toggle and its focus are the window's; its body is `FilePanel` -->
-  <section class="column file-panel" aria-label="File panel" hidden={d.tree === 0} {@attach panelElement}>
+  <section class="column file-panel" aria-label="File panel" hidden={d.tree === 0} {@attach panelElement} {@attach covered}>
     <div class="column-header panel-header">
       <div class="header-cluster">
         {#if menuIn === 'panel'}
@@ -188,16 +222,21 @@ is a `separator` "Resize sidebar" / "Resize file panel" with its width as its va
       <FilePanel sessionId={panelSession} {mode} {activeFile} onchanges={(n) => (changes = n)} onmode={(m) => setLayout((l) => setPanelMode(l, m))} />
     </div>
   </section>
-  <section class="column main-column" role="main" aria-label="Session">
+  <section class="column main-column" role="main" aria-label="Session" {@attach covered}>
     <MainHeader menuButton={menuIn === 'main'} />
     <Banners />
     <MainPane />
   </section>
+  <!-- the dividers, the toast and the HUD are covered with the columns; `covered` boxes take no room in the grid -->
   {#if d.sidebar > 0}
-    <Divider column="sidebar" x={d.sidebar} label="Resize sidebar" splitDrawn={viewingState.agentPane !== null} />
+    <div class="covered" {@attach covered}>
+      <Divider column="sidebar" x={d.sidebar} label="Resize sidebar" splitDrawn={viewingState.agentPane !== null} />
+    </div>
   {/if}
   {#if d.tree > 0}
-    <Divider column="tree" x={d.sidebar + d.tree} label="Resize file panel" splitDrawn={viewingState.agentPane !== null} />
+    <div class="covered" {@attach covered}>
+      <Divider column="tree" x={d.sidebar + d.tree} label="Resize file panel" splitDrawn={viewingState.agentPane !== null} />
+    </div>
   {/if}
   <Menus />
   <TerminalMenu />
@@ -207,6 +246,9 @@ is a `separator` "Resize sidebar" / "Resize file panel" with its width as its va
   {/if}
   <!-- the file panel's menus -->
   <FilesLayers />
+  <!-- svelte-ignore a11y_no_static_element_interactions (only refuses drops: a folder dropped on a modal's backdrop adds
+    no project) -->
+  <div class="modal-host" {@attach modalHost} ondragover={refuseFiles} ondrop={refuseFiles}></div>
   <!-- the command palette (⌘⇧P; ⌘P in file mode, which is the finder) -->
   <PaletteLayer />
   {#if statusUi.popover}
@@ -214,8 +256,10 @@ is a `separator` "Resize sidebar" / "Resize file panel" with its width as its va
       <SessionPopover sessionId={statusUi.popover.sessionId} report={statusUi.popover.report} />
     {/key}
   {/if}
-  <ToastHost />
-  <HudHost />
+  <div class="covered" {@attach covered}>
+    <ToastHost />
+    <HudHost />
+  </div>
   <!-- the window's one tooltip: a control names its command with `data-command`, its text with `data-tip` -->
   <Tooltip resolve={commandTip} />
 </div>

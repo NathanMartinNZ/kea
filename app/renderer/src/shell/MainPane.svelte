@@ -1,6 +1,7 @@
 <!--
 The main column's pane: what the window is on (sessions/state.svelte.ts `pane`) — a session (SessionPane.svelte), the
-composer, or, with neither, the plain shell tabs of the `shells` pseudo-session. Sheets attach to the top of the pane.
+composer, or, with neither, the plain shell tabs of the `shells` pseudo-session. The sheets declared here draw as modals
+over the whole window (SheetFrame.svelte, modals.ts).
 -->
 <script lang="ts">
   import ShortcutsSheet from '../features/commands/ShortcutsSheet.svelte'

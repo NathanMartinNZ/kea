@@ -404,6 +404,11 @@ export const zMenuState = z.object({
 })
 export type MenuState = z.infer<typeof zMenuState>
 
+// Renderer → main (`kea:modalOpen`, a boolean): true when a modal opens over the whole window, false when the last one
+// closes. On Linux main dims the window controls' overlay to match the modal's backdrop while one is open, and gives it
+// its own colours back after; macOS's traffic lights stay as they are. Main restores the overlay when the window's page
+// is reloaded too, since a reloaded page has no modal open.
+
 /**
  * Main → renderer (`kea:windowMenu`, Linux): the application menu as the window draws it, from the same template as
  * the hidden menu bar. `id` is what a pick sends back (`kea:menuPick`): a command's id, `role:<name>` for an Edit

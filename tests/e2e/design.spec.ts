@@ -4,19 +4,22 @@
 // accessibility tree (CDP), so a name is what assistive technology is given, not what the markup seems to say. Nothing
 // here touches the clipboard.
 
+import fs from 'node:fs'
+import path from 'node:path'
 import type { CDPSession, Page } from '@playwright/test'
 import { tinyRepo } from '@kea-tools/repo-factory/src/index.ts'
 import type { AgentEvent } from '@kea/protocol'
 import { STEP_MS, until, type Kea } from '../support/app.ts'
 import { claudeByDefault, fakeAgentTerminal, startFakeSession } from '../support/app-fake-agent.ts'
-import { clickChange, clickFile, GIT_MS, showMode, waitChanges, waitTree } from '../support/app-files.ts'
+import { clickChange, clickFile, dropFile, GIT_MS, showMode, TrashWorld, tree, treeRow, waitChanges, waitTree } from '../support/app-files.ts'
 import { focusIn, openPalette, palette } from '../support/app-palette.ts'
 import { commitFiles, runCommand, serverChip, serverScript, waitServer } from '../support/app-server.ts'
 import { addProject, projectRow, promptBox, selectSession, sessionMenu, sessionRow, startSession, waitLive, waitRow } from '../support/app-sessions.ts'
 import { ingest } from '../support/app-status.ts'
-import { sessionWorktree, waitBody, writeFiles } from '../support/app-viewer.ts'
+import { scrollbarPaint, sessionWorktree, waitBody, writeFiles } from '../support/app-viewer.ts'
 import { expect, test } from './fixtures.ts'
-import { sysKey, sysLabel } from '../support/keys.ts'
+import { SIZE_PX, SPACE_PX } from '../../packages/ui/src/generated/tokens.ts'
+import { listKey, sysKey, sysLabel } from '../support/keys.ts'
 
 /** An agent that draws its prompt and waits, firing no hook of its own after its start: its status is the test's to give. */
 const QUIET = `steps:
@@ -620,7 +623,7 @@ class FocusTrail {
   }
 }
 
-test('A-3 · the keyboard follows the regions’ order and focus always shows: F6 goes sidebar → file panel → header → work pane → agent pane and ⇧F6 back, Tab walks the same five regions in that order, every stop shows where the keyboard is, a row that goes while it holds the keyboard hands it on, and a sheet taller than the pane keeps its title and its buttons in view', async ({ run, launch }) => {
+test('A-3 · the keyboard follows the regions’ order and focus always shows: F6 goes sidebar → file panel → header → work pane → agent pane and ⇧F6 back, Tab walks the same five regions in that order, every stop shows where the keyboard is, a row that goes while it holds the keyboard hands it on, and a modal taller than the window keeps its title and its buttons in view', async ({ run, launch }) => {
   test.setTimeout(120_000)
   claudeByDefault(run)
   const kea = await launch()
@@ -642,20 +645,19 @@ test('A-3 · the keyboard follows the regions’ order and focus always shows: F
   await kea.clickTab(agent)
   await page.mouse.move(1000, 600)
 
-  // ── a sheet taller than the pane: its title and its buttons stay, its body scrolls ──
+  // ── a modal taller than the window: its title and its buttons stay, its body scrolls ──
   expect(await runCommand(kea, 'app.shortcuts')).toBe(true)
   const sheet = page.getByRole('dialog', { name: 'Keyboard shortcuts' })
   await expect(sheet.getByRole('button', { name: 'Done' })).toBeFocused({ timeout: STEP_MS })
   const box = await sheet.evaluate((el) => {
-    const pane = el.parentElement!.getBoundingClientRect()
-    const inPane = (e: Element | null): boolean => {
+    const inWindow = (e: Element | null): boolean => {
       const r = e?.getBoundingClientRect()
-      return !!r && r.top >= pane.top - 0.5 && r.bottom <= pane.bottom + 0.5
+      return !!r && r.top >= -0.5 && r.bottom <= window.innerHeight + 0.5
     }
     const body = el.querySelector('.sheet-body')!
-    return { title: inPane(el.querySelector('.sheet-title')), done: inPane(el.querySelector('.sheet-buttons button')), taller: body.scrollHeight > body.clientHeight || el.scrollHeight > el.clientHeight, firstRow: inPane(el.querySelector('[data-testid=keyboard-list]')?.firstElementChild ?? null) }
+    return { title: inWindow(el.querySelector('.sheet-title')), done: inWindow(el.querySelector('.sheet-buttons button')), taller: body.scrollHeight > body.clientHeight || el.scrollHeight > el.clientHeight, firstRow: inWindow(el.querySelector('[data-testid=keyboard-list]')?.firstElementChild ?? null) }
   })
-  expect(box.taller, 'the list is longer than the pane (or this step checks nothing)').toBe(true)
+  expect(box.taller, 'the list is longer than the window (or this step checks nothing)').toBe(true)
   expect(box, 'opened at its top, with its title and Done both in view').toMatchObject({ title: true, done: true, firstRow: true })
   await page.keyboard.press('Escape')
   await expect(sheet).toHaveCount(0)
@@ -713,5 +715,201 @@ test('A-3 · the keyboard follows the regions’ order and focus always shows: F
   await trail.end()
 
   expect(trail.problems, trail.stops.map((s) => `${s.region}: ${s.what}`).join('\n')).toEqual([])
+  await kea.assertUnfocused()
+})
+
+/** The middle of what `selector` draws now. */
+async function middleOf(page: Page, selector: string): Promise<{ x: number; y: number }> {
+  const r = (await page.locator(selector).first().boundingBox())!
+  return { x: r.x + r.width / 2, y: r.y + r.height / 2 }
+}
+
+/** What is drawn on top at a point of the window, by its class. */
+const topAt = (page: Page, at: { x: number; y: number }): Promise<string> => page.evaluate(({ x, y }) => (document.elementFromPoint(x, y) as HTMLElement | null)?.className ?? '', at)
+
+/** A session in a small project, its files listed: its id and its worktree. */
+async function sessionWithFiles(kea: Kea, run: { home: string }, id: string): Promise<{ id: string; worktree: string }> {
+  const root = tinyRepo({ name: 'atlas-web', parent: run.home }).root
+  await addProject(kea, root, 'atlas-web')
+  const s = (await startFakeSession(kea, id, 'Fix auth redirect', QUIET)).id
+  await fakeAgentTerminal(kea, s)
+  await waitTree(kea, 'the root is listed', (rows) => rows.some((r) => r.path === 'README.md'))
+  return { id: s, worktree: sessionWorktree(root) }
+}
+
+/** Move to Trash asked for README.md from the file list, its Cancel holding the keyboard. */
+async function askTrash(page: Page): Promise<void> {
+  await treeRow(page, 'README.md').click()
+  await tree(page).focus()
+  await page.keyboard.press(listKey('files.trash'))
+  await expect(page.getByRole('alertdialog', { name: 'Move to Trash' }).getByRole('button', { name: 'Cancel' })).toBeFocused({ timeout: STEP_MS })
+}
+
+test('E-LAYOUT-2 · modals are drawn over the whole window: Move to Trash centred below the header strip with its backdrop over the sidebar, a click on the backdrop (over a sidebar row, over the main header) cancelling and a press begun or ended in the box cancelling nothing; the Keyboard shortcuts body’s scrollbar as the window’s; Settings in the smallest window, a value typed then a click on the backdrop written; a rename kept open under Settings; a drop on the backdrop never adds a project', async ({ run, launch }) => {
+  test.setTimeout(120_000)
+  claudeByDefault(run)
+  new TrashWorld(run)
+  const kea = await launch()
+  const page = await kea.page()
+  await kea.pretendFocused(true)
+  const { id, worktree } = await sessionWithFiles(kea, run, 'layout-2')
+  const ask = page.getByRole('alertdialog', { name: 'Move to Trash' })
+  const row = await middleOf(page, `[role=treeitem][data-session-id="${id}"]`)
+  const header = await middleOf(page, '.main-header')
+
+  // ── centred over the window, its top below the header strip, the backdrop over the sidebar ──
+  await askTrash(page)
+  const at = await ask.evaluate((el) => {
+    const r = el.getBoundingClientRect()
+    return { left: r.left, right: window.innerWidth - r.right, top: r.top, bottom: window.innerHeight - r.bottom }
+  })
+  expect(Math.abs(at.left - at.right), `centred across: ${JSON.stringify(at)}`).toBeLessThanOrEqual(1)
+  expect(Math.abs(at.top - SIZE_PX.header - (at.bottom - SPACE_PX[5])), `centred below the header strip: ${JSON.stringify(at)}`).toBeLessThanOrEqual(1)
+  expect(await topAt(page, row), 'the backdrop over the sidebar').toContain('modal-layer')
+  await page.mouse.click(row.x, row.y)
+  await expect(ask).toHaveCount(0)
+  expect(fs.existsSync(path.join(worktree, 'README.md')), 'cancelled: the file stays').toBe(true)
+  await askTrash(page)
+  await page.mouse.click(header.x, header.y)
+  await expect(ask).toHaveCount(0)
+
+  // ── a press in the box released on the backdrop, and the reverse, cancel nothing ──
+  await askTrash(page)
+  const body = await middleOf(page, '[role=alertdialog][aria-label="Move to Trash"] .sheet-body')
+  for (const [from, to, what] of [[body, row, 'in the box, released on the backdrop'], [row, body, 'on the backdrop, released in the box']] as const) {
+    await page.mouse.move(from.x, from.y)
+    await page.mouse.down()
+    await page.mouse.move(to.x, to.y, { steps: 4 })
+    await page.mouse.up()
+    await drawn(page)
+    await expect(ask, `a press ${what}`).toBeVisible()
+  }
+  await page.keyboard.press('Escape')
+  await expect(ask).toHaveCount(0)
+
+  // ── a drop on the backdrop is refused there, never the window's ──
+  await askTrash(page)
+  expect(await dropFile(page, '.modal-layer')).toEqual({ taken: true, window: false })
+  await page.keyboard.press('Escape')
+  await expect(ask).toHaveCount(0)
+
+  // ── the Keyboard shortcuts body's scrollbar: the window's width, its thumb only under the pointer ──
+  expect(await runCommand(kea, 'app.shortcuts')).toBe(true)
+  const shortcuts = page.getByRole('dialog', { name: 'Keyboard shortcuts' })
+  await expect(shortcuts.getByRole('button', { name: 'Done' })).toBeFocused({ timeout: STEP_MS })
+  const list = '[role=dialog][aria-label="Keyboard shortcuts"] .sheet-body'
+  const inList = await middleOf(page, list)
+  await page.mouse.move(row.x, row.y)
+  await until('no thumb with the pointer away', async () => (await scrollbarPaint(page, list)).painted === 0 || undefined)
+  expect((await scrollbarPaint(page, list)).width, 'the bar’s width').toBe(SIZE_PX.scrollbar)
+  await page.mouse.move(inList.x, inList.y, { steps: 4 })
+  await until('the thumb under the pointer', async () => (await scrollbarPaint(page, list)).painted > 0 || undefined)
+  await page.keyboard.press('Escape')
+  await expect(shortcuts).toHaveCount(0)
+
+  // ── Settings in the smallest window: that window less the modal's margins; a value typed, then the backdrop ──
+  const settings = page.getByRole('dialog', { name: /^Settings: / })
+  const settingsFile = path.join(run.home, 'settings.json')
+  await kea.resize(SIZE_PX['window-min-width'], SIZE_PX['window-min-height'])
+  // (the file panel folds away in a window this narrow)
+  await sessionRow(page, id).focus()
+  await page.keyboard.press(sysKey('Meta+,'))
+  await expect(page.getByRole('dialog', { name: 'Settings: General', exact: true })).toBeVisible()
+  const size = await settings.evaluate((el) => {
+    const r = el.getBoundingClientRect()
+    return { width: r.width, height: r.height, nav: el.querySelector('.settings-nav')!.getBoundingClientRect().width, label: getComputedStyle(el.querySelector('.settings-row')!).gridTemplateColumns.split(' ')[0] }
+  })
+  expect(size).toEqual({
+    width: SIZE_PX['window-min-width'] - 2 * SPACE_PX[5],
+    height: SIZE_PX['window-min-height'] - SIZE_PX.header - SPACE_PX[5],
+    nav: SIZE_PX['settings-nav'],
+    label: `${SIZE_PX['settings-label']}px`,
+  })
+  await settings.getByRole('textbox', { name: 'Branch prefix' }).fill('mine/')
+  await page.mouse.click(SPACE_PX[1], SIZE_PX['window-min-height'] / 2)
+  await expect(settings).toHaveCount(0)
+  await until('the prefix written', () => (fs.existsSync(settingsFile) && fs.readFileSync(settingsFile, 'utf8').includes('"branchPrefix": "mine/"')) || undefined)
+  expect(await focusIn(kea, `[role=treeitem][data-session-id="${id}"]`), 'the keyboard back on the session’s row').toBe(true)
+  await kea.resize(SIZE_PX['window-default-width'], SIZE_PX['window-default-height'])
+
+  // ── a rename open in the tree stays open under Settings, with its text and the keyboard ──
+  await treeRow(page, 'README.md').click()
+  await tree(page).focus()
+  await page.keyboard.press('F2')
+  const rename = page.getByRole('region', { name: 'File panel' }).getByRole('textbox')
+  await expect(rename).toBeFocused()
+  await page.keyboard.type('NOTES')
+  await page.keyboard.press(sysKey('Meta+,'))
+  await expect(settings).toBeVisible()
+  await page.mouse.click(row.x, row.y)
+  await expect(settings).toHaveCount(0)
+  await expect(rename).toHaveValue('NOTES.md')
+  await expect(rename).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(rename).toHaveCount(0)
+  expect(fs.existsSync(path.join(worktree, 'README.md')), 'the rename cancelled').toBe(true)
+  await kea.assertUnfocused()
+})
+
+test('A-8 · a modal is all assistive technology and the keyboard reach: over Move to Trash the accessibility tree holds the box, modal, and nothing of the sidebar, the file panel, the main column or a toast under it; Tab and ⇧Tab go round inside it; Esc cancels from its text and from the page’s body; a divider that mounts under it is inert; on close the keyboard is back where it was', async ({ run, launch }) => {
+  test.setTimeout(120_000)
+  claudeByDefault(run)
+  new TrashWorld(run)
+  const kea = await launch()
+  const page = await kea.page()
+  await kea.pretendFocused(true)
+  await sessionWithFiles(kea, run, 'a-8')
+  const ask = page.getByRole('alertdialog', { name: 'Move to Trash' })
+  const cdp = await page.context().newCDPSession(page)
+  try {
+    // a toast on screen, then the modal over it
+    expect(await dropFile(page, '.file-panel [role=tree]')).toEqual({ taken: true, window: false })
+    await expect(page.locator('.toast')).toBeVisible()
+    await askTrash(page)
+    const { nodes } = (await cdp.send('Accessibility.getFullAXTree')) as { nodes: AxNode[] }
+    const exposed = nodes.filter((n) => !n.ignored)
+    const named = (role: string, name: string) => exposed.filter((n) => n.role?.value === role && n.name?.value === name)
+    const box = named('alertdialog', 'Move to Trash')
+    expect(box.length, 'the box is exposed').toBe(1)
+    expect(box[0]!.properties?.find((p) => p.name === 'modal')?.value.value, 'as modal').toBe(true)
+    for (const [role, name] of [['complementary', 'Sidebar'], ['region', 'File panel'], ['main', 'Session'], ['separator', 'Resize sidebar'], ['separator', 'Resize file panel']] as const) expect(named(role, name), `${role} “${name}” under the backdrop`).toEqual([])
+    expect(exposed.filter((n) => (n.name?.value ?? '').includes('Only files and folders on disk')).map((n) => n.role?.value), 'nothing of the toast').toEqual([])
+
+    // Tab and ⇧Tab go round the box's controls
+    const stops = await ask.evaluate((el) => [...el.querySelectorAll('button')].map((b) => b.textContent?.trim() ?? ''))
+    const focused = () => page.evaluate(() => (document.activeElement?.closest('[aria-modal="true"]') ? document.activeElement!.textContent?.trim() : 'outside'))
+    await ask.getByRole('button', { name: stops[0]! }).focus()
+    await page.keyboard.press('Shift+Tab')
+    expect(await focused(), '⇧Tab from the first control').toBe(stops.at(-1))
+    await page.keyboard.press('Tab')
+    expect(await focused(), 'Tab from the last control').toBe(stops[0])
+
+    // Esc from the box's text, and from the page's body
+    await ask.locator('.sheet-body').click()
+    await page.keyboard.press('Escape')
+    await expect(ask).toHaveCount(0)
+    expect(await focusIn(kea, '.file-panel [role=tree]'), 'the keyboard back in the file list').toBe(true)
+    await askTrash(page)
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+    await page.keyboard.press('Escape')
+    await expect(ask).toHaveCount(0)
+    expect(await focusIn(kea, '.file-panel [role=tree]'), 'the keyboard back in the file list').toBe(true)
+
+    // a window widened across the file panel's collapse under a modal: its divider mounts inert
+    const divider = page.getByRole('separator', { name: 'Resize file panel' })
+    await kea.resize(SIZE_PX['tree-autocollapse'] - SPACE_PX[5], SIZE_PX['window-default-height'])
+    await expect(divider).toHaveCount(0)
+    expect(await runCommand(kea, 'app.shortcuts')).toBe(true)
+    const shortcuts = page.getByRole('dialog', { name: 'Keyboard shortcuts' })
+    await expect(shortcuts).toBeVisible()
+    await kea.resize(SIZE_PX['window-default-width'], SIZE_PX['window-default-height'])
+    await expect(divider).toHaveCount(1)
+    expect(await divider.evaluate((el) => el.closest('[inert]') !== null), 'the divider inert as it mounts').toBe(true)
+    await page.keyboard.press('Escape')
+    await expect(shortcuts).toHaveCount(0)
+    expect(await divider.evaluate((el) => el.closest('[inert]') !== null), 'and not once the modal closed').toBe(false)
+  } finally {
+    await cdp.detach().catch(() => undefined)
+  }
   await kea.assertUnfocused()
 })

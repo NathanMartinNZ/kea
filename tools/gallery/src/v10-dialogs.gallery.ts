@@ -14,9 +14,10 @@ import { tinyRepo } from '../../repo-factory/src/index.ts'
 import { cwdOf, demoProject, frame, openKea, permission, question, session, status, write } from './scene.ts'
 import { GallerySet } from './shots.ts'
 
-/** The main column: sheets attach to its top, toasts sit at its bottom right. */
+/** The main column: toasts sit at its bottom right. */
 const MAIN = { x: 504, y: 0, width: 936, height: 900 }
-const SHEET = { x: 504, y: 0, width: 936, height: 360 }
+/** A modal is shot with a margin of its backdrop around it. */
+const AROUND = 48
 const CORNER = { x: 904, y: 660, width: 536, height: 240 }
 const ROWS = { x: 0, y: 0, width: 240, height: 300 }
 
@@ -44,8 +45,8 @@ test('V-10 · dialogs', async ({ run, launch }) => {
   const del = page.getByRole('alertdialog', { name: 'Delete session' })
   await expect(del.getByRole('button', { name: 'Delete', exact: true })).toBeEnabled({ timeout: STEP_MS })
   await page.mouse.move(1000, 700)
-  await set.shot(kea, 'delete', 'Delete session: attached to the top of the main pane; what is lost and what stays restorable, in exact numbers; Cancel is the default and rests on --surface-2, Delete is --danger text, not filled', 'Floating layers', { rect: SHEET })
-  await set.shot(kea, 'delete-window', 'The same sheet in its window: nothing else moves', 'Floating layers')
+  await set.shot(kea, 'delete', 'Delete session: a modal centred over the window on its backdrop; what is lost and what stays restorable, in exact numbers; Cancel is the default and rests on --surface-2, Delete is --danger text, not filled', 'Floating layers', { part: del, pad: AROUND })
+  await set.shot(kea, 'delete-window', 'The same modal in its window: the backdrop dims all of it, the header included; nothing else moves', 'Floating layers')
   await page.keyboard.press('Escape')
   await expect(del).toHaveCount(0)
 
@@ -64,7 +65,7 @@ test('V-10 · dialogs', async ({ run, launch }) => {
   await toast.getByRole('button', { name: 'View log' }).click()
   const log = page.getByRole('dialog', { name: 'Session log' })
   await expect(log).toContainText('teardown failed on purpose', { timeout: STEP_MS })
-  await set.shot(kea, 'log', 'The session log the toast opens: a sheet that confirms nothing (Close is its one button)', 'Floating layers', { rect: { ...MAIN, height: 520 } })
+  await set.shot(kea, 'log', 'The session log the toast opens: a modal that confirms nothing (Close is its one button)', 'Floating layers', { part: log, pad: AROUND })
   await page.keyboard.press('Escape')
 
   // ── the warning before unsaved changes are lost: Save is the default, Don't Save --danger text ──
@@ -79,7 +80,7 @@ test('V-10 · dialogs', async ({ run, launch }) => {
   const warning = page.getByRole('alertdialog', { name: 'Do you want to save the changes you made to redirect.js?' })
   await expect(warning).toBeVisible({ timeout: STEP_MS })
   await page.mouse.move(1000, 700)
-  await set.shot(kea, 'unsaved', 'Closing a file with unsaved changes: one file at a time; Save is the default and rests on --surface-2, Don’t Save is --danger text, Cancel keeps it', 'Floating layers', { rect: SHEET })
+  await set.shot(kea, 'unsaved', 'Closing a file with unsaved changes: one file at a time; Save is the default and rests on --surface-2, Don’t Save is --danger text, Cancel keeps it', 'Floating layers', { part: warning, pad: AROUND })
   await warning.getByRole('button', { name: 'Don’t Save' }).click()
   await expect(warning).toHaveCount(0)
 
@@ -88,7 +89,7 @@ test('V-10 · dialogs', async ({ run, launch }) => {
   await pressQuit(kea)
   await expect(quitSheet(page)).toBeVisible({ timeout: STEP_MS })
   await page.mouse.move(1000, 700)
-  await set.shot(kea, 'first-quit', 'The first-quit sheet: Keep in Menu Bar is the default and the one filled accent button, Quit Completely is quiet, Stop All and Quit is --danger text', 'Menu-bar item', { rect: SHEET })
+  await set.shot(kea, 'first-quit', 'The first-quit sheet: Keep in Menu Bar is the default and the one filled accent button, Quit Completely is quiet, Stop All and Quit is --danger text', 'Menu-bar item', { part: quitSheet(page), pad: AROUND })
   await page.keyboard.press('Escape')
   await expect(quitSheet(page)).toHaveCount(0)
 })
@@ -124,7 +125,7 @@ steps:
   // the first-quit sheet over sessions that need you
   await pressQuit(kea)
   await expect(quitSheet(page)).toBeVisible({ timeout: STEP_MS })
-  await set.shot(kea, 'first-quit', 'The first-quit sheet with three sessions running', 'Menu-bar item', { rect: { x: 504, y: 0, width: 936, height: 360 } })
+  await set.shot(kea, 'first-quit', 'The first-quit sheet with three sessions running', 'Menu-bar item', { part: quitSheet(page), pad: AROUND })
 
   // Keep in Menu Bar: the window goes, the menu-bar item stays. Its menu is a native NSMenu (Kea's tokens do not apply
   // and no page can be captured), so the page says what main put in it

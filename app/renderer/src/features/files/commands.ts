@@ -119,7 +119,7 @@ function clip(a: unknown, cut: boolean): void {
 function askTrash(a: unknown): void {
   const t = treeTarget(a)
   if (!t) return
-  // one sheet at a time at the top of the main pane
+  // one sheet at a time: this one takes the place of any other
   ui.sheet = null
   panel.discard = null
   panel.trash = { sessionId: t.sessionId, path: t.path, dir: t.dir, fromList: beganInList(a) }
@@ -176,7 +176,7 @@ function askDiscard(t: FileTarget): void {
   // the status the entry is a row of: its scope and base are what the sheet's sentence is written for
   const head = filesModel.gitHead
   if (!entry || !head) return
-  // one sheet at a time at the top of the main pane
+  // one sheet at a time: this one takes the place of any other
   ui.sheet = null
   panel.discard = { sessionId: t.sessionId, entry, plan: discardPlan(entry, head) }
 }

@@ -7,6 +7,7 @@ import type { BaseMode } from './model.ts'
 import type { Sources } from './data.ts'
 import { windowSources } from './sources.ts'
 import { Usage } from './usage.ts'
+import { modals } from '../../shell/modals.ts'
 
 class PaletteState {
   /** Open, and how: `seq` moves on every opening, so one asked for again while open takes the keyboard back. */
@@ -17,7 +18,9 @@ export const palette = new PaletteState()
 
 let seq = 0
 
+/** Open the palette, except over a modal (it would act behind it). */
 export function openPalette(base: BaseMode): void {
+  if (modals.open) return
   palette.open = { base, seq: ++seq }
 }
 

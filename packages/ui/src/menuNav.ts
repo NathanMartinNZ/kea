@@ -114,6 +114,11 @@ export class OpenMenus<T = unknown> {
     }
   }
 
+  /** Ask every open menu to close (a modal opening over the window takes the keyboard from them). */
+  closeAll(): void {
+    for (const m of [...this.menus]) m.close()
+  }
+
   get count(): number {
     return this.menus.size
   }
@@ -121,6 +126,16 @@ export class OpenMenus<T = unknown> {
   private sync(): void {
     this.root?.classList.toggle(MENU_OPEN_CLASS, this.menus.size > 0)
   }
+}
+
+let windowMenus: OpenMenus<HTMLElement> | null = null
+
+/** The window's open menus, made at the first opening (a module of a server render has no document). */
+export const openMenus = (): OpenMenus<HTMLElement> => (windowMenus ??= new OpenMenus<HTMLElement>(document.documentElement))
+
+/** Close every open menu: a modal opening over the window leaves none above it. */
+export function closeMenus(): void {
+  windowMenus?.closeAll()
 }
 
 /** The selector of the button a menu hangs from, marked `data-menu-trigger="<name>"`: a menu's `trigger`. */

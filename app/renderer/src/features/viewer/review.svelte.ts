@@ -13,6 +13,7 @@ import type { HandedDocuments, ReviewReason } from '@kea/protocol'
 import { L } from '@kea/protocol/limits'
 import { answerReview, coreConnected, onCoreConnection, setReviewHost, setUnsavedCount, takeDocuments } from '../../lib/bridge.ts'
 import { fileTabsOf, fileTabsState, setFileTabs } from '../../shell/fileTabs.svelte.ts'
+import { modals } from '../../shell/modals.ts'
 import { closeFileTab, fileTabId, openFileTab } from '../../shell/tabs.ts'
 import { commands } from '../commands/registry.ts'
 import { panel } from '../files/state.svelte.ts'
@@ -147,6 +148,23 @@ function closeOtherSheets(): void {
 export async function reviewUnsaved(scope: ReviewScope, dontSave: (e: UnsavedEntry) => void): Promise<boolean> {
   closeOtherSheets()
   const id = ++reviews
+  // its questions come one after another under one backdrop; ending it (a session shown from outside) is Cancel
+  const release = modals.hold(() => endReview(id))
+  try {
+    return await reviewEach(id, scope, dontSave)
+  } finally {
+    release()
+  }
+}
+
+/** End review `id`, if it is still the one running, as its warning's Cancel does. */
+function endReview(id: number): void {
+  if (id !== reviews) return
+  ++reviews
+  answerUnsaved('cancel')
+}
+
+async function reviewEach(id: number, scope: ReviewScope, dontSave: (e: UnsavedEntry) => void): Promise<boolean> {
   // bounded: the files of this review, at most the registry's
   const asked = new Set<UnsavedEntry['doc']>()
   for (;;) {
@@ -183,15 +201,21 @@ export async function askHandOff(kind: HandOff, sessionId: string, path: string)
   const e = unsavedEntry(sessionId, path)
   if (!e || e.orphan) return true
   closeOtherSheets()
-  ++reviews
-  const a = await new Promise<UnsavedAnswer>((resolve) => {
-    answer = resolve
-    reviewView.ask = { sessionId, path, cannotSave: cannotSave(e), orphan: false, handOff: kind }
-  })
-  if (a === 'anyway') return true
-  if (a !== 'save') return false
-  await saveUnsaved(sessionId, path, e.doc)
-  return !hasUnsaved(e.doc)
+  const id = ++reviews
+  // the question and the save after it keep the backdrop
+  const release = modals.hold(() => endReview(id))
+  try {
+    const a = await new Promise<UnsavedAnswer>((resolve) => {
+      answer = resolve
+      reviewView.ask = { sessionId, path, cannotSave: cannotSave(e), orphan: false, handOff: kind }
+    })
+    if (a === 'anyway') return true
+    if (a !== 'save') return false
+    await saveUnsaved(sessionId, path, e.doc)
+    return id === reviews && !hasUnsaved(e.doc)
+  } finally {
+    release()
+  }
 }
 
 /** Don't Save at once: the document's text goes (closing its tab, the low-memory banner). */

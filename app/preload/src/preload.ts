@@ -1,12 +1,12 @@
 // The renderer's whole bridge: its RPC port to core, one stream port per attached terminal to ptyhost, the menu bar's
-// state and choices, the wake signal after sleep, whether a screen reader runs, core going away, main's requests
-// for the renderer's resource report and the window's own question for every process's (`askResourceReports`: Copy
-// diagnostics and the dev HUD), the native pieces of the window's UI (the folder picker, Reveal in the file manager,
-// opening settings.json, the path of a dropped file), the first-quit sheet and its answer and a session to show, the
-// review of the window's unsaved files main asks for before anything closes them (its acknowledgement, its answer,
-// the end of the action, the window's unsaved count), what a window rebuilt in this one's place handed over and this
-// window's own answers when main asks (the composer drafts and the unsaved files, on Wayland), and platform facts.
-// Nothing else crosses: no Node, no ipcRenderer, no fs.
+// state and choices, whether a modal is open over the window, the wake signal after sleep, whether a screen reader
+// runs, core going away, main's requests for the renderer's resource report and the window's own question for every
+// process's (`askResourceReports`: Copy diagnostics and the dev HUD), the native pieces of the window's UI (the folder
+// picker, Reveal in the file manager, opening settings.json, the path of a dropped file), the first-quit sheet and its
+// answer and a session to show, the review of the window's unsaved files main asks for before anything closes them (its
+// acknowledgement, its answer, the end of the action, the window's unsaved count), what a window rebuilt in this one's
+// place handed over and this window's own answers when main asks (the composer drafts and the unsaved files, on
+// Wayland), and platform facts. Nothing else crosses: no Node, no ipcRenderer, no fs.
 //
 // contextBridge cannot carry MessagePorts, so ports reach the page by `window.postMessage` with the port transferred
 // (`{ kea: 'rpc' }`, `{ kea: 'stream', reqId }`); main's other messages travel the same way (`{ kea: 'command', id }`,
@@ -151,6 +151,10 @@ contextBridge.exposeInMainWorld('kea', {
   /** The commands this window can run and whether each is available now; main validates it and rebuilds the menu bar. */
   setMenuState: (state: unknown): void => {
     if (typeof state === 'object' && state !== null) ipcRenderer.send('kea:menuState', state)
+  },
+  /** A modal opened over the whole window (true) or the last one closed (false); main dims Linux's window controls with its backdrop. */
+  setModalOpen: (open: unknown): void => {
+    if (typeof open === 'boolean') ipcRenderer.send('kea:modalOpen', open)
   },
   /**
    * A folder from the native picker, for Add Project or for Locate… on a project whose folder is missing; it arrives

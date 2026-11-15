@@ -10,14 +10,14 @@ import type { Page } from '@playwright/test'
 import { COMMANDS, L, MAIN_COMMANDS, protocolOs, toAccelerator } from '@kea/protocol'
 import { counterCommand, counterNumbers, PROMPT, shq, STEP_MS, until, type Kea, type KeaRun } from '../support/app.ts'
 import { AGENT_MARK, claudeByDefault, fakeAgentTerminal, gate, startFakeSession } from '../support/app-fake-agent.ts'
-import { finder, finderRows, waitChanges, waitTree } from '../support/app-files.ts'
+import { finder, finderRows, TrashWorld, tree, treeRow, waitChanges, waitTree } from '../support/app-files.ts'
 import { chooseMenuItem, focusIn, keyboardList, keyboardRows, menuBar, menuItem, openPalette, palette, paletteInput, paletteRows, tooltip, waitMenuItem, waitPalette, writeKeybindings } from '../support/app-palette.ts'
 import { cellOf, clipboard, commitFiles, EditorWorld, listening, opened, recordClipboard, serverAddress, serverScript, waitServer, worktreesOf } from '../support/app-server.ts'
 import { addProject, demoRepo, paneSession, projectRow, rowState, sessionIds, tabKinds, tabOf, waitRow } from '../support/app-sessions.ts'
 import { fileTabs, viewerShown } from '../support/app-tabs.ts'
 import { commitAll, writeFiles } from '../support/app-viewer.ts'
 import { expect, test } from './fixtures.ts'
-import { sysAccel, sysKey, sysLabel, TERMINAL_TEXT_KEYS } from '../support/keys.ts'
+import { listKey, sysAccel, sysKey, sysLabel, TERMINAL_TEXT_KEYS } from '../support/keys.ts'
 import { skipNote } from '../support/skip.ts'
 
 /** A fake agent's screen: its mark, the prompt, then `lines` (YAML flow sequence). */
@@ -1510,5 +1510,89 @@ process.stdin.on('data', (d) => {
   expect(await reached('the Menu key reached no one')).toEqual([])
   await page.keyboard.press('Shift+F10')
   expect(await reached('Shift+F10 at the program')).toEqual(['\x1b[21;2~'])
+  await kea.assertUnfocused()
+})
+
+test('E-KB-8 · a modal takes the keys: over Move to Trash, F6, ⌘N, ⌘⇧P, ⌃Tab and ⌘, do nothing (no composer, no palette, the same session, the keyboard in the box) and the menu bar greys New Session; with none open ⌘, opens Settings and closes it again; with Settings open, Show Disk Usage from the menu bar shows Disk', async ({ run, launch }) => {
+  claudeByDefault(run)
+  new TrashWorld(run)
+  const kea = await launch()
+  await kea.pretendFocused(true)
+  const page = await kea.page()
+  const root = await project(kea, run)
+  await startFakeSession(kea, 'e-kb-8-other', 'the other session', AT_PROMPT, { background: true })
+  const s = await startFakeSession(kea, 'e-kb-8', 'keys under a modal', AT_PROMPT)
+  await fakeAgentTerminal(kea, s.id)
+  await waitTree(kea, 'the root is listed', (rows) => rows.some((r) => r.path === 'README.md'))
+  await expect.poll(async () => (await menuItem(kea, 'session.new'))?.enabled, { timeout: STEP_MS }).toBe(true)
+
+  // ── over Move to Trash ──
+  const ask = page.getByRole('alertdialog', { name: 'Move to Trash' })
+  await treeRow(page, 'README.md').click()
+  await tree(page).focus()
+  await page.keyboard.press(listKey('files.trash'))
+  await expect(ask.getByRole('button', { name: 'Cancel' })).toBeFocused({ timeout: STEP_MS })
+  await waitMenuItem(kea, 'session.new', 'greyed under the modal', (m) => !m.enabled)
+  expect(await menuItem(kea, 'app.settings'), 'Settings… is greyed over a confirmation').toMatchObject({ enabled: false })
+  const shown = await pane(page)
+  for (const key of ['F6', sysKey('Meta+n'), sysKey('Meta+Shift+p'), sysKey('Control+Tab'), sysKey('Meta+,')]) {
+    await page.keyboard.press(key)
+    await frames(page, 3)
+    expect(await focusIn(kea, '.confirm-sheet'), `${key}: the keyboard stays in the box`).toBe(true)
+    expect(await pane(page), `${key}: the same session, no composer`).toEqual(shown)
+    expect(await palette(page).count(), `${key}: no palette`).toBe(0)
+    expect(await page.getByRole('dialog', { name: /^Settings: / }).count(), `${key}: no Settings`).toBe(0)
+    await expect(ask).toBeVisible()
+  }
+  await page.keyboard.press('Escape')
+  await expect(ask).toHaveCount(0)
+  expect(worktreesOf(root).map((w) => fs.existsSync(path.join(w.dir, 'README.md'))), 'cancelled: the file stays').toEqual([true, true])
+  await waitMenuItem(kea, 'session.new', 'enabled once the modal closed', (m) => m.enabled)
+
+  // ── ⌘, opens Settings and, pressed again, closes it ──
+  const settings = page.getByRole('dialog', { name: /^Settings: / })
+  await clickTerminal(kea)
+  await page.keyboard.press(sysKey('Meta+,'))
+  await expect(settings).toBeVisible()
+  await waitMenuItem(kea, 'session.new', 'greyed under Settings', (m) => !m.enabled)
+  expect(await menuItem(kea, 'app.showDisk'), 'Settings’ own commands stay').toMatchObject({ enabled: true })
+  await page.keyboard.press(sysKey('Meta+,'))
+  await expect(settings).toHaveCount(0)
+  await until('the keyboard back in the terminal', () => inTerminal(kea))
+
+  // ── with Settings open, Show Disk Usage from the menu bar shows Disk ──
+  await page.keyboard.press(sysKey('Meta+,'))
+  await expect(page.getByRole('dialog', { name: 'Settings: General', exact: true })).toBeVisible()
+  expect(await chooseMenuItem(kea, 'app.showDisk')).toBe(true)
+  await expect(page.getByRole('dialog', { name: 'Settings: Disk', exact: true })).toBeVisible()
+  expect(await settings.count(), 'one Settings, on Disk').toBe(1)
+  await page.keyboard.press('Escape')
+  await expect(settings).toHaveCount(0)
+  await kea.assertUnfocused()
+})
+
+test('E-KB-8 · on Linux, Ctrl+Shift+C and Ctrl+Shift+V in a Settings field copy and paste through the Edit menu’s roles while the modal holds every command’s key', async ({ run, launch }) => {
+  test.skip(NOT_ROUTER_CLIPBOARD !== null, skipNote(NOT_ROUTER_CLIPBOARD ?? ''))
+  claudeByDefault(run)
+  const kea = await launch()
+  await kea.pretendFocused(true)
+  const page = await kea.page()
+  await project(kea, run)
+  const s = await startFakeSession(kea, 'e-kb-8-linux', 'clipboard under a modal', AT_PROMPT)
+  await fakeAgentTerminal(kea, s.id)
+  await clickTerminal(kea)
+  const roles = (role: string) => kea.logLines('main').filter((l) => typeof l.msg === 'string' && l.msg.startsWith('edit role') && l.role === role).length
+  await page.keyboard.press(sysKey('Meta+,'))
+  const settings = page.getByRole('dialog', { name: 'Settings: General', exact: true })
+  const prefix = settings.getByRole('textbox', { name: 'Branch prefix' })
+  await prefix.focus()
+  const [copies, pastes] = [roles('copy'), roles('paste')]
+  await page.keyboard.press('Control+Shift+C')
+  await until('the copy role run', async () => roles('copy') > copies || undefined)
+  await page.keyboard.press('Control+Shift+V')
+  await until('the paste role run', async () => roles('paste') > pastes || undefined)
+  await expect(prefix).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(settings).toHaveCount(0)
   await kea.assertUnfocused()
 })

@@ -19,7 +19,7 @@ import { EditorWorld, OPENER, opened } from '../support/app-server.ts'
 import { addProject, agentTerminal, demoRepo, projectRow, selectSession, startSession, waitLive } from '../support/app-sessions.ts'
 import { changeRows, clickChange, clickFile, clickScope, GIT_MS, panelModes, panelRegion, scopeShown, treeRows, waitChanges } from '../support/app-files.ts'
 import { clickFileTab, fileTab, fileTabs, pinFileTab, viewerShown } from '../support/app-tabs.ts'
-import { changeMarker, commitAll, gitIn, gutterLines, loginSource, png, sessionWorktree, tokenClasses, viewer, viewerCopy, viewerRows, viewerText, waitBody, waitViewer, writeFiles } from '../support/app-viewer.ts'
+import { changeMarker, commitAll, gitIn, gutterLines, loginSource, png, scrollbarPaint, sessionWorktree, tokenClasses, viewer, viewerCopy, viewerRows, viewerText, waitBody, waitViewer, writeFiles } from '../support/app-viewer.ts'
 import { documentKey, tryToEditDocument } from '../support/app-editing.ts'
 import { chooseMenuItem, waitMenuItem } from '../support/app-palette.ts'
 import { expect, test } from './fixtures.ts'
@@ -1597,35 +1597,6 @@ test('E-DF-3 · a diff: unified and side by side, unchanged regions collapsed be
   await until('both images decoded', async () => (await sides.evaluateAll((is) => is.map((i) => (i as HTMLImageElement).naturalWidth))).join() === '64,32' || undefined)
   expect(await sides.evaluateAll((is) => is.map((i) => (i as HTMLImageElement).src.split(':')[0]))).toEqual(['data', 'kea-file'])
 })
-
-/**
- * The vertical scrollbar of the element at `selector` as painted: its width (CSS px) and how many of its device pixels
- * differ from the bottom of its track, which the thumb of a container scrolled to the top never covers.
- */
-async function scrollbarPaint(page: Page, selector: string): Promise<{ width: number; painted: number }> {
-  const clip = await page.locator(selector).evaluate((el: HTMLElement) => {
-    const r = el.getBoundingClientRect()
-    const width = el.offsetWidth - el.clientWidth
-    return { x: r.right - width, y: r.top, width, height: el.clientHeight }
-  })
-  const shot = await page.screenshot({ clip })
-  const painted = await page.evaluate(async (b64) => {
-    const img = new Image()
-    img.src = `data:image/png;base64,${b64}`
-    await img.decode()
-    const canvas = document.createElement('canvas')
-    canvas.width = img.width
-    canvas.height = img.height
-    const g = canvas.getContext('2d')!
-    g.drawImage(img, 0, 0)
-    const d = g.getImageData(0, 0, canvas.width, canvas.height).data
-    const ground = d.slice(d.length - 4)
-    let n = 0
-    for (let i = 0; i < d.length; i += 4) if (Math.abs(d[i]! - ground[0]!) + Math.abs(d[i + 1]! - ground[1]!) + Math.abs(d[i + 2]! - ground[2]!) > 20) n++
-    return n
-  }, shot.toString('base64'))
-  return { width: clip.width, painted }
-}
 
 test('E-FV-23 · the scrollbar thumb of the file view and of the Files tree, as painted: none at rest, drawn while the pointer is over the container, gone once it leaves, drawn while the keyboard is inside it with the pointer away, gone once the keyboard leaves; the bar is --size-scrollbar wide', async ({ run, launch }) => {
   const kea = await launch()

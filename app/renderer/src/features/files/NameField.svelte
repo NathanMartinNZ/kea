@@ -3,8 +3,8 @@ The file tree's name field: New File…, New Folder… (in the pending row's pla
 the tree inside its sizer at the row's place, never in the reused rows. Its keys are its own: nothing it gets reaches
 the tree (type-ahead, the panel's keys), and `Esc` is not the window's. When it commits or cancels is `edit.ts`'s
 `fieldAction`: `↵` commits; a press outside it or the keyboard moving elsewhere in the window commits a valid name and
-cancels any other; `Esc`, another session and the panel leaving Files cancel; a menu or a sheet over it, and the window
-losing the keyboard, change nothing. A name core refuses as invalid or taken is said under the field, which stays for
+cancels any other; `Esc`, another session and the panel leaving Files cancel; a menu or a modal over it (its backdrop
+included), and the window losing the keyboard, change nothing. A name core refuses as invalid or taken is said under the field, which stays for
 another try; any other refusal closes it with a toast. Locatable as a `textbox` named for what it does ("New file in
 src", "Rename a.ts").
 -->
@@ -48,10 +48,10 @@ src", "Rename a.ts").
     })
   })
 
-  /** Inside the field or its message, or in a menu or a sheet over it (those never commit nor cancel it). */
+  /** Inside the field or its message, or in a menu or a modal over it, its backdrop included (those never commit nor cancel it). */
   const placeOf = (t: EventTarget | null): { inside: boolean; layer: boolean } => {
     const el = t instanceof Element ? t : null
-    return { inside: !!el && !!root?.contains(el), layer: !!el?.closest('[role=menu], [role=alertdialog], [role=dialog]') }
+    return { inside: !!el && !!root?.contains(el), layer: !!el?.closest('[role=menu], [role=alertdialog], [role=dialog], .modal-layer, .modal-host') }
   }
 
   function act(e: FieldEvent): void {
