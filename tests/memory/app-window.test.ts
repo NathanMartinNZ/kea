@@ -60,7 +60,7 @@ async function watchTab(kea: Kea, ptyId: string): Promise<() => Promise<string[]
 const HEAPS = ['renderer.heap', 'core.heap', 'ptyhost.heap', 'main.heap']
 
 describe('window and connection leaks (app)', () => {
-  it('L-MEM-1 · open and close the find bar and the multi-line paste sheet 500 times: DOM nodes, listeners and every other count equal; heaps within budget', async () => {
+  it('L-MEM-1 · open and close the find bar 500 times: DOM nodes, listeners and every other count equal; heaps within budget', async () => {
     const { kea, renderer } = await start()
     const page = await kea.page()
     const overlay = (sel: string, open: boolean) => page.waitForFunction(([s, o]) => !!document.querySelector(s as string) === o, [sel, open] as const)
@@ -74,23 +74,11 @@ describe('window and connection leaks (app)', () => {
         await page.keyboard.type(`k${i}`)
         await page.keyboard.press('Escape')
         await overlay('.find-bar', false)
-        // a paste event straight to the terminal; the system clipboard is never touched
-        await page.evaluate((n) => {
-          const ta = document.querySelector('.terminal-host.shown textarea')
-          const dt = new DataTransfer()
-          dt.setData('text/plain', `echo one-${n}\necho two\n`)
-          ta?.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }))
-        }, i)
-        await overlay('[role=alertdialog]', true)
-        await page.keyboard.press('Escape')
-        await overlay('[role=alertdialog]', false)
       },
     })
     expect(run.cycles.at(-1)).toBe(500)
     expectCountsFlat(run, () => true)
     await expectBytesFlat(kea, renderer, run, HEAPS, 'L-MEM-1')
-    // nothing was pasted: every sheet was cancelled
-    expect(await kea.screen()).not.toContain('one-')
   })
 
   it('L-MEM-18 · open and close the composer, every context menu and the header overflow, each sheet they open, and ⌘O’s folder pick, ×30: DOM nodes, listeners and every other count equal (folder picks in flight back to none); heaps within budget. Then the composer and each sheet again ×10, every one closed while what it asked core for is still unanswered (core held meanwhile): the same', async () => {

@@ -1,8 +1,7 @@
-// UI state around the terminals: the find bar, "Jump to bottom", link hover and "Copy link", the paste confirmation,
-// the "Copied by terminal" note, Linux's one-time copy hint and the terminal menu. Each names the terminal it belongs
-// to, so each pane draws only its own terminal's layers. Small values only: the text waiting for a paste confirmation
-// is held here outside the state, and dropped once the sheet closes. A runes store: each field is its own `$state.raw`,
-// replaced, never mutated; components read `uiState.<field>`, everything writes through `terminalUi`.
+// UI state around the terminals: the find bar, "Jump to bottom", link hover and "Copy link", the "Copied by terminal"
+// note, Linux's one-time copy hint and the terminal menu. Each names the terminal it belongs to, so each pane draws
+// only its own terminal's layers. Small values only. A runes store: each field is its own `$state.raw`, replaced,
+// never mutated; components read `uiState.<field>`, everything writes through `terminalUi`.
 
 import { L } from '@kea/protocol'
 import { NO_RESULTS, type FindResults } from './find.ts'
@@ -24,7 +23,6 @@ export interface TerminalUiFields {
   copied: string | null
   linkHover: { ptyId: string; x: number; y: number; text: string } | null
   linkMenu: { ptyId: string; x: number; y: number; target: string } | null
-  paste: { ptyId: string; lines: number } | null
   /** The terminals on screen that are scrolled up. */
   scrolledUp: readonly string[]
   find: FindState
@@ -38,7 +36,6 @@ class TerminalUiState implements TerminalUiFields {
   copied = $state<string | null>(null)
   linkHover = $state.raw<TerminalUiFields['linkHover']>(null)
   linkMenu = $state.raw<TerminalUiFields['linkMenu']>(null)
-  paste = $state.raw<TerminalUiFields['paste']>(null)
   // bounded: the terminals on screen, one per pane
   scrolledUp = $state.raw<readonly string[]>([])
   copyHint = $state<string | null>(null)
@@ -48,14 +45,13 @@ class TerminalUiState implements TerminalUiFields {
 
   /** Every field as plain data (tests: what the state holds). */
   snapshot(): TerminalUiFields {
-    return { copied: this.copied, linkHover: this.linkHover, linkMenu: this.linkMenu, paste: this.paste, scrolledUp: this.scrolledUp, find: this.find, copyHint: this.copyHint, menu: this.menu }
+    return { copied: this.copied, linkHover: this.linkHover, linkMenu: this.linkMenu, scrolledUp: this.scrolledUp, find: this.find, copyHint: this.copyHint, menu: this.menu }
   }
 }
 
 export const uiState = new TerminalUiState()
 
 let copiedTimer: ReturnType<typeof setTimeout> | null = null // bounded: one timer, replaced by each write
-let pendingPaste: string | null = null // bounded: one paste awaiting confirmation
 
 /** Whether a terminal is scrolled up ("Jump to bottom" shows over it). */
 export function isScrolledUp(ptyId: string | null | undefined): boolean {
@@ -87,17 +83,6 @@ export const terminalUi = {
   openMenu(m: TerminalUiFields['menu']): void {
     uiState.menu = m
     if (m) uiState.linkHover = null
-  },
-  askPaste(ptyId: string, lines: number, text: string): void {
-    pendingPaste = text
-    uiState.paste = { ptyId, lines }
-  },
-  /** Close the paste sheet; returns the text when the user confirmed. */
-  settlePaste(confirmed: boolean): string | null {
-    const text = pendingPaste
-    pendingPaste = null
-    uiState.paste = null
-    return confirmed ? text : null
   },
   scrolledUp(ptyId: string, up: boolean): void {
     const has = uiState.scrolledUp.includes(ptyId)

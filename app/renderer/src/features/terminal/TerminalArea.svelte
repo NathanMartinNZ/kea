@@ -250,5 +250,5 @@ no terminal on screen the area refuses the drag, so a folder dropped there never
     <div class="terminal-drop" aria-hidden="true"></div>
   {/if}
   <FindBar ptyId={shown} />
-  <Overlays ptyId={shown} owns={(id) => tabs.includes(id)} />
+  <Overlays ptyId={shown} />
 </div>

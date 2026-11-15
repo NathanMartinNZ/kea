@@ -625,7 +625,7 @@ function clipboardEvent(page: Page, type: 'copy' | 'paste', data: { text?: strin
   )
 }
 
-test('E-TERM-3 · terminal interactions: in a terminal whose program reads every key raw, keys without ⌘ reach it byte for byte (Esc, ⌃C, ⇧Tab, ⇧↵, ⌥ and function keys), ⌘← ⌘→ ⌘⌫ arrive as ⌃A ⌃E ⌃U, and only F6, ⇧F6, ⌃Tab, ⌃⇧Tab and the ⌘ keys do not; a copy takes the terminal’s selection; a paste reaches the program, an image-only clipboard sends ⌃V, several lines into a shell tab ask first and into the Agent tab do not; find counts and marks its matches; scrolled up, new output leaves the view where it is and Jump to bottom appears', async ({ run, launch }) => {
+test('E-TERM-3 · terminal interactions: in a terminal whose program reads every key raw, keys without ⌘ reach it byte for byte (Esc, ⌃C, ⇧Tab, ⇧↵, ⌥ and function keys), ⌘← ⌘→ ⌘⌫ arrive as ⌃A ⌃E ⌃U, and only F6, ⇧F6, ⌃Tab, ⌃⇧Tab and the ⌘ keys do not; a copy takes the terminal’s selection; a paste reaches the program, an image-only clipboard sends ⌃V, several lines into a shell tab go straight in as one paste with nothing asked; find counts and marks its matches; scrolled up, new output leaves the view where it is and Jump to bottom appears', async ({ run, launch }) => {
   claudeByDefault(run)
   const kea = await launch()
   await kea.oneColumn()
@@ -741,26 +741,13 @@ test('E-TERM-3 · terminal interactions: in a terminal whose program reads every
   expect((await clipboardEvent(page, 'paste', { image: true })).prevented).toBe(true)
   n++
   await kea.waitScreen('⌃V at the program', (x) => x.includes(`K${n}:${JSON.stringify('\x16')}`))
-  // several lines into a shell tab ask first: Esc pastes nothing, Paste pastes them
-  expect((await clipboardEvent(page, 'paste', { text: 'one\ntwo' })).prevented).toBe(true)
-  const ask = page.getByRole('alertdialog', { name: 'Paste into the shell' })
-  await expect(ask).toContainText('Paste 2 lines into the shell?')
-  await expect(ask.getByRole('button', { name: 'Cancel' })).toBeFocused()
-  await page.keyboard.press('Escape')
-  await expect(ask).toHaveCount(0)
-  await until('the keyboard back in the terminal', () => inTerminal(kea))
-  await reaches('e', 'e')
-  await clipboardEvent(page, 'paste', { text: 'one\ntwo' })
-  await ask.getByRole('button', { name: 'Paste' }).click()
+  // several lines into a shell tab go straight in, as one paste, with nothing asked and the keyboard left in place
+  expect((await clipboardEvent(page, 'paste', { text: 'one\ntwo' })).prevented, 'left to the terminal').toBe(false)
   n++
   await kea.waitScreen('both lines at the program', (x) => x.includes(`K${n}:${JSON.stringify('one\rtwo')}`))
-  await expect(ask).toHaveCount(0)
-  // in the Agent tab several lines are the agent's to take: nothing is asked
-  await page.keyboard.press(sysKey('Meta+Shift+['))
-  await until('the Agent tab on screen', async () => (await kea.shown()) === agent || undefined)
-  await until('the keyboard in it', () => inTerminal(kea))
-  expect((await clipboardEvent(page, 'paste', { text: 'alpha\nbeta' })).prevented, 'left to the terminal').toBe(false)
-  await expect(ask).toHaveCount(0)
+  await expect(page.getByRole('alertdialog')).toHaveCount(0)
+  expect(await inTerminal(kea), 'the keyboard still in the terminal').toBe(true)
+  await reaches('e', 'e')
 
   // a second shell tab, at its prompt, with a few lines to look through
   await page.keyboard.press(sysKey('Meta+t'))

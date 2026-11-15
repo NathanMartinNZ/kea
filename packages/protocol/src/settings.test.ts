@@ -86,6 +86,12 @@ describe('settings schema', () => {
     const { values, notices } = parseSettings({ mystery: { x: 1 }, terminal: { zzz: true } }, [])
     expect(notices).toEqual([])
     expect(() => values.get('mystery.x')).toThrow()
+    // a terminal.confirmMultilinePaste left in a file is an unknown key: no notice, no effect
+    const old = parseSettings({ terminal: { confirmMultilinePaste: true, copyOnSelect: true } }, [])
+    expect(old.notices).toEqual([])
+    expect(old.values.get('terminal.copyOnSelect')).toBe(true)
+    expect(() => old.values.get('terminal.confirmMultilinePaste')).toThrow()
+    expect(SETTINGS.some((d) => d.key === 'terminal.confirmMultilinePaste')).toBe(false)
   })
 
   it('U-SET-1 · agent defaults merge the user’s over the adapter’s', () => {

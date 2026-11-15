@@ -11,7 +11,6 @@ export type TerminalPrefs = TerminalSettings & {
   copyOnSelect: boolean
   /** Linux: plain Ctrl+C copies a selection the person made and Ctrl+V pastes, in a terminal (the key router reads it). */
   ctrlCopyPaste: boolean
-  confirmMultilinePaste: boolean
   clipboardWrite: (typeof CLIPBOARD_WRITE)[number]
   /**
    * On Linux the screen-reader mode follows this (auto: what main said at start); macOS keeps it at auto.
@@ -29,7 +28,6 @@ export function terminalPrefs(v: SettingsValues): TerminalPrefs {
     ...terminalSettings(v),
     copyOnSelect: v.get('terminal.copyOnSelect'),
     ctrlCopyPaste: v.get('terminal.ctrlCopyPaste'),
-    confirmMultilinePaste: v.get('terminal.confirmMultilinePaste'),
     clipboardWrite: v.get('terminal.clipboardWrite'),
     screenReader: v.get('terminal.screenReader'),
   }

@@ -33,7 +33,7 @@ import { blend, FindSession, type FindToggles } from './find.ts'
 import { installFileLinks, openFileUrl } from './fileLinks.ts'
 import { linkAction, linkHoverText } from '../../lib/linkPolicy.ts'
 import { osc52Decision, parseOsc52 } from './osc52.ts'
-import { IMAGE_PASTE_KEY, pasteDecision } from './paste.ts'
+import { IMAGE_PASTE_KEY, sendsImageKey } from './paste.ts'
 import { prefs } from './prefs.ts'
 import { closeStream, holdStream } from './streams.ts'
 import { terminalUi } from './ui.svelte.ts'
@@ -50,8 +50,6 @@ export type ViewState = {
 export interface ViewHost {
   /** The terminal is the one on screen: OSC 52 clipboard writes apply only then. */
   isShown(ptyId: string): boolean
-  /** A plain shell tab (multi-line paste asks first). */
-  isPlainShell(ptyId: string): boolean
   /** A view the registry released leaves its scroll mark (null: at the bottom) for the PTY's next view. */
   rememberScroll?(ptyId: string, mark: ScrollMark | null): void
   /** Where an earlier view of this PTY was scrolled to when it was released, taken once. */
@@ -272,11 +270,6 @@ export class TerminalView {
   /** Input on the user's behalf from a key the app translated (image paste): like typing, it scrolls down. */
   input(data: string): void {
     this.term.input(data, true)
-  }
-
-  /** Confirmed paste: bracketed when the program enabled bracketed paste. */
-  paste(text: string): void {
-    this.term.paste(text)
   }
 
   /** `⌘K`: this terminal's screen and scrollback; the caller clears the mirror. */
@@ -657,18 +650,15 @@ export class TerminalView {
     })
   }
 
-  /** An image-only clipboard sends the image-paste key; multi-line text into a shell asks first. */
+  /** An image-only clipboard sends the image-paste key; any text is left to xterm's paste. */
   private onPaste(e: ClipboardEvent): void {
     const dt = e.clipboardData
     if (!dt) return
-    const text = dt.getData('text/plain')
     const hasImage = [...dt.items].some((i) => i.kind === 'file' && i.type.startsWith('image/'))
-    const d = pasteDecision({ text, hasImage, plainShell: this.host.isPlainShell(this.ptyId), confirmMultiline: prefs.get().confirmMultilinePaste })
-    if (d.do === 'default') return
+    if (!sendsImageKey({ text: dt.getData('text/plain'), hasImage })) return
     e.preventDefault()
     e.stopPropagation()
-    if (d.do === 'imageKey') this.input(IMAGE_PASTE_KEY)
-    else terminalUi.askPaste(this.ptyId, d.lines, text)
+    this.input(IMAGE_PASTE_KEY)
   }
 
   /** Copy-on-select (setting, off by default): the selection is copied when the mouse is released. */

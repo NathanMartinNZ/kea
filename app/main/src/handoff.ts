@@ -11,8 +11,7 @@
 //   L.windowHandoffTimeoutMs is not rebuilt. The new window takes them once its page has loaded; the old window stays
 //   until it has, and is kept, with its files, when the new window closes or fails to load first, has not taken them
 //   L.windowRebuildTakeMs after they were held for it, or when the old one stops responding.
-// Other window-lived state (the find bar's query, the switcher's order, a paste waiting for its confirmation, undo
-// history) is not handed over.
+// Other window-lived state (the find bar's query, the switcher's order, undo history) is not handed over.
 
 import { L, zHandedDocuments, zWindowHandoff, type HandedDocuments, type WindowHandoff as Handoff } from '@kea/protocol'
 

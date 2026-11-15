@@ -10,7 +10,6 @@ describe('terminal preferences', () => {
     let changes = 0
     p.subscribe(() => changes++)
     expect(p.get().clipboardWrite).toBe('never')
-    expect(p.get().confirmMultilinePaste).toBe(true)
     p.zoomBy(1)
     p.zoomBy(1)
     expect(p.appearance().fontSize).toBe(large + 2 * L.terminalFontStep)

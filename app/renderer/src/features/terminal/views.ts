@@ -1,5 +1,5 @@
 // The window's terminal views: one registry, plus what spans every view (the atlas refresh on DPR change and wake from
-// sleep, the memory watchdog's GPU reset, the tab kinds the paste policy and the right button need, screen-reader mode and the terminals'
+// sleep, the memory watchdog's GPU reset, the tab kinds the right button needs, screen-reader mode and the terminals'
 // accessible names, and the resource counts).
 
 import { onGpuReset, onScreenReader, onWake } from '../../lib/bridge.ts'
@@ -29,7 +29,6 @@ export const terminals: TerminalRegistry<TerminalView> = new TerminalRegistry<Te
     const v = new TerminalView(ptyId, {
       // a program's clipboard write needs its terminal on screen in the active pane (the `focused` policy)
       isShown: (id: string): boolean => terminals.shown(activePane)?.ptyId === id,
-      isPlainShell: (id: string): boolean => kinds.get(id) === 'shell',
       rememberScroll,
       recallScroll,
       // An ended terminal whose holder is gone shows its last screen, from its checkpoint, on demand

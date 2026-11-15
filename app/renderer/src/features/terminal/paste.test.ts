@@ -1,40 +1,17 @@
 import { describe, expect, it } from 'vitest'
 import { L } from '@kea/protocol'
-import { lineCount, pasteDecision } from './paste.ts'
+import { sendsImageKey } from './paste.ts'
 import { terminalText } from './text.ts'
-import { terminalUi, uiState } from './ui.svelte.ts'
 
 describe('paste', () => {
-  it('U-TERM-22 · an image-only clipboard sends the image-paste key; multi-line text into a plain shell asks first (setting); everything else pastes', () => {
-    expect(pasteDecision({ text: '', hasImage: true, plainShell: false, confirmMultiline: true })).toEqual({ do: 'imageKey' })
-    expect(pasteDecision({ text: '', hasImage: true, plainShell: true, confirmMultiline: true })).toEqual({ do: 'imageKey' })
+  it('U-TERM-22 · an image-only clipboard sends the image-paste key; any text, several lines included, is the terminal’s own paste', () => {
+    expect(sendsImageKey({ text: '', hasImage: true })).toBe(true)
     // text and an image: the text wins
-    expect(pasteDecision({ text: 'a', hasImage: true, plainShell: true, confirmMultiline: true })).toEqual({ do: 'default' })
-    expect(pasteDecision({ text: 'rm -rf build\nmake\n', hasImage: false, plainShell: true, confirmMultiline: true })).toEqual({ do: 'confirm', lines: 2 })
-    expect(pasteDecision({ text: 'make\r', hasImage: false, plainShell: true, confirmMultiline: true })).toEqual({ do: 'confirm', lines: 1 })
-    expect(pasteDecision({ text: 'a\nb', hasImage: false, plainShell: true, confirmMultiline: false })).toEqual({ do: 'default' })
-    expect(pasteDecision({ text: 'a\nb', hasImage: false, plainShell: false, confirmMultiline: true })).toEqual({ do: 'default' })
-    expect(pasteDecision({ text: 'one line', hasImage: false, plainShell: true, confirmMultiline: true })).toEqual({ do: 'default' })
-    expect(pasteDecision({ text: '', hasImage: false, plainShell: true, confirmMultiline: true })).toEqual({ do: 'default' })
-    expect(lineCount('a\r\nb\r\nc')).toBe(3)
-  })
-
-  it('U-TERM-22 · the text waiting for confirmation is given back once if confirmed, never if cancelled, then dropped', () => {
-    terminalUi.askPaste('p1', 2, 'a\nb\n')
-    expect(terminalUi.settlePaste(true)).toBe('a\nb\n')
-    expect(uiState.snapshot().paste).toBeNull()
-    expect(terminalUi.settlePaste(true)).toBeNull()
-    terminalUi.askPaste('p1', 2, 'a\nb\n')
-    expect(terminalUi.settlePaste(false)).toBeNull()
-    expect(terminalUi.settlePaste(true)).toBeNull()
-  })
-
-  it('U-TERM-30 · the store holds only the paste sheet’s line count, never the text waiting for confirmation', () => {
-    const text = 'a\nb\n'
-    terminalUi.askPaste('p1', 2, text)
-    expect(uiState.snapshot().paste).toEqual({ ptyId: 'p1', lines: 2 })
-    expect(JSON.stringify(uiState.snapshot())).not.toContain(JSON.stringify(text).slice(1, -1))
-    expect(terminalUi.settlePaste(false)).toBeNull()
+    expect(sendsImageKey({ text: 'a', hasImage: true })).toBe(false)
+    expect(sendsImageKey({ text: 'rm -rf build\nmake\n', hasImage: false })).toBe(false)
+    expect(sendsImageKey({ text: 'make\r', hasImage: false })).toBe(false)
+    expect(sendsImageKey({ text: 'one line', hasImage: false })).toBe(false)
+    expect(sendsImageKey({ text: '', hasImage: false })).toBe(false)
   })
 })
 
