@@ -88,10 +88,15 @@ export interface LinkTipWords {
   action: string
 }
 
+/** How a link opens, with this system's modifier: "⌘-click to open", "Ctrl-click to open". */
+export function clickWords(system: System): string {
+  return `${system === 'darwin' ? '⌘' : 'Ctrl'}-click to open`
+}
+
 /** What the tip says of an address: how to open it, with this system's modifier, or why it is only copied. */
 export function linkTipWords(found: Pick<FoundUrl, 'text' | 'action'>, system: System): LinkTipWords {
   const a = found.action
-  const action = a.open ? `${system === 'darwin' ? '⌘' : 'Ctrl'}-click to open` : a.reason === 'long' ? 'Too long to open: copy it instead' : 'This address cannot be opened: copy it instead'
+  const action = a.open ? clickWords(system) : a.reason === 'long' ? 'Too long to open: copy it instead' : 'This address cannot be opened: copy it instead'
   return { target: linkHoverText(found.text), action }
 }
 

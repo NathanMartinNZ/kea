@@ -1,25 +1,35 @@
 // Saving from the file view through core's viewer service, beside the files service of core-files-support.ts (wired as
 // core.ts wires them): reads and saves for a session the window shows only, an editable read of an unchanged file, a
 // save and a tree operation never at once, and a session in poll mode reading its status again after a save. Real
-// git, a temp repository, and a watcher that cannot start (poll mode) whose clock the test never moves.
+// git, a temp repository, and a watcher that cannot start (poll mode) whose clock the test never moves. File references
+// (`viewer.resolveRefs`): the service over one set of path checks with a stand-in file system, the terminal's beside it.
 
 import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
+import fsp from 'node:fs/promises'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import type { FileReadResult, FileRead, SaveResult } from '@kea/protocol'
+import { noopLogger } from '@kea/kit'
+import { L, type FileReadResult, type FileRead, type FileRef, type RefAnswer, type SaveResult } from '@kea/protocol'
+import { PathChecks, type PathFs } from '@kea/core/src/editor/paths.ts'
+import { StubGitFacts } from '@kea/core/src/files/facts.ts'
 import type { FsModule } from '@kea/core/src/files/fsImpl.ts'
+import { VisibleSet } from '@kea/core/src/platform/visible.ts'
+import { StubWatchService } from '@kea/core/src/platform/watch/stub.ts'
 import type { NativeWatcher } from '@kea/core/src/platform/watch/native.ts'
 import { versionOf } from '@kea/core/src/viewer/read.ts'
 import { SaveJournal } from '@kea/core/src/viewer/save.ts'
 import { ViewerService } from '@kea/core/src/viewer/service.ts'
 import { ManualClock } from '../../app/ptyhost/src/test-support.ts'
 import { until } from '../support/holders.ts'
+import { skipWhere } from '../support/skip.ts'
 import { cleanup, gitEnv, repo, startFiles, tempDir, write, type FilesUnderTest } from './core-files-support.ts'
 
 let t: FilesUnderTest | null = null
 let viewer: ViewerService | null = null
+const releases: (() => void)[] = []
 afterEach(async () => {
+  for (const r of releases.splice(0)) r()
   viewer?.dispose()
   viewer = null
   await t?.dispose()
@@ -149,5 +159,138 @@ describe('saving from the file view in core', () => {
     expect(viewer.resourceCounts.saves).toBe(0)
     expect(fs.readdirSync(path.join(r.root, 'src')).filter((n) => n.startsWith('.kea-save-'))).toEqual([])
     expect(JSON.parse(fs.readFileSync(journalFile, 'utf8'))).toEqual([])
+  })
+})
+
+/**
+ * The checks' file system: the real one, except under `hung` (a mount that never answers until released) and under
+ * `slow` or for `root` itself (answered after their delay). `reached` resolves when a call matching it arrives.
+ */
+function standIn(o: { hung?: string; slow?: string; slowMs?: number; root?: string; rootMs?: number }) {
+  const held: (() => void)[] = []
+  const waits: { match: (p: string) => boolean; resolve: () => void }[] = []
+  const under = (dir: string | undefined, p: string): boolean => dir !== undefined && (p === dir || p.startsWith(`${dir}/`))
+  const gate = <T>(p: string, real: () => Promise<T>): Promise<T> => {
+    for (const w of waits.filter((x) => x.match(p))) {
+      waits.splice(waits.indexOf(w), 1)
+      w.resolve()
+    }
+    if (under(o.hung, p)) return new Promise<T>((resolve, reject) => held.push(() => void real().then(resolve, reject)))
+    const delay = under(o.slow, p) ? (o.slowMs ?? 0) : p === o.root ? (o.rootMs ?? 0) : 0
+    return delay > 0 ? new Promise<void>((r) => setTimeout(r, delay)).then(real) : real()
+  }
+  const disk: PathFs = { realpath: (p) => gate(p, () => fsp.realpath(p)), stat: (p) => gate(p, () => fsp.stat(p)) }
+  const release = (): void => {
+    for (const h of held.splice(0)) h()
+  }
+  releases.push(release)
+  return { disk, release, reached: (match: (p: string) => boolean) => new Promise<void>((resolve) => waits.push({ match, resolve })) }
+}
+
+/** The viewer service over `checks`, for session S in `cwd`, which three windows show. */
+function viewerOver(checks: PathChecks, cwd: string) {
+  const visible = new VisibleSet()
+  const service = new ViewerService({ log: noopLogger, cwd: (id) => (id === 'S' || id === 'T' ? cwd : null), visible, watch: new StubWatchService(), git: new StubGitFacts(), gitEnv: async () => ({}), openTool: null, paths: checks })
+  viewer = service
+  const windows = [{}, {}, {}]
+  for (const w of windows) visible.set(w, 'S')
+  const h = service.handlers()
+  const resolve = (refs: FileRef[], w = 0, sessionId = 'S'): Promise<RefAnswer[]> =>
+    Promise.resolve()
+      .then(() => h['viewer.resolveRefs']!({ sessionId, from: 'src/app.ts', refs }, { peer: windows[w], signal: new AbortController().signal } as never))
+      .then((r) => r.refs)
+  return { service, visible, windows, resolve }
+}
+
+/** A worktree for the references: its path as named. */
+function refsTree(): string {
+  const wt = tempDir('kea-refs-')
+  const outside = tempDir('kea-refs-out-')
+  write(outside, 'secret.ts', 'x\n')
+  for (const f of ['src/app.ts', 'src/util.ts', 'src/util/index.ts', 'src/out.tsx', 'src/pipe/index.ts', 'src/button.ts', 'slow/real.ts', 'lib/c.ts']) write(wt, f, 'x\n')
+  for (let i = 0; i < L.viewerLinkRefsMax; i++) write(wt, `src/f${i}.ts`, 'x\n')
+  fs.symlinkSync(path.join(outside, 'secret.ts'), path.join(wt, 'src/out.ts'))
+  execFileSync('/usr/bin/mkfifo', [path.join(wt, 'tsconfig.json')]) // os-ok: in /usr/bin on both systems
+  execFileSync('/usr/bin/mkfifo', [path.join(wt, 'src/pipe/package.json')]) // os-ok: in /usr/bin on both systems
+  return wt
+}
+
+const imp = (spec: string): FileRef => ({ family: 'import', spec })
+
+describe('file references in core', () => {
+  it('I-FV-2 · `viewer.resolveRefs` on a worktree: the first candidate in order wins, a link out moves on, a FIFO as tsconfig.json or package.json stalls nothing, a session the window does not show is refused, and a reference the waiting share refuses answers unknown', async () => {
+    const wt = refsTree()
+    // the worktree's own check answers after a moment, so three windows' lines queue up behind one another
+    const s = standIn({ root: wt, rootMs: 100 })
+    const checks = new PathChecks({ fs: s.disk })
+    const v = viewerOver(checks, wt)
+    expect(await v.resolve([imp('./util'), imp('./out'), imp('./pipe'), imp('@/x'), imp('./gone')])).toEqual([{ path: 'src/util.ts' }, { path: 'src/out.tsx' }, { path: 'src/pipe/index.ts' }, null, null])
+    // a window that shows another session is refused
+    v.visible.set(v.windows[2]!, 'T')
+    await expect(v.resolve([imp('./util')], 2)).rejects.toMatchObject({ code: 'not_visible' })
+    await expect(v.resolve([imp('./util')], 0, 'T')).rejects.toMatchObject({ code: 'not_visible' })
+    v.visible.set(v.windows[2]!, 'S')
+    // three windows' lines at once: the first two wait in full; the third's past the viewer's waiting share answer unknown
+    const line = Array.from({ length: L.viewerLinkRefsMax }, (_, i): FileRef => ({ family: 'path', spec: `f${i}.ts` }))
+    const [a, b, c] = await Promise.all([v.resolve(line, 0), v.resolve(line, 1), v.resolve(line, 2)])
+    expect(a).toEqual(line.map((_, i) => ({ path: `src/f${i}.ts` })))
+    expect(b).toEqual(a)
+    expect(c, 'the third line overflows the waiting share').toContain('unknown')
+    expect(checks.counts).toEqual({ inFlight: 0, waiting: 0, hung: 0 })
+  })
+
+  it('I-FV-2 · on a volume that ignores case, ./Button answers button.ts, the file’s own name', async (ctx) => {
+    const wt = refsTree()
+    skipWhere(ctx, fs.existsSync(path.join(wt, 'src/BUTTON.ts')) ? null : 'the file system tells names apart by case')
+    const checks = new PathChecks()
+    const v = viewerOver(checks, wt)
+    expect(await v.resolve([imp('./Button')])).toEqual([{ path: 'src/button.ts' }])
+  })
+
+  it('I-FV-2 · a candidate on a hung mount two levels down answers unknown and holds that place, not the worktree’s: the terminal’s links in the session answer meanwhile, and while the viewer resolves a line of imports', async () => {
+    const wt = refsTree()
+    const s = standIn({ hung: path.join(wt, 'sub/mnt') })
+    const checks = new PathChecks({ fs: s.disk })
+    const v = viewerOver(checks, wt)
+    const reached = s.reached((p) => p.startsWith(path.join(wt, 'sub/mnt')))
+    const hung = v.resolve([{ family: 'path', spec: 'sub/mnt/x.ts' }])
+    await reached
+    // while it hangs, the terminal answers for a file elsewhere in the worktree
+    expect(await checks.resolveLinks(wt, ['src/app.ts', 'lib/c.ts'])).toEqual(['src/app.ts', 'lib/c.ts'])
+    expect(await hung).toEqual(['unknown'])
+    expect(checks.counts.hung, 'the mount’s place is held').toBe(1)
+    expect(await checks.resolveLinks(wt, ['src/app.ts'])).toEqual(['src/app.ts'])
+    s.release()
+    await until('the mount answered at last', () => checks.counts.inFlight === 0)
+  })
+
+  it('I-FV-2 · a slow folder (not hung): a line of imports overruns L.viewerLinkListBudgetMs and answers unknown, no check is given up for it, and the terminal’s check in the same folder still answers its file', async () => {
+    const wt = refsTree()
+    // three of the slow calls fit in the terminal's own deadline: one ahead of it, and its own two
+    const slowMs = Math.floor(L.terminalLinkCheckDeadlineMs / 4)
+    const s = standIn({ slow: path.join(wt, 'slow'), slowMs })
+    const checks = new PathChecks({ fs: s.disk })
+    const v = viewerOver(checks, wt)
+    let calls = 0
+    // the terminal asks when the list is near its budget
+    const near = Math.floor((L.viewerLinkListBudgetMs - 2 * slowMs) / slowMs)
+    const nearBudget = new Promise<void>((resolve) => {
+      const next = (): void => {
+        void s.reached((p) => p.startsWith(path.join(wt, 'slow/'))).then(() => (++calls >= near ? resolve() : next()))
+      }
+      next()
+    })
+    const line = Array.from({ length: L.viewerLinkRefsMax }, (_, i) => imp(`../slow/n${i}`))
+    const imports = v.resolve(line)
+    let viewerDone = false
+    void imports.then(() => (viewerDone = true))
+    // while the viewer resolves the line, the terminal answers elsewhere at once
+    expect(await checks.resolveLinks(wt, ['src/app.ts'])).toEqual(['src/app.ts'])
+    expect(viewerDone).toBe(false)
+    await nearBudget
+    expect(await checks.resolveLinks(wt, ['slow/real.ts']), 'the terminal’s check in the slow folder').toEqual(['slow/real.ts'])
+    expect(await imports).toEqual(line.map(() => 'unknown'))
+    expect(checks.counts.hung, 'no check was given up for the budget').toBe(0)
+    await until('the last slow call answered', () => checks.counts.inFlight === 0)
   })
 })

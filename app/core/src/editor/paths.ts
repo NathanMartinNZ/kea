@@ -7,16 +7,19 @@
 //                   file whose real path stays inside it, else null: terminal output is untrusted, so a reference
 //                   that climbs out (`../`), or reaches out through a symbolic link, is not a link. The checks are
 //                   rationed (`PathChecks`): a path on a volume that no longer answers must not hold core's file calls.
+//                   The viewer's file references (viewer/fileRefs.ts) are checked through the same rationing, with a
+//                   share of their own (`begin('viewer')`).
 
 import fsp from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { systemClock, type Clock } from '@kea/kit'
+import { systemClock, type Clock, type TimerHandle } from '@kea/kit'
 import { isAvailable, isWorktreePath, L } from '@kea/protocol'
 import { coreOs } from '../os/index.ts'
 
-const within = (root: string, p: string): boolean => p === root || p.startsWith(root + path.sep)
+/** `p` is `root` or lies under it. */
+export const within = (root: string, p: string): boolean => p === root || p.startsWith(root + path.sep)
 
 export type Inside = { ok: true; abs: string; kind: 'file' | 'dir' } | { ok: false; why: 'missing' | 'outside' }
 
@@ -46,7 +49,7 @@ function fileUrlPath(target: string): string | null {
 }
 
 /** A printed reference as an absolute path, not yet checked. */
-function absoluteOf(cwd: string, candidate: string, home: string): string | null {
+export function absoluteOf(cwd: string, candidate: string, home: string): string | null {
   if (candidate.includes('\0')) return null
   if (/^file:/i.test(candidate)) return fileUrlPath(candidate)
   if (candidate === '~' || candidate.startsWith('~/')) return path.join(home, candidate.slice(1))
@@ -89,27 +92,60 @@ function placeOf(abs: string, folder: boolean): string {
   return folder ? abs : path.dirname(abs)
 }
 
-/** One check: asked of the disk when its turn comes, answered once (by the disk, its deadline, or `dispose`). */
+/** Who asks: a terminal's printed paths, or the viewer's file references. */
+export type PathCaller = 'terminal' | 'viewer'
+
+/** What a check answers when it was refused without asking the disk: not a file, but not known to be none either. */
+export const NOT_CHECKED: unique symbol = Symbol('not checked')
+export type NotChecked = typeof NOT_CHECKED
+
+/** One check: asked of the disk when its turn comes, answered once (by the disk, a deadline, its request's end or `dispose`). */
 interface Job {
+  caller: PathCaller
   place: string
   run: () => Promise<unknown>
   onDisk: boolean
   answered: boolean
+  /** A viewer check's own hang timer, from when it went on disk. */
+  hang: TimerHandle | null
   finish: (v: unknown) => void
 }
 
 /**
- * The checks of the paths a terminal prints. Terminal output is untrusted and may name any path: one on a volume that
- * no longer answers (a network share that went away) holds the file call that asks about it, and core's file calls
- * share libuv's four threads. So the checks are rationed:
+ * A request's checks, one at a time or many: `check` puts one in the queue, `end` takes what is still waiting out of
+ * it (each answers `NOT_CHECKED`). A check already on disk keeps its place, and a viewer check its hang timer, until the
+ * system answers it or it is given up on.
+ */
+export interface PathRequest {
+  /** The file calls a check makes. */
+  readonly fs: PathFs
+  /**
+   * `run`'s answer once its turn has come at `abs`'s place (`folder`: `abs` is a folder, its own place); null when it
+   * failed; `NOT_CHECKED` when it was not let onto the disk or was given up on.
+   */
+  check<T>(abs: string, run: () => Promise<T | null>, folder?: boolean): Promise<T | null | NotChecked>
+  end(): void
+}
+
+/**
+ * The checks of the paths a terminal prints and of the files the viewer's references lead to. Both are untrusted (a
+ * terminal's output, a file's text) and may name any path: one on a volume that no longer answers (a network share
+ * that went away) holds the file call that asks about it, and core's file calls share libuv's four threads. So the
+ * checks are rationed:
  *
  *   · at most L.terminalLinkChecksInFlightMax are on disk at once, one per place (placeOf), each one file call at a
- *     time; at most L.terminalLinkChecksWaitingMax wait their turn, one more is "not a file" at once;
- *   · a request is answered L.terminalLinkCheckDeadlineMs after it was made at the latest: what the disk has not
- *     answered by then is "not a file";
+ *     time. When a place frees, a terminal's check that can use it goes first; the viewer's checks hold at most one
+ *     place, stuck or not, so the terminal always keeps one;
+ *   · at most L.terminalLinkChecksWaitingMax of the terminal's checks wait their turn, and L.viewerLinkChecksWaitingMax
+ *     of the viewer's; one more is not checked;
+ *   · a terminal's request is answered L.terminalLinkCheckDeadlineMs after it was made at the latest: what the disk
+ *     has not answered by then is "not a file". A viewer check is given up L.terminalLinkCheckDeadlineMs after it went
+ *     on disk, and a viewer request stops at L.viewerLinkListBudgetMs: what still waits is not checked, and a check
+ *     on disk is never given up for it;
  *   · a check given up on keeps its place in flight until the system answers it (the call cannot be taken back), and
  *     its place is left alone meanwhile, with everything under it. With every place in flight held that way nothing
- *     is checked at all: links are off, core's other file calls go on;
+ *     is checked at all: links are off, core's other file calls go on. While the viewer's place is held that way, no
+ *     viewer check is made;
  *   · a check answered within L.terminalLinkHungAfterMs of being given up on was only slow (a busy disk): its place
  *     is checked again by the next request. Only one answered later than that hung, and only its place is left alone
  *     for L.terminalLinkHungPlaceMs more.
@@ -119,12 +155,14 @@ export class PathChecks {
   private readonly clock: Clock
   /** The checks on disk, by place. */
   private readonly active = new Map<string, Job>() // bounded: L.terminalLinkChecksInFlightMax
-  /** The places of `active` whose check was given up on at its deadline and is still not answered by the system: when. */
+  /** The places of `active` whose check was given up on and is still not answered by the system: when. */
   private readonly stuck = new Map<string, number>() // bounded: a subset of `active`'s keys
   /** Checks waiting for a place in flight, or for the check ahead of them at their own place. */
-  private readonly waiting: Job[] = [] // bounded: L.terminalLinkChecksWaitingMax, each gone at its request's deadline
+  private readonly waiting: Job[] = [] // bounded: L.terminalLinkChecksWaitingMax of the terminal's and L.viewerLinkChecksWaitingMax of the viewer's, each gone at its request's deadline or end
   /** Places whose check hung, once the system answered: left alone until the time held here. */
   private readonly hung = new Map<string, number>() // bounded: L.terminalLinkHungPlacesMax, oldest out; each dropped L.terminalLinkHungPlaceMs after
+  /** The viewer's one check on disk, if any (stuck or not). */
+  private viewerJob: Job | null = null
   private disposed = false
 
   constructor(o: PathChecksOptions = {}) {
@@ -137,12 +175,45 @@ export class PathChecks {
     return { inFlight: this.active.size, waiting: this.waiting.length, hung: this.stuck.size + this.hung.size }
   }
 
-  /** Answers what is still asked with "not a file"; a call the system has not answered ends by itself, unheard. */
+  /** Answers what is still asked with `NOT_CHECKED`; a call the system has not answered ends by itself, unheard. */
   dispose(): void {
     this.disposed = true
-    for (const job of this.waiting.splice(0)) job.finish(null)
-    for (const job of this.active.values()) job.finish(null)
+    for (const job of this.waiting.splice(0)) job.finish(NOT_CHECKED)
+    for (const job of this.active.values()) {
+      this.clearHang(job)
+      job.finish(NOT_CHECKED)
+    }
     this.hung.clear()
+  }
+
+  /**
+   * A request of `caller`'s. A terminal's is answered by L.terminalLinkCheckDeadlineMs at the latest; a viewer's stops
+   * at L.viewerLinkListBudgetMs. `end` it once its answers are in.
+   */
+  begin(caller: PathCaller): PathRequest {
+    const now = this.clock.now()
+    for (const [place, until] of this.hung) if (until <= now) this.hung.delete(place)
+    const mine = new Set<Job>() // bounded: one request's checks: a terminal's directory and L.terminalLinkCandidatesMax candidates, or one check per viewer reference (at most L.viewerLinkRefsMax at once, each of L.viewerLinkCandidatesMax in turn)
+    let over = false
+    const timer = this.clock.setTimeout(() => {
+      over = true
+      for (const job of [...mine]) {
+        if (caller === 'terminal') this.giveUp(job)
+        else this.withdraw(job)
+      }
+    }, caller === 'terminal' ? L.terminalLinkCheckDeadlineMs : L.viewerLinkListBudgetMs)
+    return {
+      fs: this.fs,
+      check: <T>(abs: string, run: () => Promise<T | null>, folder = false): Promise<T | null | NotChecked> => {
+        if (over) return Promise.resolve(NOT_CHECKED)
+        return this.check(caller, mine, abs, placeOf(abs, folder), run)
+      },
+      end: () => {
+        over = true
+        this.clock.clearTimeout(timer)
+        for (const job of [...mine]) this.withdraw(job)
+      },
+    }
   }
 
   /**
@@ -152,25 +223,23 @@ export class PathChecks {
   async resolveLinks(cwd: string, candidates: readonly string[], home: string = os.homedir()): Promise<(string | null)[]> {
     const none = (): null[] => candidates.map(() => null)
     if (this.disposed) return none()
-    const now = this.clock.now()
-    for (const [place, until] of this.hung) if (until <= now) this.hung.delete(place)
-    const mine = new Set<Job>() // bounded: this request's checks (its directory, then L.terminalLinkCandidatesMax candidates)
-    const deadline = this.clock.setTimeout(() => {
-      for (const job of [...mine]) this.giveUp(job)
-    }, L.terminalLinkCheckDeadlineMs)
+    const req = this.begin('terminal')
+    const answer = <T>(v: T | null | NotChecked): T | null => (v === NOT_CHECKED ? null : v)
     try {
       const base = path.resolve(cwd)
-      const root = await this.check(mine, base, placeOf(base, true), () => this.fs.realpath(cwd))
+      const root = answer(await req.check(base, () => this.fs.realpath(cwd), true))
       if (root === null) return none()
       return await Promise.all(
         candidates.map(async (c) => {
           const abs = absoluteOf(base, c, home)
           if (abs === null) return null
-          const real = await this.check(mine, abs, placeOf(abs, false), async () => {
-            const real = await this.fs.realpath(abs)
-            if (!within(root, real) || real === root) return null
-            return (await this.fs.stat(real)).isFile() ? real : null
-          })
+          const real = answer(
+            await req.check(abs, async () => {
+              const real = await this.fs.realpath(abs)
+              if (!within(root, real) || real === root) return null
+              return (await this.fs.stat(real)).isFile() ? real : null
+            }),
+          )
           if (real === null) return null
           // as written when that is inside the directory (a link inside it keeps its own name); else by its real path
           // (the directory itself was named through a link, `/tmp/…` for `/private/tmp/…`)
@@ -179,35 +248,45 @@ export class PathChecks {
         }),
       )
     } finally {
-      this.clock.clearTimeout(deadline)
+      req.end()
     }
   }
 
-  /** `run`'s answer once its turn has come; null when it failed, was not let onto the disk, or was given up on. */
-  private check<T>(mine: Set<Job>, abs: string, place: string, run: () => Promise<T | null>): Promise<T | null> {
-    if (this.disposed || this.leftAlone(abs) || this.stuck.size >= L.terminalLinkChecksInFlightMax) return Promise.resolve(null)
-    return new Promise<T | null>((resolve) => {
+  /** `run`'s answer once its turn has come; null when it failed; `NOT_CHECKED` when it was not let onto the disk or was given up on. */
+  private check<T>(caller: PathCaller, mine: Set<Job>, abs: string, place: string, run: () => Promise<T | null>): Promise<T | null | NotChecked> {
+    if (this.disposed || this.leftAlone(abs) || this.stuck.size >= L.terminalLinkChecksInFlightMax) return Promise.resolve(NOT_CHECKED)
+    if (caller === 'viewer' && this.viewerJob && this.stuck.has(this.viewerJob.place)) return Promise.resolve(NOT_CHECKED)
+    return new Promise<T | null | NotChecked>((resolve) => {
       const job: Job = {
+        caller,
         place,
         run,
         onDisk: false,
         answered: false,
+        hang: null,
         finish: (v) => {
           if (job.answered) return
           job.answered = true
           mine.delete(job)
-          resolve(v as T | null)
+          resolve(v as T | null | NotChecked)
         },
       }
       mine.add(job)
       this.waiting.push(job)
       this.pump()
       // still waiting, and one more than may wait: this one is not checked
-      if (!job.onDisk && this.waiting.length > L.terminalLinkChecksWaitingMax) {
+      const cap = caller === 'terminal' ? L.terminalLinkChecksWaitingMax : L.viewerLinkChecksWaitingMax
+      if (!job.onDisk && this.waitingOf(caller) > cap) {
         this.waiting.splice(this.waiting.indexOf(job), 1)
-        job.finish(null)
+        job.finish(NOT_CHECKED)
       }
     })
+  }
+
+  private waitingOf(caller: PathCaller): number {
+    let n = 0
+    for (const job of this.waiting) if (job.caller === caller) n++
+    return n
   }
 
   /** The path lies in a place whose check hung: not answered yet, or answered less than its time ago. */
@@ -217,22 +296,35 @@ export class PathChecks {
     return false
   }
 
-  /** Puts waiting checks on disk while a place in flight is free: the first of each place that has none there. */
+  /**
+   * Puts waiting checks on disk while a place in flight is free: first each terminal check whose place has none there,
+   * then one viewer check while the viewer holds no place.
+   */
   private pump(): void {
     for (let i = 0; i < this.waiting.length && this.active.size < L.terminalLinkChecksInFlightMax; ) {
       const job = this.waiting[i] as Job
-      if (this.active.has(job.place)) {
+      if (job.caller !== 'terminal' || this.active.has(job.place)) {
         i++
         continue
       }
       this.waiting.splice(i, 1)
       this.start(job)
     }
+    if (this.viewerJob || this.active.size >= L.terminalLinkChecksInFlightMax) return
+    const i = this.waiting.findIndex((job) => job.caller === 'viewer' && !this.active.has(job.place))
+    if (i >= 0) this.start(this.waiting.splice(i, 1)[0] as Job)
   }
 
   private start(job: Job): void {
     job.onDisk = true
     this.active.set(job.place, job)
+    if (job.caller === 'viewer') {
+      this.viewerJob = job
+      job.hang = this.clock.setTimeout(() => {
+        job.hang = null
+        this.giveUp(job)
+      }, L.terminalLinkCheckDeadlineMs)
+    }
     let out: Promise<unknown>
     try {
       out = job.run()
@@ -245,9 +337,17 @@ export class PathChecks {
     )
   }
 
+  private clearHang(job: Job): void {
+    if (job.hang === null) return
+    this.clock.clearTimeout(job.hang)
+    job.hang = null
+  }
+
   /** The system answered (a file, not a file, an error: all the same here). */
   private settled(job: Job, v: unknown): void {
+    this.clearHang(job)
     this.active.delete(job.place)
+    if (this.viewerJob === job) this.viewerJob = null
     // Given up on meanwhile. Answered soon after, the place was slow once and is checked again like any other;
     // answered well past the deadline, it hung, and is left alone a while longer
     const gaveUpAt = this.stuck.get(job.place)
@@ -264,22 +364,33 @@ export class PathChecks {
     this.pump()
   }
 
-  /** The request's deadline: a waiting check is dropped; one on disk keeps its place, which is left alone from now. */
-  private giveUp(job: Job): void {
+  /** Not asked any more: a waiting check leaves the queue; one on disk is answered now and keeps its place and hang timer. */
+  private withdraw(job: Job): void {
     if (job.answered) return
     if (!job.onDisk) {
       const at = this.waiting.indexOf(job)
       if (at >= 0) this.waiting.splice(at, 1)
-      job.finish(null)
+    }
+    job.finish(NOT_CHECKED)
+  }
+
+  /** A deadline: a waiting check is dropped; one on disk keeps its place, which is left alone from now. */
+  private giveUp(job: Job): void {
+    if (!job.onDisk) {
+      this.withdraw(job)
       return
     }
+    if (!this.active.has(job.place) || this.active.get(job.place) !== job || this.stuck.has(job.place)) return
+    this.clearHang(job)
     this.stuck.set(job.place, this.clock.now())
-    job.finish(null)
-    // what waits for that place, or for a place in flight when none is left, will not be checked
+    job.finish(NOT_CHECKED)
+    // what waits for that place, or for a place in flight when none is left, will not be checked; nor, with the
+    // viewer's place stuck, any viewer check
     const noneLeft = this.stuck.size >= L.terminalLinkChecksInFlightMax
-    for (const other of this.waiting.filter((w) => noneLeft || w.place === job.place || within(job.place, w.place))) {
+    const viewerStuck = this.viewerJob !== null && this.stuck.has(this.viewerJob.place)
+    for (const other of this.waiting.filter((w) => noneLeft || w.place === job.place || within(job.place, w.place) || (viewerStuck && w.caller === 'viewer'))) {
       this.waiting.splice(this.waiting.indexOf(other), 1)
-      other.finish(null)
+      other.finish(NOT_CHECKED)
     }
   }
 }

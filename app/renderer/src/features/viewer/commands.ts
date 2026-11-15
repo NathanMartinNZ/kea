@@ -1,7 +1,7 @@
 // The viewer's commands (the command table's Viewer category): Switch File / Diff, Go to Line…, Find in File, and for an
 // editable document Replace in File, Save and Indent Less / More; the wrap, preview and layout toggles, Next / Previous
 // Change and Changed File, Send / Copy Reference, Open in Editor, for a web page Open in Browser, and Follow Link for
-// the web address at the cursor. They act on the viewer that has the screen (`controller.svelte.ts`); with none, they
+// the web address or file reference at the cursor. They act on the viewer that has the screen (`controller.svelte.ts`); with none, they
 // are unavailable with their reason. Send Reference, Copy Reference, Open in Editor and Open in Browser hand over the
 // file as it is on disk, so with unsaved changes they ask first (`review.svelte.ts`). Two Viewer rows are the tab
 // strip's and are registered by it (`shell/TerminalPane.svelte`): `viewer.open` and `viewer.pinTab`. `App.svelte` calls
@@ -22,7 +22,9 @@ import { activeSessionId, sessions, showToast } from '../sessions/state.svelte.t
 import { wantAgentTab } from '../status/viewing.svelte.ts'
 import { sendText } from '../terminal/sendText.ts'
 import { currentViewer, forgetClosedTabs, forgetDocuments, setTabOracle, type NoteAction, type ViewerController } from './controller.svelte.ts'
-import { cursorPoint, textLinkOf, watchLinkModifier } from './linkView.ts'
+import { forgetFileLinks } from './fileLinks.ts'
+import { NO_FILE } from './fileRefs.ts'
+import { askRef, cursorPoint, openRef, textLinkOf, watchLinkModifier, type DocFile } from './linkView.ts'
 import { NO_LINK } from './links.ts'
 import { NOT_REFERABLE, referable } from './reference.ts'
 import { askHandOff } from './review.svelte.ts'
@@ -123,13 +125,27 @@ export function copyPath(c: ViewerController): void {
   void copyText(c.ui.path)
 }
 
-/** Follow Link: the web address at the cursor opens; one the link policy will not open offers Copy Link at the cursor. */
+/**
+ * Follow Link: the web address at the cursor opens; one the link policy will not open offers Copy Link at the cursor.
+ * A file reference opens as its click does, once core's answer is in (asked now when it is not known); one that leads
+ * to no file says so in the viewer's polite live region.
+ */
 function followLink(c: ViewerController): void {
   const view = c.linkView()
   const link = c.cursorLinkNow()
   if (!view || !link) return
+  if (link.kind === 'file') {
+    void followFile(c, view, link)
+    return
+  }
   if (link.action.open) void openWebLink(link.action.url)
   else openTextMenu(view.contentDOM, cursorPoint(view), textLinkOf(link), true)
+}
+
+async function followFile(c: ViewerController, view: NonNullable<ReturnType<ViewerController['linkView']>>, link: DocFile): Promise<void> {
+  const a = link.answer !== undefined ? link.answer : await askRef(view, link)
+  if (a && a !== 'unknown') openRef(view, a)
+  else c.announce(NO_FILE)
 }
 
 /**
@@ -255,7 +271,11 @@ export function registerViewerCommands(strip: TabStrip): Disposable {
   const offModifier = watchLinkModifier(window)
   // No document of a session that left the screen is kept, and none of a tab that is gone (the strip
   // says which files have one)
-  const off = watch(activeSessionId, () => forgetDocuments(activeSessionId()))
+  const off = watch(activeSessionId, () => {
+    forgetDocuments(activeSessionId())
+    // nor any answer about a file reference
+    forgetFileLinks()
+  })
   setTabOracle((sessionId, path) => strip.has(sessionId, path))
   const offTabs = strip.onChange(forgetClosedTabs)
   // the Edit menu's Undo and Redo: the file document's own steps while it has the keyboard, else the browser's

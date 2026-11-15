@@ -29,7 +29,7 @@ import { indentLess, indentMore, redo, undo } from '@codemirror/commands'
 import { EditorSelection, Text, Transaction, type ChangeSet, type EditorState } from '@codemirror/state'
 import type { EditorView, ViewUpdate } from '@codemirror/view'
 import { foldEffect, unfoldEffect } from '@codemirror/language'
-import { changesOrder, gitEntry, gitHead, imageExtension, keaFileUrl, RpcError, type DiffRead, type FileRead, type FileReadResult, type GitCode, type SameRead, type GitEntry, type GitHead, type GitRow, type HandedDocument, type LineChanges, type TextBytes, type SaveResult, type ViewMode } from '@kea/protocol'
+import { changesOrder, gitEntry, gitHead, imageExtension, keaFileUrl, RpcError, type DiffRead, type FileRead, type FileReadResult, type GitCode, type SameRead, type GitEntry, type GitHead, type GitRow, type HandedDocument, type LineChanges, type TextBytes, type SaveResult, type ViewMode, type RefFile } from '@kea/protocol'
 import { call } from '../../lib/rpc.ts'
 import { commands } from '../commands/registry.ts'
 import { diffHeader, type LineCounts } from '../files/changes.ts'
@@ -50,7 +50,8 @@ import { highlighter, tokenizeInto } from './highlighter.ts'
 import { applyFromDisk, historyBytes, historyClearedForMemory } from './history.ts'
 import { languageOf } from './language.ts'
 import { defaultIndent, languageAids } from './languageAids.ts'
-import { linkAtCursor, type DocLink, type LinkTip } from './linkView.ts'
+import { askFileLinks, fileLinkAnswer } from './fileLinks.ts'
+import { cursorLink, type DocLink, type LinkTip, type RefDoc } from './linkView.ts'
 import { keepYours, marksOf, setMarks, useTheFiles } from './marks.ts'
 import { chunkCount, diffCounts, goToChunk, hideDiff, originalOf, showDiff, type DiffLayout, type ShownDiff } from './merge.ts'
 import { textStats, viewPolicy } from './policy.ts'
@@ -555,6 +556,8 @@ export class ViewerController {
   ui = $state.raw<ViewerUi>(blank('', 'file'))
   /** The tip of the link under the pointer, as plain values (the window has one: its documents' owner draws it). */
   linkTip = $state.raw<LinkTip | null>(null)
+  /** What the polite live region says of Follow Link ("No file found"); `key` changes so the same words are said again. */
+  linkNote = $state.raw<{ text: string; key: number } | null>(null)
 
   private readonly host: ViewerHost
   private sessionId = ''
@@ -591,6 +594,9 @@ export class ViewerController {
     linkTip: (tip) => {
       this.linkTip = tip
     },
+    refAnswer: (doc, ref) => fileLinkAnswer(doc, ref),
+    askRefs: (doc, refs) => askFileLinks(doc, refs),
+    openRef: (doc, target) => this.openReference(doc, target),
   }
 
   constructor(host: ViewerHost) {
@@ -1665,19 +1671,40 @@ export class ViewerController {
     if (u.selectionSet || u.transactions.some((tr) => tr.effects.some((e) => e.is(foldEffect) || e.is(unfoldEffect)))) this.queueSave()
   }
 
+  /**
+   * A file reference's click (or Follow Link, or Open File), from the document `from`: the target in a file tab at the
+   * reference's position, as the preview, and the tab it came from pinned if it was the preview. Only while that tab is
+   * still on screen and `viewer.open` takes the target (an answer may come after a switch).
+   */
+  private openReference(from: RefDoc, target: RefFile): void {
+    if (this.disposed || currentViewer() !== this || from.sessionId !== this.sessionId || from.path !== this.path) return
+    const req = { sessionId: from.sessionId, path: target.path, mode: 'file' as const, ...(target.line !== undefined ? { line: target.line } : {}), ...(target.line !== undefined && target.col !== undefined ? { col: target.col } : {}) }
+    if (!commands.available('viewer.open', req)) return
+    if (target.path !== from.path && commands.available('viewer.pinTab')) void commands.run('viewer.pinTab')
+    void commands.run('viewer.open', req)
+  }
+
+  /** Say `text` in the viewer's polite live region (Follow Link found no file). */
+  announce(text: string): void {
+    this.linkNote = { text, key: (this.linkNote?.key ?? 0) + 1 }
+  }
+
   /** Follow Link's availability, reported to the menu bar only when it changes (not at every move of the cursor). */
   private followable(): void {
     const view = this.linkView()
-    const now = view !== null && linkAtCursor(view.state) !== null
+    const now = view !== null && cursorLink(view) !== null
     if (now === this.cursorLink) return
     this.cursorLink = now
     queueMicrotask(() => commands.changed())
   }
 
-  /** The address that holds the main cursor of `linkView()` or ends at it, now; what it says is kept, so a change is reported. */
+  /**
+   * The address or file reference that holds the main cursor of `linkView()` or ends at it, now; what it says is kept,
+   * so a change is reported.
+   */
   cursorLinkNow(): DocLink | null {
     const view = this.linkView()
-    const link = view ? linkAtCursor(view.state) : null
+    const link = view ? cursorLink(view) : null
     this.cursorLink = link !== null
     return link
   }

@@ -5,6 +5,7 @@
 // xterm, core and the editor is `fileLinks.ts`. Web addresses follow the link policy (`lib/linkPolicy.ts`).
 
 import { L } from '@kea/protocol'
+import { LinkChecks as Checks } from '../../lib/linkChecks.ts'
 import { CONTROL } from '../../lib/linkPolicy.ts'
 
 // ── file references ──────────────────────────────────────────────────────────────────────────────
@@ -133,56 +134,17 @@ export type ResolvePaths = (sessionId: string, paths: string[]) => Promise<(stri
 
 /**
  * What core answered for printed paths, remembered for L.terminalLinkCacheMs (files come and go) so that moving the
- * pointer along a line asks once. Least recently used first out.
+ * pointer along a line asks once; at most L.terminalLinkCacheMax answers, least recently used first out
+ * (`lib/linkChecks.ts`, keyed by session and path).
  */
-export class LinkChecks {
-  // bounded: L.terminalLinkCacheMax entries, least recently used first out
-  private readonly known = new Map<string, { file: string | null; at: number }>()
-  private readonly resolve: ResolvePaths
-  private readonly now: () => number
-
+export class LinkChecks extends Checks<string, string, string | null> {
   constructor(resolve: ResolvePaths, now: () => number = () => performance.now()) {
-    this.resolve = resolve
-    this.now = now
-  }
-
-  get size(): number {
-    return this.known.size
-  }
-
-  clear(): void {
-    this.known.clear()
+    super({ resolve, key: (sessionId, p) => `${sessionId}\n${p}`, maxAgeMs: L.terminalLinkCacheMs, max: L.terminalLinkCacheMax, now })
   }
 
   /** Which of `paths` are files of the session: the file's path relative to its working directory, or null. */
-  async check(sessionId: string, paths: readonly string[]): Promise<(string | null)[]> {
-    const t = this.now()
-    const key = (p: string) => `${sessionId}\n${p}`
-    const unknown = [...new Set(paths.filter((p) => !this.fresh(key(p), t)))]
-    if (unknown.length > 0) {
-      const answers = await this.resolve(sessionId, unknown)
-      unknown.forEach((p, i) => this.remember(key(p), answers[i] ?? null, t))
-    }
-    return paths.map((p) => this.known.get(key(p))?.file ?? null)
-  }
-
-  private fresh(key: string, t: number): boolean {
-    const e = this.known.get(key)
-    if (!e) return false
-    if (t - e.at >= L.terminalLinkCacheMs) {
-      this.known.delete(key)
-      return false
-    }
-    // most recently used last
-    this.known.delete(key)
-    this.known.set(key, e)
-    return true
-  }
-
-  private remember(key: string, file: string | null, at: number): void {
-    this.known.delete(key)
-    this.known.set(key, { file, at })
-    while (this.known.size > L.terminalLinkCacheMax) this.known.delete(this.known.keys().next().value as string)
+  override async check(sessionId: string, paths: readonly string[]): Promise<(string | null)[]> {
+    return (await super.check(sessionId, paths)).map((f) => f ?? null)
   }
 }
 

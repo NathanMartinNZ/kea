@@ -604,6 +604,8 @@ export function createCore(o: CoreOptions): Core {
     gitEnv,
     openTool: o.editorHost?.open ?? null,
     saves: { journal: saveJournal, slot: (id) => files.takeSlot(id), saved: (id) => files.saved(id) },
+    // a file reference's checks share the terminal's links' rationing, with a share of their own
+    paths: editors.pathChecks,
     ...o.viewer,
   })
 

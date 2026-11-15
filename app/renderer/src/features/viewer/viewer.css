@@ -429,6 +429,16 @@
   cursor: pointer;
 }
 
+/* the polite live region for what Follow Link could not do: heard, not seen */
+.viewer-live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 /* the link tip's second line: what a click does */
 .viewer-link-tip-action {
   display: block;

@@ -19,8 +19,10 @@ An editable document's line under the header says what is pressing about its tex
 edited, not saved, deleted on disk, closing) with its actions; "Read-only" after the language gives its reason as a
 tooltip.
 
-The link tip: the web address under the pointer while the link modifier is held, and what a click does with it
+The link tip: the web address or file under the pointer while the link modifier is held, and what a click does with it
 (`linkView.ts` finds it; the controller holds its plain values). Drawn anew for each link, so its delay starts again.
+A polite live region says what Follow Link could not do ("No file found"), for a keyboard or screen-reader user who
+never saw a missing underline.
 -->
 <script lang="ts">
   import { onDestroy, tick, untrack } from 'svelte'
@@ -248,6 +250,11 @@ The link tip: the web address under the pointer while the link modifier is held,
           <button onmousedown={keepFocus} onclick={() => void noteAction(ctl, action)}>{NOTE_LABELS[action]}</button>
         {/each}
       </p>
+    {/if}
+  </div>
+  <div class="viewer-live" role="status" aria-live="polite">
+    {#if ctl.linkNote}
+      {#key ctl.linkNote.key}<span>{ctl.linkNote.text}</span>{/key}
     {/if}
   </div>
   {#if ctl.linkTip}

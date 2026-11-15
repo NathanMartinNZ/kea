@@ -30,11 +30,13 @@
 //   core.agents         live agent sessions' signal state, launches waiting to turn live, status-file and transcript
 //                       watches, interrupt and tier-3 timers, hook connections, envelope ids kept for the dedupe
 //   core.viewer         files followed for windows (one each at most), their waiting calls and rate timers, reads and
-//                       saves in flight, the new files the save journal names
+//                       saves in flight, the new files the save journal names, the configs kept for file references
+//                       (`aliases`)
 //   core.servers        sessions with a dev-server entry, servers alive, `server:` stores registered, port-scan timers,
 //                       scans in flight, start.sh folder watches, sessions watched for auto-start
 //   core.editors        editors and terminal app in the detection cache, a detection under way, launches in flight;
-//                       and the checks of printed paths: on disk, waiting, places whose check hung
+//                       and the checks of printed paths and the viewer's file references: on disk, waiting, places
+//                       whose check hung
 //   core.watch          worktrees followed, common dirs, native streams, sessions attached and those marked stale,
 //                       events pending and the most ever pending, files and directories riding a stream or watched
 //                       singly, poll and restart timers, watches refused at the cap, worktrees released by the LRU;

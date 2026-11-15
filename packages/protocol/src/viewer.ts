@@ -1,5 +1,5 @@
 // The file viewer and diff: what crosses to it. `viewer.open` is the one way a file or a diff is opened — the tree, the
-// Changes list, the finder, a `⌘`-click on a path in a terminal, the viewer's own `File · Diff` switch and
+// Changes list, the finder, a `⌘`-click on a file reference in the viewer, the viewer's own `File · Diff` switch and
 // `]` / `[` all run it with an OpenRequest.
 //
 // What the viewer asks of core (`viewerApi`), each for the session the asking window shows and a path inside its
@@ -10,6 +10,7 @@
 //   viewer.changes   its changed line ranges, for the gutter
 //   viewer.follow    wait until it, or the session's git state, changes
 //   viewer.save      write the user's text back to it, only over the version it was read as
+//   viewer.resolveRefs   which files the references in its text (an import, a stylesheet, a link, a path) lead to
 // File contents cross as bytes and are decoded in the window; a save's text crosses as a string and core encodes it as
 // the file is encoded. Core keeps nothing after sending or writing them.
 //
@@ -295,9 +296,46 @@ export const zSaveResult = z.union([
 ])
 export type SaveResult = z.infer<typeof zSaveResult>
 
+// ── file references ────────────────────────────────────────────────────────────────────────────────────────────
+
 /**
- * Methods core serves to the renderer for the viewer: reads, and the one write, `viewer.save`. Each rejects
- * (`not_visible`) for a session the asking window does not show.
+ * The kinds of file reference the viewer finds in a file's text, each resolved by its own rules:
+ *   import      a JavaScript or TypeScript module specifier: relative, an alias of the file's tsconfig or jsconfig,
+ *               from its `baseUrl`, or a root path; a bare package is none
+ *   style       a stylesheet's `@import`, `@use`, `@forward` or `url()`, with Sass's partials
+ *   markup      an HTML `src` or `href`
+ *   markdown    a Markdown link's target, already a path of the worktree (the preview's resolver gives it)
+ *   json        a JSON string starting `./` or `../`
+ *   extends     a tsconfig's or jsconfig's `extends`: relative, or a package's config under the worktree's `node_modules`
+ *   reference   a tsconfig's `references[].path`: a config, or a folder holding `tsconfig.json`
+ *   path        a path as a terminal prints it: relative to the file's folder or the worktree, absolute, `~/…`, `file:`
+ */
+export const REF_FAMILIES = ['import', 'style', 'markup', 'markdown', 'json', 'extends', 'reference', 'path'] as const
+export type RefFamily = (typeof REF_FAMILIES)[number]
+
+/** One file reference as written, and the position it names (1-based), if any. */
+export const zFileRef = z.object({
+  family: z.enum(REF_FAMILIES),
+  spec: z.string().min(1).max(L.viewerLinkMaxChars),
+  line: z.number().int().min(1).optional(),
+  col: z.number().int().min(1).optional(),
+})
+export type FileRef = z.infer<typeof zFileRef>
+
+/** A reference that leads to a file of the worktree: its path, and the position the reference names. */
+export const zRefFile = z.object({ path: zWorktreePath, line: z.number().int().min(1).optional(), col: z.number().int().min(1).optional() })
+export type RefFile = z.infer<typeof zRefFile>
+
+/**
+ * What core found for one reference: a file; null, every candidate checked and none a file; or `unknown`, a candidate
+ * not checked (the disk did not answer in time, or the checks were full), so the window asks again later.
+ */
+export const zRefAnswer = z.union([zRefFile, z.null(), z.literal('unknown')])
+export type RefAnswer = z.infer<typeof zRefAnswer>
+
+/**
+ * Methods core serves to the renderer for the viewer: reads, the references' files, and the one write, `viewer.save`.
+ * Each rejects (`not_visible`) for a session the asking window does not show.
  */
 export const viewerApi = defineApi({
   /**
@@ -320,6 +358,11 @@ export const viewerApi = defineApi({
   'viewer.openDefault': { args: zViewerPath, result: z.object({ ok: z.boolean(), message: z.string().nullable() }) },
   /** Write `text` to the file, only while it still hashes to `base`; one of the session's file operations. */
   'viewer.save': { args: zSaveArgs, result: zSaveResult },
+  /** Which files the references in the text of `from` lead to: one answer per reference, in order. Nothing is run or opened. */
+  'viewer.resolveRefs': {
+    args: z.object({ sessionId: zSessionId, from: zWorktreePath, refs: z.array(zFileRef).min(1).max(L.viewerLinkRefsMax) }),
+    result: z.object({ refs: z.array(zRefAnswer) }),
+  },
 })
 
 // ── kea-file:// ────────────────────────────────────────────────────────────────────────────────────────────────────

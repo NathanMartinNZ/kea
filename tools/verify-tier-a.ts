@@ -22,6 +22,7 @@ export const TIER_A: Record<TierAProject, string[]> = {
     'L-TERM-7',
     'L-TERM-8',
     'L-FV-1',
+    'L-FV-7',
     'L-FV-8',
     'L-MEM-1',
     'L-MEM-18',

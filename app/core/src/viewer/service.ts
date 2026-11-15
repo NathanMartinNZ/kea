@@ -11,6 +11,10 @@
 // git facts' `onChange`), moves the follow's revision on; the window's waiting `viewer.follow` call is answered at
 // most L.viewerReloadPerS times a second — at once when the last answer is older than that, otherwise when the
 // interval is up, with everything that changed meanwhile in one answer.
+//
+// File references (`viewer.resolveRefs`, fileRefs.ts): the files an import, a stylesheet, a link or a path in the
+// window's file leads to, each candidate checked through the checks the terminal's paths take (editor/paths.ts), with
+// the viewer's own share. The configs read for aliases are kept for a session while a window shows it (aliases.ts).
 
 import { runProcess, systemClock, type Clock, type Disposable, type Logger, type TimerHandle } from '@kea/kit'
 import { L, RpcError, type FollowResult, type Handlers, type viewerApi } from '@kea/protocol'
@@ -18,10 +22,14 @@ import type { GitFacts } from '../files/facts.ts'
 import type { VisibleScope, VisibleSet } from '../platform/visible.ts'
 import type { FileWatch, WatchService } from '../platform/watch/service.ts'
 import { sessionFs, type FsModule } from '../files/fsImpl.ts'
+import { PathChecks } from '../editor/paths.ts'
+import { ConfigReader } from './aliases.ts'
 import { readChanges, readDiff, type DiffFacts } from './diff.ts'
+import { resolveRefs } from './fileRefs.ts'
 import { NOT_OPENED_BY_TYPE, opensSafely } from './openable.ts'
 import { openForRead, readFile, readForEdit, resolveInside, userGroups, userId } from './read.ts'
 import { saveFile, type SaveJournal } from './save.ts'
+import os from 'node:os'
 import path from 'node:path'
 
 type Env = Readonly<Record<string, string | undefined>>
@@ -48,6 +56,13 @@ export interface ViewerServiceOptions {
    * and its refresh after a write (files/service.ts). Absent: every save is refused (a test of the reads).
    */
   saves?: ViewerSaves
+  /**
+   * The rationed checks of paths, shared with the terminal's links (editor/editors.ts makes them). Absent: the service
+   * makes its own, which it disposes with itself.
+   */
+  paths?: PathChecks
+  /** The home folder `~/` names in a reference (default: the user's). */
+  home?: string
   clock?: Clock
 }
 
@@ -95,6 +110,10 @@ export class ViewerService {
   // bounded: one per window connection, ended when the window shows another session or goes
   private readonly follows = new Map<VisibleScope, Follow>()
   private readonly subs: Disposable[]
+  private readonly paths: PathChecks
+  private readonly ownPaths: boolean
+  /** Configs and package.json files read for file references, kept per session while a window shows it. */
+  private readonly configs = new ConfigReader()
   private inFlight = 0
   private saving = 0
   private disposed = false
@@ -102,11 +121,15 @@ export class ViewerService {
   constructor(o: ViewerServiceOptions) {
     this.o = o
     this.clock = o.clock ?? systemClock
+    this.ownPaths = !o.paths
+    this.paths = o.paths ?? new PathChecks({ clock: this.clock })
     this.subs = [
-      // A window that shows another session, or none, or is gone, follows nothing
+      // A window that shows another session, or none, or is gone, follows nothing; a session no window shows keeps no
+      // parsed configs
       o.visible.onChange((c) => {
         const f = this.follows.get(c.scope)
         if (f && f.sessionId !== c.sessionId) this.end(c.scope)
+        for (const id of c.hidden) this.configs.forget(id)
       }),
       // The session's git state changed
       o.git.onChange((sessionId) => {
@@ -115,15 +138,18 @@ export class ViewerService {
     ]
   }
 
-  /** The resource report's `core.viewer`: `journal` is the new files the save journal names (save.ts). */
-  get resourceCounts(): { follows: number; waiters: number; timers: number; reads: number; saves: number; journal: number } {
+  /**
+   * The resource report's `core.viewer`: `journal` is the new files the save journal names (save.ts); `aliases` the
+   * configs kept for file references (aliases.ts).
+   */
+  get resourceCounts(): { follows: number; waiters: number; timers: number; reads: number; saves: number; journal: number; aliases: number } {
     let waiters = 0
     let timers = 0
     for (const f of this.follows.values()) {
       if (f.waiter) waiters++
       if (f.timer !== null) timers++
     }
-    return { follows: this.follows.size, waiters, timers, reads: this.inFlight, saves: this.saving, journal: this.o.saves?.journal.size ?? 0 }
+    return { follows: this.follows.size, waiters, timers, reads: this.inFlight, saves: this.saving, journal: this.o.saves?.journal.size ?? 0, aliases: this.configs.size }
   }
 
   handlers(): Handlers<typeof viewerApi> {
@@ -163,6 +189,11 @@ export class ViewerService {
         if (!stat.isFile() || (stat.mode & 0o111) !== 0) return { ok: false, message: 'Executable files are not opened from here' }
         return this.o.openDefault ? this.o.openDefault(where.real) : openWith(this.o.openTool, where.real)
       },
+      'viewer.resolveRefs': async ({ sessionId, from, refs }, { peer }) => {
+        const cwd = this.cwdFor(peer, sessionId)
+        if (this.disposed) return { refs: refs.map(() => 'unknown' as const) }
+        return { refs: await resolveRefs({ cwd, from, refs, req: this.paths.begin('viewer'), configs: this.configs, session: sessionId, home: this.o.home ?? os.homedir(), log: this.o.log }) }
+      },
       'viewer.save': async ({ sessionId, path: rel, text, base, eol, create }, { peer }) => {
         const cwd = this.cwdFor(peer, sessionId)
         const saves = this.o.saves
@@ -186,6 +217,8 @@ export class ViewerService {
     this.disposed = true
     for (const s of this.subs.splice(0)) s.dispose()
     for (const scope of [...this.follows.keys()]) this.end(scope)
+    this.configs.clear()
+    if (this.ownPaths) this.paths.dispose()
   }
 
   /** The working directory of `sessionId`, which the calling window must be showing. */

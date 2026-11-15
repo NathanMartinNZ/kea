@@ -1237,6 +1237,95 @@ test('E-FV-25 · web addresses in the file view: with the link modifier held ove
   expect(await kea.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length), 'no window but Kea’s').toBe(1)
 })
 
+test('E-FV-26 · file references in the file view: with the modifier held a wrapped import’s } from \'./util\' is underlined with its file in the tip, and a modifier-click opens util.ts as the preview and pins the file it came from; README.md:3 in a comment opens at line 3; a modifier-click on console.log moves the caret and opens nothing; a right-click offers Open File and Copy Path, which copies; a bare package is never underlined; F12 on an import opens it', async ({ run, launch }) => {
+  test.setTimeout(150_000)
+  const kea = await launch()
+  const page = await kea.page()
+  const main = ['import {', '  helper,', "} from './util'", "import React from 'react'", '// see README.md:3 for the notes', 'console.log(helper(), React)', '']
+  await sessionWith(kea, run, { 'src/main.ts': main.join('\n'), 'src/util.ts': 'export const helper = () => 1\n', 'README.md': '# Demo\n\nThe notes are here.\n\nMore.\n' })
+  const clipboard = await recordClipboard(kea)
+  const menu = page.getByRole('menu', { name: 'Text menu' })
+  const active = page.locator('.viewer .cm-link-active')
+  const tip = page.locator('.viewer .viewer-link-tip')
+  const ACTION = protocolOs.system === 'darwin' ? '⌘-click to open' : 'Ctrl-click to open'
+  const underlinedText = async () => (await active.allInnerTexts()).join('')
+  const answers = async () => ((await page.evaluate('__keaPerf.resources()')) as Record<string, number>)['renderer.viewerLinks'] ?? 0
+  const shown = async () => (await viewer(kea))?.ui.path
+  /** The modifier held, the pointer moved onto `p`, pressed and released there. */
+  const modClick = async (p: { x: number; y: number }) => {
+    await page.keyboard.down(MOD_CLICK)
+    await page.mouse.move(p.x, p.y)
+    await page.mouse.down()
+    await page.mouse.up()
+    await page.keyboard.up(MOD_CLICK)
+  }
+
+  await clickFile(kea, 'src/main.ts')
+  await waitBody(kea, 'src/main.ts', 'text')
+  expect((await fileTabs(kea)).find((t) => t.path === 'src/main.ts')?.pinned, 'opened as the preview').toBe(false)
+
+  // ── the hover: the wrapped import's last line, underlined once core says it is a file ──
+  const util = await charPoint(kea, "'./util'", 3)
+  await page.mouse.move(util.x, util.y)
+  await page.keyboard.down(MOD_CLICK)
+  await expect.poll(underlinedText).toBe('./util')
+  expect(await page.evaluate(({ x, y }) => getComputedStyle(document.elementFromPoint(x, y) as Element).cursor, util)).toBe('pointer')
+  await expect(tip).toContainText('src/util.ts')
+  await expect(tip).toContainText(ACTION)
+  await page.keyboard.up(MOD_CLICK)
+  await expect(active).toHaveCount(0)
+
+  // ── a bare package: asked about, never underlined ──
+  const before = await answers()
+  const react = await charPoint(kea, "'react'", 2)
+  await page.mouse.move(react.x, react.y)
+  await page.keyboard.down(MOD_CLICK)
+  await expect.poll(answers, 'core answered for react').toBeGreaterThan(before)
+  await expect(active).toHaveCount(0)
+  await page.keyboard.up(MOD_CLICK)
+
+  // ── a modifier-click on console.log: the caret moves, nothing opens ──
+  await modClick(await charPoint(kea, 'console.log', 9))
+  await waitViewer(kea, 'the caret on console.log’s line', (v) => v.text?.selection.from.line === 6)
+  expect(await shown()).toBe('src/main.ts')
+
+  // ── right-click: Open File and Copy Path, enabled; Copy Path copies the worktree path ──
+  await page.mouse.click(util.x, util.y, { button: 'right' })
+  await expect(menu).toBeVisible()
+  const items = menu.getByRole('menuitem')
+  await expect(items.first()).toContainText('Open File')
+  await expect(items.first()).toBeEnabled()
+  await expect(menu.getByRole('menuitem', { name: 'Copy Path' })).toBeEnabled()
+  await menu.getByRole('menuitem', { name: 'Copy Path' }).click()
+  await expect(menu).toHaveCount(0)
+  await expect.poll(clipboard).toEqual(['src/util.ts'])
+
+  // ── the click: util.ts opens as the preview, and the file it came from is pinned ──
+  await modClick(util)
+  await waitBody(kea, 'src/util.ts', 'text')
+  await expect.poll(() => fileTabs(kea)).toEqual([
+    expect.objectContaining({ path: 'src/main.ts', pinned: true }),
+    expect.objectContaining({ path: 'src/util.ts', pinned: false, selected: true }),
+  ])
+
+  // ── README.md:3 in a comment opens at line 3 ──
+  await clickFileTab(kea, 'src/main.ts')
+  await waitBody(kea, 'src/main.ts', 'text')
+  await modClick(await charPoint(kea, 'README.md:3', 2))
+  await waitBody(kea, 'README.md', 'text')
+  await waitViewer(kea, 'README.md at line 3', (v) => v.ui.path === 'README.md' && v.text?.selection.from.line === 3)
+  expect((await fileTabs(kea)).map((t) => t.path)).toEqual(['src/main.ts', 'README.md'])
+
+  // ── F12 with the cursor in an import ──
+  await clickFileTab(kea, 'src/main.ts')
+  await waitBody(kea, 'src/main.ts', 'text')
+  await page.mouse.click(util.x, util.y)
+  await waitViewer(kea, 'the caret in the import', (v) => v.text?.selection.from.line === 3)
+  await page.keyboard.press('F12')
+  await waitBody(kea, 'src/util.ts', 'text')
+  expect(await kea.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length), 'no window but Kea’s').toBe(1)
+})
+
 test('E-KB-7 ·the text menu: a right-click on a field offers Cut, Copy, Paste and Select All with their keys, and its picks act on that field; on the viewer’s code it offers the same in a file that can be edited and Copy and Select All in a read-only one, Cut and Copy disabled while nothing is selected, Select All selecting the whole file; one menu at a time', async ({ run, launch }) => {
   const kea = await launch()
   const page = await kea.page()

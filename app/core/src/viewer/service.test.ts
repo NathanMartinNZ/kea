@@ -119,7 +119,7 @@ describe('the viewer service', () => {
     visible.set(windowTwo, null)
     // a link out of A is not read through A
     expect(await read({ sessionId: 'A', path: 'escape.ts' }, ctx(windowOne))).toMatchObject({ kind: 'outside', text: null })
-    expect(service.resourceCounts).toEqual({ follows: 0, waiters: 0, timers: 0, reads: 0, saves: 0, journal: 0 })
+    expect(service.resourceCounts).toEqual({ follows: 0, waiters: 0, timers: 0, reads: 0, saves: 0, journal: 0, aliases: 0 })
 
     // ── following ──
     const first = follow({ sessionId: 'A', path: 'a.ts', seen: 0 }, ctx(windowOne)) as Promise<FollowResult>
@@ -200,7 +200,7 @@ describe('the viewer service', () => {
     visible.drop(windowTwo)
     expect(await two).toMatchObject({ ended: true })
     expect(watch.size).toBe(0)
-    expect(service.resourceCounts).toEqual({ follows: 0, waiters: 0, timers: 0, reads: 0, saves: 0, journal: 0 })
+    expect(service.resourceCounts).toEqual({ follows: 0, waiters: 0, timers: 0, reads: 0, saves: 0, journal: 0, aliases: 0 })
 
     // unfollow, and a timer left by a throttled answer goes with its follow
     const last = follow({ sessionId: 'B', path: 'b.ts', seen: 0 }, ctx(windowOne)) as Promise<FollowResult>

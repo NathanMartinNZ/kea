@@ -174,7 +174,7 @@ export class Editors implements EditorLauncher {
   private detecting: Promise<Detected> | null = null
   private launches = 0
   private disposed = false
-  /** The checks of paths printed in a terminal, capped and timed (paths.ts). */
+  /** The checks of paths printed in a terminal and of the viewer's file references, capped and timed (paths.ts). */
   private readonly paths: PathChecks
 
   constructor(o: EditorsOptions) {
@@ -183,6 +183,11 @@ export class Editors implements EditorLauncher {
     this.launch = o.launch ?? launchDetached
     this.clock = o.clock ?? systemClock
     this.paths = new PathChecks({ clock: this.clock })
+  }
+
+  /** The rationed checks of paths, which the viewer's file references share (core.ts hands them to the viewer). */
+  get pathChecks(): PathChecks {
+    return this.paths
   }
 
   /** Core's services, once they exist (core.ts builds the launcher before them). */

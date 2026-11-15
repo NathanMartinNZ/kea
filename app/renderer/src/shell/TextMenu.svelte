@@ -2,7 +2,9 @@
 The text menu (features/commands/textMenu.ts): a right-click on a text field, a document the viewer shows or other
 selected text opens Cut, Copy, Paste and Select All as they apply there: all four in a field or a document that can be
 edited, Copy and Select All in a read-only document. On a web address in a viewer document, Open Link and Copy Link
-come first (Copy Link alone for an address that is not opened). The viewer's document is looked for first, since an
+come first (Copy Link alone for an address that is not opened); on a file reference, Open File and Copy Path, disabled
+while core's answer is out and enabled in place when it says where (the answer changes only the menu it was asked for:
+one closed meanwhile is never opened again). The viewer's document is looked for first, since an
 editable one is a `contenteditable` too. A right-click another menu took (a terminal, a row, a chip: each prevents the
 event's default) never opens it, nor does one with nothing to offer. Cut, Copy and Paste are the Edit menu's roles,
 which main runs on the element the menu was opened on once it has the keyboard back; Select All selects a field's
@@ -16,7 +18,8 @@ the window. Locatable as `role=menu` "Text menu".
   import { Menu, type MenuItem } from '@kea/ui'
   import { menuKey, pointerMenu, textMenuItems, type TextLink, type TextPick, type TextTarget } from '../features/commands/textMenu.ts'
   import { copyText, openWebLink } from '../features/sessions/actions.ts'
-  import { setTextMenuOpener, viewerCursorAt, viewerLinkAt, viewerTextAt, type ViewerText } from '../features/viewer/textTarget.ts'
+  import { targetText } from '../features/viewer/fileRefs.ts'
+  import { setTextMenuOpener, viewerCursorAt, viewerLinkAt, viewerTextAt, type MenuLink, type ViewerText } from '../features/viewer/textTarget.ts'
   import { editRole } from '../lib/bridge.ts'
 
   /** The input types whose text can be selected and edited. */
@@ -27,6 +30,8 @@ the window. Locatable as `role=menu` "Text menu".
   let field: HTMLElement | null = null
   let doc: ViewerText | null = null
   let link: TextLink | null = null
+  /** Which opening is on screen: an answer that comes for an earlier one changes nothing. */
+  let opening = 0
 
   const pageSelection = (): boolean => {
     const s = window.getSelection()
@@ -47,15 +52,24 @@ the window. Locatable as `role=menu` "Text menu".
     return { target: { kind: 'text', editable: false, hasSelection: pageSelection(), secret: false }, field: null, doc: null }
   }
 
-  /** Open the menu for what `el` is, at `at`, with a viewer document's link; false when it has nothing to offer. */
-  function show(el: Element, at: { x: number; y: number }, l: TextLink | null, linkOnly: boolean): boolean {
+  /**
+   * Open the menu for what `el` is, at `at`, with a viewer document's link; false when it has nothing to offer. A file
+   * reference's answer that comes while this opening is on screen enables (or keeps disabled) its items in place.
+   */
+  function show(el: Element, at: { x: number; y: number }, l: MenuLink | null, linkOnly: boolean): boolean {
     const t = targetOf(el)
-    const items = textMenuItems({ ...t.target, link: l, linkOnly }, protocolOs.system, protocolOs.keys)
+    const items = textMenuItems({ ...t.target, link: l?.link ?? null, linkOnly }, protocolOs.system, protocolOs.keys)
     if (items.length === 0) return false
     field = t.field
     doc = t.doc
-    link = l
+    link = l?.link ?? null
     open = { at, items }
+    const mine = ++opening
+    void l?.later?.then((next) => {
+      if (mine !== opening || !open) return
+      link = next
+      open = { at, items: textMenuItems({ ...t.target, link: next, linkOnly }, protocolOs.system, protocolOs.keys) }
+    })
     return true
   }
 
@@ -77,7 +91,7 @@ the window. Locatable as `role=menu` "Text menu".
     }
     document.addEventListener('contextmenu', onMenu)
     document.addEventListener('keydown', onKey)
-    setTextMenuOpener((el, at, l, linkOnly) => void show(el, at, l, linkOnly))
+    setTextMenuOpener((el, at, l, linkOnly) => void show(el, at, { link: l, later: null }, linkOnly))
     return () => {
       document.removeEventListener('contextmenu', onMenu)
       document.removeEventListener('keydown', onKey)
@@ -92,11 +106,18 @@ the window. Locatable as `role=menu` "Text menu".
     const d = doc
     const l = link
     if (p === 'openLink') {
-      if (l?.url) void openWebLink(l.url)
+      if (l?.kind === 'url' && l.url) void openWebLink(l.url)
       return
     }
     if (p === 'copyLink') {
       if (l) void copyText(l.text)
+      return
+    }
+    if (p === 'openFile' || p === 'copyPath') {
+      const target = l?.kind === 'file' && typeof l.answer === 'object' ? l.answer : null
+      if (!target) return
+      if (p === 'copyPath') void copyText(targetText(target))
+      else d?.openFile(target)
       return
     }
     if (d) {
@@ -110,6 +131,7 @@ the window. Locatable as `role=menu` "Text menu".
   }
 
   function close(): void {
+    opening++
     open = null
     queueMicrotask(() => {
       if (open) return

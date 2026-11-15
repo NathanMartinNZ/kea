@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { editorUrl, launchPlan, positionSafe, terminalAppArgv, type LaunchTarget } from './argv.ts'
 import { defaultEditor, EDITOR_DEFS, editorDef, LINUX_TERMINAL_APP_DEFS, TERMINAL_APP_DEFS, terminalAppFor, type EditorDef } from './catalog.ts'
 import { Editors, mdfindArgs, parseMdfind } from './editors.ts'
-import { PathChecks, type PathFs } from './paths.ts'
+import { NOT_CHECKED, PathChecks, type PathFs } from './paths.ts'
 import { coreOs } from '../os/index.ts'
 
 const OPEN = '/usr/bin/open' // os-ok: test data
@@ -497,6 +497,104 @@ describe('paths printed in a terminal', () => {
       expect(checks.counts).toEqual(idle)
       expect(vi.getTimerCount()).toBe(0)
       expect(most).toBeLessThanOrEqual(L.terminalLinkChecksInFlightMax)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('U-FV-40 · the viewer’s file references share the rationing: a terminal check queued behind viewer checks goes on first, the viewer never holds two places, two references into two hung folders leave one stuck place and the terminal answering, a request ended while its check is on disk keeps that check’s hang timer; the constants hold the orders', async () => {
+    // the viewer can never take the terminal's last place, and one line's references all wait
+    expect(L.terminalLinkChecksInFlightMax).toBeGreaterThanOrEqual(2)
+    expect(L.viewerLinkChecksWaitingMax).toBeGreaterThanOrEqual(L.viewerLinkRefsMax)
+    expect(L.viewerLinkListBudgetMs).toBeGreaterThan(L.terminalLinkCheckDeadlineMs)
+    vi.useFakeTimers()
+    try {
+      const wt = '/w/tree'
+      // every call is held until the test answers it: what started, in order, and how many of the viewer's are out
+      const held: { p: string; answer: (ok: boolean) => void }[] = []
+      const started: string[] = []
+      const files = new Set([`${wt}/lib/c.ts`, `${wt}/v/a.ts`])
+      const disk: PathFs = {
+        realpath: (p) => hold(p, () => p),
+        stat: (p) => hold(p, () => ({ isFile: () => files.has(p) })),
+      }
+      function hold<T>(p: string, value: () => T): Promise<T> {
+        started.push(p)
+        return new Promise<T>((resolve, reject) => held.push({ p, answer: (ok) => (ok ? resolve(value()) : reject(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }))) }))
+      }
+      const answer = async (p: string, ok = true) => {
+        const at = held.findIndex((h) => h.p === p)
+        expect(at, `${p} is on disk`).toBeGreaterThanOrEqual(0)
+        held.splice(at, 1)[0]!.answer(ok)
+        await vi.advanceTimersByTimeAsync(0)
+      }
+      const checks = new PathChecks({ fs: disk })
+      const viewer = checks.begin('viewer')
+      const run = (p: string) => () => disk.stat(p).then((s) => (s.isFile() ? p : null))
+
+      // 1. a viewer check is on disk at one place; more of the viewer's wait for it, whatever their place; a terminal
+      // request's checks queued after them take the free place first
+      const v1 = viewer.check(`${wt}/v1/a.ts`, run(`${wt}/v1/a.ts`))
+      const v2 = viewer.check(`${wt}/v2/a.ts`, run(`${wt}/v2/a.ts`))
+      const v3 = viewer.check(`${wt}/v3/a.ts`, run(`${wt}/v3/a.ts`))
+      await vi.advanceTimersByTimeAsync(0)
+      expect(started).toEqual([`${wt}/v1/a.ts`])
+      const t = checks.resolveLinks(wt, ['lib/c.ts'], '/w/home')
+      await vi.advanceTimersByTimeAsync(0)
+      expect(started.at(-1), 'the terminal’s directory check took the free place').toBe(wt)
+      expect(checks.counts).toEqual({ inFlight: 2, waiting: 2, hung: 0 })
+      await answer(wt)
+      // the terminal's candidate goes on before the waiting viewer checks
+      expect(started.at(-1)).toBe(`${wt}/lib/c.ts`)
+      await answer(`${wt}/lib/c.ts`)
+      await answer(`${wt}/lib/c.ts`)
+      expect(await t).toEqual(['lib/c.ts'])
+      // the viewer never holds two places: v2 starts only once v1 is answered
+      expect(started.filter((p) => p.startsWith(`${wt}/v`))).toEqual([`${wt}/v1/a.ts`])
+      await answer(`${wt}/v1/a.ts`, false)
+      expect(await v1).toBeNull()
+      expect(started.filter((p) => p.startsWith(`${wt}/v`))).toEqual([`${wt}/v1/a.ts`, `${wt}/v2/a.ts`])
+      await answer(`${wt}/v2/a.ts`, false)
+      await answer(`${wt}/v3/a.ts`, false)
+      expect([await v2, await v3]).toEqual([null, null])
+      viewer.end()
+      expect(vi.getTimerCount()).toBe(0)
+
+      // 2. two references into two hung folders: the first is given up at its own deadline, from when it went on disk,
+      // and holds one stuck place; the second is then refused (not checked), and the terminal still answers elsewhere
+      const req = checks.begin('viewer')
+      const h1 = req.check(`${wt}/sub/h1/a.ts`, run(`${wt}/sub/h1/a.ts`))
+      const h2 = req.check(`${wt}/sub/h2/a.ts`, run(`${wt}/sub/h2/a.ts`))
+      await vi.advanceTimersByTimeAsync(L.terminalLinkCheckDeadlineMs)
+      expect([await h1, await h2]).toEqual([NOT_CHECKED, NOT_CHECKED])
+      expect(checks.counts).toEqual({ inFlight: 1, waiting: 0, hung: 1 })
+      expect(started.filter((p) => p.includes('/sub/h2/'))).toEqual([])
+      expect(await req.check(`${wt}/v/a.ts`, run(`${wt}/v/a.ts`)), 'the viewer’s place is stuck: refused at once').toBe(NOT_CHECKED)
+      req.end()
+      const elsewhere = checks.resolveLinks(wt, ['lib/c.ts'], '/w/home')
+      await vi.advanceTimersByTimeAsync(0)
+      await answer(wt)
+      await answer(`${wt}/lib/c.ts`)
+      await answer(`${wt}/lib/c.ts`)
+      expect(await elsewhere).toEqual(['lib/c.ts'])
+      await answer(`${wt}/sub/h1/a.ts`, false)
+      expect(checks.counts).toEqual({ inFlight: 0, waiting: 0, hung: 0 })
+
+      // 3. a request ended while its check is on disk: answered not checked now; the check keeps its place and its hang
+      // timer, which gives it up later
+      const late = checks.begin('viewer')
+      const out = late.check(`${wt}/slow/a.ts`, run(`${wt}/slow/a.ts`))
+      await vi.advanceTimersByTimeAsync(0)
+      late.end()
+      expect(await out).toBe(NOT_CHECKED)
+      expect(vi.getTimerCount(), 'the check’s hang timer').toBe(1)
+      expect(checks.counts).toEqual({ inFlight: 1, waiting: 0, hung: 0 })
+      await vi.advanceTimersByTimeAsync(L.terminalLinkCheckDeadlineMs)
+      expect(checks.counts).toEqual({ inFlight: 1, waiting: 0, hung: 1 })
+      await answer(`${wt}/slow/a.ts`, false)
+      expect(checks.counts).toEqual({ inFlight: 0, waiting: 0, hung: 0 })
+      expect(vi.getTimerCount()).toBe(0)
+      checks.dispose()
     } finally {
       vi.useRealTimers()
     }

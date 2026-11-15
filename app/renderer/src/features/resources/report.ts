@@ -26,6 +26,8 @@
 //   renderer.folderPicks         folder pickers waiting for main's answer
 //   renderer.serverStores        `server:<sessionId>` stores followed: the session on screen's, at most one
 //   renderer.linkChecks          checked file references of terminal lines the window remembers
+//   renderer.viewerLinks         core's answers about file references in the viewer's text the window remembers
+//   renderer.viewerLinksInFlight the window's questions to core about them still out
 //   renderer.fileStores, .fileTreeDirs, .fileTreeRows, .fileGitEntries, .fileExpanded, .fileRowsDrawn,
 //   .filePanelTimers, .fileLayers, .fileOps   the file panel: what it holds of the session on screen, and the file
 //                                clipboard and a drag under way (features/files/resources.ts)
@@ -54,6 +56,7 @@ import { serverStores } from '../server/state.svelte.ts'
 import { sessionsResources } from '../sessions/state.svelte.ts'
 import { statusResources } from '../status/state.ts'
 import { linkChecks } from '../terminal/fileLinks.ts'
+import { fileLinkCounts } from '../viewer/fileLinks.ts'
 import { VIEWER_ROWS, viewerResources } from '../viewer/resources.ts'
 import { terminalResources } from '../terminal/views.ts'
 import { bannerStore } from '../../shell/bannerStore.ts'
@@ -85,6 +88,13 @@ const GAUGES: readonly Gauge[] = [
   { rows: ['folderPicks'], read: () => ({ folderPicks: folderPicksPending() }) },
   { rows: ['serverStores'], read: () => ({ serverStores: serverStores() }) },
   { rows: ['linkChecks'], read: () => ({ linkChecks: linkChecks() }) },
+  {
+    rows: ['viewerLinks', 'viewerLinksInFlight'],
+    read: () => {
+      const c = fileLinkCounts()
+      return { viewerLinks: c.answers, viewerLinksInFlight: c.inFlight }
+    },
+  },
   { rows: VIEWER_ROWS, read: viewerResources },
   { rows: FILES_ROWS, read: filesResources },
   { rows: DISK_ROWS, read: diskResources },

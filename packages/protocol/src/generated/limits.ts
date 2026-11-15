@@ -636,6 +636,24 @@ export const L = {
   viewerLinkMaxChars: 2048,
   /** how far the pointer may move between a modifier press on a file view's link and its release for the link to open; a longer move opens nothing (px) */
   viewerLinkClickSlopPx: 4,
+  /** file references the file view asks core about at once, those of the line around the pointer; the rest of the line is asked at its own hover (references) */
+  viewerLinkRefsMax: 8,
+  /** files core tries for one file reference, one after another; covers two targets of an alias each tried with every extension, a folder's package.json and its index; a list cut here answers that it was not checked, never that there is no file (candidates) */
+  viewerLinkCandidatesMax: 48,
+  /** how long the file view keeps core's answer for a file reference (files come and go); a file deleted meanwhile opens as missing (ms) */
+  viewerLinkCacheMs: 5000,
+  /** core's answers for file references the file view keeps, least recently used out; also the questions it has out at once (answers) */
+  viewerLinkCacheMax: 256,
+  /** the file view's checks of file references waiting for a place on disk, apart from the terminal's; at least viewer_link_refs_max, so one line's references all wait; one more is not checked (checks) */
+  viewerLinkChecksWaitingMax: 16,
+  /** how long one question about file references may take before what is left answers that it was not checked; more than terminal_link_check_deadline_ms, so one slow check can finish; a check already on disk is never given up for it (ms) */
+  viewerLinkListBudgetMs: 1500,
+  /** the largest tsconfig.json, jsconfig.json or package.json core reads to find a file reference's aliases or a folder's entry; a larger one is skipped (bytes) */
+  viewerAliasFileMaxBytes: 262144,
+  /** configs core reads for one file's aliases, its extends chains and a solution file's references together; a loop ends here (configs) */
+  viewerAliasExtendsMax: 16,
+  /** parsed configs core keeps for file references, by real path, modification time and size, least recently used out; a session's go when no window shows it (configs) */
+  viewerAliasCacheMax: 64,
   /** a window asked to review its unsaved files says it has the request within this long; one that does not, with unsaved files, stops the quit or close (ms) */
   windowReviewAckMs: 2000,
   /** NUL in the first bytes → binary (bytes) */
@@ -1117,6 +1135,15 @@ export const LIMIT_META: Record<LimitName, { unit: string; why: string; whyLinux
   viewerLinkScanChars: { unit: "characters", why: "of a line in the file view, the characters read around the one under the pointer or at the cursor to find a web address, half on each side, so a long minified line costs nothing; at least twice viewer_link_max_chars, so an address under the pointer is read whole" },
   viewerLinkMaxChars: { unit: "characters", why: "the longest web address the file view finds, as written; at most link_open_max_chars, so an address it finds is never longer than main takes" },
   viewerLinkClickSlopPx: { unit: "px", why: "how far the pointer may move between a modifier press on a file view's link and its release for the link to open; a longer move opens nothing" },
+  viewerLinkRefsMax: { unit: "references", why: "file references the file view asks core about at once, those of the line around the pointer; the rest of the line is asked at its own hover" },
+  viewerLinkCandidatesMax: { unit: "candidates", why: "files core tries for one file reference, one after another; covers two targets of an alias each tried with every extension, a folder's package.json and its index; a list cut here answers that it was not checked, never that there is no file" },
+  viewerLinkCacheMs: { unit: "ms", why: "how long the file view keeps core's answer for a file reference (files come and go); a file deleted meanwhile opens as missing" },
+  viewerLinkCacheMax: { unit: "answers", why: "core's answers for file references the file view keeps, least recently used out; also the questions it has out at once" },
+  viewerLinkChecksWaitingMax: { unit: "checks", why: "the file view's checks of file references waiting for a place on disk, apart from the terminal's; at least viewer_link_refs_max, so one line's references all wait; one more is not checked" },
+  viewerLinkListBudgetMs: { unit: "ms", why: "how long one question about file references may take before what is left answers that it was not checked; more than terminal_link_check_deadline_ms, so one slow check can finish; a check already on disk is never given up for it" },
+  viewerAliasFileMaxBytes: { unit: "bytes", why: "the largest tsconfig.json, jsconfig.json or package.json core reads to find a file reference's aliases or a folder's entry; a larger one is skipped" },
+  viewerAliasExtendsMax: { unit: "configs", why: "configs core reads for one file's aliases, its extends chains and a solution file's references together; a loop ends here" },
+  viewerAliasCacheMax: { unit: "configs", why: "parsed configs core keeps for file references, by real path, modification time and size, least recently used out; a session's go when no window shows it" },
   windowReviewAckMs: { unit: "ms", why: "a window asked to review its unsaved files says it has the request within this long; one that does not, with unsaved files, stops the quit or close" },
   binarySniffBytes: { unit: "bytes", why: "NUL in the first bytes → binary" },
   diffMaxBytes: { unit: "bytes", why: "either diff side larger → not rendered" },

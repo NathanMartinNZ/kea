@@ -2,7 +2,8 @@
 // tests/support/app-leak.ts. A session of a demo repository; files are opened the way every caller opens them
 // (`viewer.open`) and closed with Esc, so each cycle mounts and unmounts the viewer's component, attaches the window's
 // one editor to it and lets it go. The highlight worker's idle timeout is the window's own timer under Playwright's
-// clock, moved forward rather than waited for.
+// clock, moved forward rather than waited for. File references are hovered with the link modifier held, as a person
+// looks for the file an import names.
 
 import fs from 'node:fs'
 import path from 'node:path'
@@ -567,5 +568,85 @@ describe('file viewer leaks (app)', () => {
     expect(fs.readFileSync(path.join(worktree, SMALL), 'utf8') === onDisk[SMALL] && fs.readFileSync(path.join(worktree, LARGE), 'utf8') === onDisk[LARGE], 'both files as last saved').toBe(true)
     expectCountsFlat(leak, () => true)
     await expectBytesFlat(kea, renderer, leak, HEAPS, 'L-FV-6')
+  })
+
+  it('L-FV-7 · a thousand hovers over file references in a hundred files, each in a folder with its own tsconfig.json: the window’s answers and its questions out stay within L.viewerLinkCacheMax and core’s parsed configs within L.viewerAliasCacheMax, each reaching its cap; once the window shows another session, both are empty', async () => {
+    const FILES = 100
+    const REFS = ["'./util'", "'@/lib/b'", "'react'", 'README.md:3', "'../shared/d'", "'./more'", 'docs/guide.md:1', "'@/e'", "'./f.js'", 'notes.txt:2']
+    const lines = ["import { a } from './util'", "import { b } from '@/lib/b'", "import c from 'react'", '// see README.md:3', "import d from '../shared/d'", "export * from './more'", '// docs/guide.md:1', "import e from '@/e'", "import f from './f.js'", '// notes.txt:2', '']
+    const files: Record<string, string> = {}
+    for (let i = 0; i < FILES; i++) {
+      files[`big/p${i}/tsconfig.json`] = JSON.stringify({ compilerOptions: { paths: { '@/*': ['./src/*'] } } })
+      files[`big/p${i}/src/index.ts`] = lines.join('\n')
+      files[`big/p${i}/src/util.ts`] = 'export const a = 1\n'
+    }
+    const { kea, id, worktree } = await start({})
+    writeFiles(worktree, files)
+    const page = await kea.page()
+    const other = await startSession(kea, 'other')
+    await waitLive(kea, other)
+    await selectSession(kea, id)
+    type Links = { answers: number; inFlight: number }
+    const links = async (): Promise<Links> => {
+      const r = (await page.evaluate('__keaPerf.resources()')) as Record<string, number>
+      return { answers: r['renderer.viewerLinks'] ?? NaN, inFlight: r['renderer.viewerLinksInFlight'] ?? NaN }
+    }
+    const aliases = async (): Promise<number> => (await kea.debug<Record<string, Record<string, number>>>('core', 'kit'))['core.viewer']?.aliases ?? NaN
+    /** The middle of the first character of `needle`'s second character in the document's lines. */
+    const point = (needle: string) =>
+      page.evaluate((text) => {
+        for (const line of document.querySelectorAll('.viewer .cm-editor .cm-content .cm-line')) {
+          const at = (line.textContent ?? '').indexOf(text)
+          if (at < 0) continue
+          let want = at + 1
+          const walk = document.createTreeWalker(line, NodeFilter.SHOW_TEXT)
+          for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+            const len = n.textContent?.length ?? 0
+            if (want >= len) {
+              want -= len
+              continue
+            }
+            const r = document.createRange()
+            r.setStart(n, want)
+            r.setEnd(n, want + 1)
+            const b = r.getBoundingClientRect()
+            return { x: b.left + b.width / 2, y: b.top + b.height / 2 }
+          }
+        }
+        return null
+      }, needle)
+    let most: Links = { answers: 0, inFlight: 0 }
+    let mostAliases = 0
+    let hovers = 0
+    for (let i = 0; i < FILES; i++) {
+      const p = `big/p${i}/src/index.ts`
+      expect(await openFile(kea, { sessionId: id, path: p, mode: 'file' }), `viewer.open ${p}`).toBe(true)
+      await waitBody(kea, p, 'text')
+      await page.keyboard.down(MOD_CLICK)
+      for (const ref of REFS) {
+        const at = await point(ref)
+        if (!at) throw new Error(`${ref} is not on screen in ${p}`)
+        await page.mouse.move(at.x, at.y)
+        hovers++
+        const now = await links()
+        most = { answers: Math.max(most.answers, now.answers), inFlight: Math.max(most.inFlight, now.inFlight) }
+      }
+      await until(`the answers for ${p}`, async () => (await links()).inFlight === 0 || undefined)
+      await page.keyboard.up(MOD_CLICK)
+      mostAliases = Math.max(mostAliases, await aliases())
+    }
+    expect(hovers).toBe(FILES * REFS.length)
+    expect(most.answers, 'answers kept').toBeLessThanOrEqual(L.viewerLinkCacheMax)
+    expect(most.inFlight, 'questions out').toBeLessThanOrEqual(L.viewerLinkCacheMax)
+    expect((await links()).answers, 'the answers reached their cap').toBe(L.viewerLinkCacheMax)
+    expect(mostAliases, 'parsed configs kept').toBeLessThanOrEqual(L.viewerAliasCacheMax)
+    expect(await aliases(), 'the parsed configs reached their cap').toBe(L.viewerAliasCacheMax)
+    // another session on screen: nothing of the one left is kept, in the window or in core
+    await selectSession(kea, other)
+    await until('the window’s answers forgotten', async () => {
+      const l = await links()
+      return (l.answers === 0 && l.inFlight === 0) || undefined
+    })
+    await until('core’s parsed configs dropped', async () => (await aliases()) === 0 || undefined)
   })
 })

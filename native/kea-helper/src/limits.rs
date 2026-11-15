@@ -635,6 +635,24 @@ pub const VIEWER_LINK_SCAN_CHARS: u64 = 4096;
 pub const VIEWER_LINK_MAX_CHARS: u64 = 2048;
 /// how far the pointer may move between a modifier press on a file view's link and its release for the link to open; a longer move opens nothing (px)
 pub const VIEWER_LINK_CLICK_SLOP_PX: u64 = 4;
+/// file references the file view asks core about at once, those of the line around the pointer; the rest of the line is asked at its own hover (references)
+pub const VIEWER_LINK_REFS_MAX: u64 = 8;
+/// files core tries for one file reference, one after another; covers two targets of an alias each tried with every extension, a folder's package.json and its index; a list cut here answers that it was not checked, never that there is no file (candidates)
+pub const VIEWER_LINK_CANDIDATES_MAX: u64 = 48;
+/// how long the file view keeps core's answer for a file reference (files come and go); a file deleted meanwhile opens as missing (ms)
+pub const VIEWER_LINK_CACHE_MS: u64 = 5000;
+/// core's answers for file references the file view keeps, least recently used out; also the questions it has out at once (answers)
+pub const VIEWER_LINK_CACHE_MAX: u64 = 256;
+/// the file view's checks of file references waiting for a place on disk, apart from the terminal's; at least viewer_link_refs_max, so one line's references all wait; one more is not checked (checks)
+pub const VIEWER_LINK_CHECKS_WAITING_MAX: u64 = 16;
+/// how long one question about file references may take before what is left answers that it was not checked; more than terminal_link_check_deadline_ms, so one slow check can finish; a check already on disk is never given up for it (ms)
+pub const VIEWER_LINK_LIST_BUDGET_MS: u64 = 1500;
+/// the largest tsconfig.json, jsconfig.json or package.json core reads to find a file reference's aliases or a folder's entry; a larger one is skipped (bytes)
+pub const VIEWER_ALIAS_FILE_MAX_BYTES: u64 = 262144;
+/// configs core reads for one file's aliases, its extends chains and a solution file's references together; a loop ends here (configs)
+pub const VIEWER_ALIAS_EXTENDS_MAX: u64 = 16;
+/// parsed configs core keeps for file references, by real path, modification time and size, least recently used out; a session's go when no window shows it (configs)
+pub const VIEWER_ALIAS_CACHE_MAX: u64 = 64;
 /// a window asked to review its unsaved files says it has the request within this long; one that does not, with unsaved files, stops the quit or close (ms)
 pub const WINDOW_REVIEW_ACK_MS: u64 = 2000;
 /// NUL in the first bytes → binary (bytes)

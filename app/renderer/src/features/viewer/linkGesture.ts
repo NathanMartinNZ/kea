@@ -1,6 +1,8 @@
 // The link gesture in a viewer document, as a reducer: the link modifier, the pointer's moves, a press and its release,
 // the pointer leaving and the window's blur come in; what to underline, whether a press is the link's, and what a click
-// does (open the address, or offer to copy one that is not opened) come out. It holds no view and no DOM:
+// does (open the link, offer to copy an address that is not opened, or open a file reference once core says it leads
+// to a file) come out. A file reference whose answer is not known yet is never underlined and its press stays the
+// document's, so a modifier-click on text that is no file still places the caret. It holds no view and no DOM:
 // `linkView.ts` finds the link under the pointer and draws what this decides. Given the system, which says which flag
 // is the link modifier (`⌘` on macOS, `Ctrl` on Linux, as `modClick` reads them).
 
@@ -14,11 +16,15 @@ export interface Flags {
   shiftKey: boolean
 }
 
-/** A link in document positions (`to` exclusive); `opens`: false for an address the link policy will not open. */
+/**
+ * A link in document positions (`to` exclusive); `opens`: false for an address the link policy will not open;
+ * `pending`: a file reference whose answer from core is not known yet.
+ */
 export interface GestureLink {
   from: number
   to: number
   opens: boolean
+  pending?: boolean
 }
 
 export interface GestureState<T extends GestureLink> {
@@ -26,8 +32,11 @@ export interface GestureState<T extends GestureLink> {
   mod: boolean
   /** The link under the pointer, as the last move found it; null when there is none or the pointer is away. */
   over: T | null
-  /** A press the link took: the link and where the button went down. */
-  press: { link: T; x: number; y: number } | null
+  /**
+   * A press on a link and where the button went down; `taken`: the link took it (the document never saw it), else it
+   * is a file reference not known yet, whose press the document has.
+   */
+  press: { link: T; x: number; y: number; taken: boolean } | null
 }
 
 export type GestureEvent<T extends GestureLink> =
@@ -43,8 +52,11 @@ export type GestureEvent<T extends GestureLink> =
   /** The window lost the focus: nothing is held any more. */
   | { kind: 'blur' }
 
-/** What a click on a link does: open it, or (an address that is not opened) the text menu with Copy Link alone, at the pointer. */
-export type GestureEffect<T extends GestureLink> = { do: 'open'; link: T } | { do: 'menu'; link: T; x: number; y: number }
+/**
+ * What a click on a link does: open it; (an address that is not opened) the text menu with Copy Link alone, at the
+ * pointer; or (a file reference not known at the press) open it if core's answer says it is a file.
+ */
+export type GestureEffect<T extends GestureLink> = { do: 'open'; link: T } | { do: 'menu'; link: T; x: number; y: number } | { do: 'late'; link: T }
 
 export interface GestureStep<T extends GestureLink> {
   state: GestureState<T>
@@ -66,17 +78,23 @@ export function sameLink(a: GestureLink | null, b: GestureLink | null): boolean 
   return a === b || (!!a && !!b && a.from === b.from && a.to === b.to)
 }
 
-/** The link drawn underlined: the pressed one while a press lasts, else the one under the pointer while the modifier is held. */
+/**
+ * The link drawn underlined: the pressed one while a press it took lasts, else the one under the pointer while the
+ * modifier is held. A file reference not known yet is never underlined.
+ */
 export function underlined<T extends GestureLink>(s: GestureState<T>): T | null {
-  return s.press ? s.press.link : s.mod ? s.over : null
+  if (s.press) return s.press.taken ? s.press.link : null
+  return s.mod && s.over && !s.over.pending ? s.over : null
 }
 
 const within = (p: { x: number; y: number }, x: number, y: number, slop: number): boolean => Math.hypot(x - p.x, y - p.y) <= slop
 
 /**
  * One event of the gesture. A press is the link's only with the modifier, without `⌥` (cursors), with the left button,
- * as the first click of a series, on a link; on macOS a `⌃`-press is the text menu's and never the link's. `⇧` does not
- * matter. The click is made when the button comes up within `slop` px of the press over the same link.
+ * as the first click of a series, on a link that is known (an address, or a file reference core said is a file); on
+ * macOS a `⌃`-press is the text menu's and never the link's. `⇧` does not matter. The click is made when the button
+ * comes up within `slop` px of the press over the same link. The same press on a file reference not known yet stays
+ * the document's; its release within the slop over the same reference is a late click (`late`).
  */
 export function stepGesture<T extends GestureLink>(s: GestureState<T>, e: GestureEvent<T>, system: System, slop: number): GestureStep<T> {
   const step = (state: GestureState<T>, take = false, effect: GestureEffect<T> | null = null): GestureStep<T> => ({ state, take, effect })
@@ -90,14 +108,19 @@ export function stepGesture<T extends GestureLink>(s: GestureState<T>, e: Gestur
     case 'press': {
       const mod = linkModifier(e.flags, system)
       const menuClick = system === 'darwin' && e.flags.ctrlKey
-      if (mod && !e.flags.altKey && !menuClick && e.button === 0 && e.detail === 1 && e.link) return step({ mod, over: e.link, press: { link: e.link, x: e.x, y: e.y } }, true)
+      if (mod && !e.flags.altKey && !menuClick && e.button === 0 && e.detail === 1 && e.link) {
+        const taken = !e.link.pending
+        return step({ mod, over: e.link, press: { link: e.link, x: e.x, y: e.y, taken } }, taken)
+      }
       return step({ mod, over: e.link, press: null })
     }
     case 'release': {
       const p = s.press
       if (!p || e.button !== 0) return step(s)
       const state = { ...s, over: e.link, press: null }
-      if (!within(p, e.x, e.y, slop) || !sameLink(e.link, p.link)) return step(state, true)
+      const click = within(p, e.x, e.y, slop) && sameLink(e.link, p.link)
+      if (!p.taken) return step(state, false, click ? { do: 'late', link: p.link } : null)
+      if (!click) return step(state, true)
       return step(state, true, p.link.opens ? { do: 'open', link: p.link } : { do: 'menu', link: p.link, x: e.x, y: e.y })
     }
     case 'leave':

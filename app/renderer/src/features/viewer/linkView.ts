@@ -1,20 +1,30 @@
-// The link layer of a viewer document: a CodeMirror view plugin that finds the web address under the pointer while the
-// link modifier is held, underlines it (its own decoration, never the document's state, so no state kept by the tab
-// cache or the unsaved registry comes back underlined), takes a modifier press on it from the document and opens the
-// address when the button comes up near it. The gesture's rules are `linkGesture.ts`'s, the finding `links.ts`'s.
+// The link layer of a viewer document: a CodeMirror view plugin that finds the web address or the file reference under
+// the pointer while the link modifier is held, underlines it (its own decoration, never the document's state, so no
+// state kept by the tab cache or the unsaved registry comes back underlined), takes a modifier press on it from the
+// document and opens it when the button comes up near it. The gesture's rules are `linkGesture.ts`'s, the finding
+// `links.ts`'s and `fileRefs.ts`'s.
+//
+// A file reference is a link only once core has said it leads to a file: the layer asks (the references of the slice
+// around the pointer, at once) and underlines it when the answer comes, if the pointer is still there and the text has
+// not changed since it asked. Its press is taken only when the answer is already known; otherwise the document has the
+// press, and a release over the same reference opens it if the answer that comes says it is a file, within
+// L.viewerLinkListBudgetMs of the release. References are found only in a document of a session, and not on a diff's
+// old side (its files are what was).
 //
 // It reaches the window only through its owner's hooks (`LinkHooks`, which `editor.ts`'s `EditorHooks` carry): opening
-// an address, the text menu and the tip. A press follows the pointer with listeners on the document from the press to
-// its release. One tracker for the window (`watchLinkModifier`, made by the viewer's commands) passes on the modifier
-// pressed or released while the pointer rests, and the window's blur; nothing here touches the window when it loads.
+// an address or a file, core's answers, the text menu and the tip. A press follows the pointer with listeners on the
+// document from the press to its release. One tracker for the window (`watchLinkModifier`, made by the viewer's
+// commands) passes on the modifier pressed or released while the pointer rests, and the window's blur; nothing here
+// touches the window when it loads.
 
 import { Annotation, Facet, Prec, type EditorState, type Extension } from '@codemirror/state'
 import { Decoration, EditorView, ViewPlugin, type DecorationSet, type ViewUpdate } from '@codemirror/view'
-import { protocolOs } from '@kea/protocol'
+import { protocolOs, type RefAnswer, type RefFile } from '@kea/protocol'
 import { L } from '@kea/protocol/limits'
 import type { TextLink } from '../commands/textMenu.ts'
+import { refsAround, refsIn, targetText, type FoundRef } from './fileRefs.ts'
 import { idleGesture, linkModifier, sameLink, stepGesture, underlined, type Flags, type GestureEvent, type GestureLink, type GestureState, type GestureStep } from './linkGesture.ts'
-import { linkTipWords, scanWindow, urlAt, type FoundUrl } from './links.ts'
+import { clickWords, linkTipWords, scanWindow, urlAt, type FoundUrl, type LineSlice } from './links.ts'
 
 /** What a document is, for its links: its session (none outside one), its path, its language id and which side it is. */
 export interface LinkContext {
@@ -36,6 +46,12 @@ export interface LinkTip {
   key: string
 }
 
+/** The document a file reference is in: its session and its path in the worktree. */
+export interface RefDoc {
+  sessionId: string
+  path: string
+}
+
 /** What the layer asks of the document's owner. Each is optional: a document with no owner has links that do nothing. */
 export interface LinkHooks {
   /** Open a web address the link policy allows. */
@@ -44,53 +60,135 @@ export interface LinkHooks {
   linkMenu?(el: Element, at: { x: number; y: number }, link: TextLink): void
   /** Show the tip, or hide it (null). */
   linkTip?(tip: LinkTip | null): void
+  /** Core's answer for a file reference of `doc`, while it is remembered: its file, null (none), or undefined (not known). */
+  refAnswer?(doc: RefDoc, ref: FoundRef): RefFile | null | undefined
+  /** Ask core about references of `doc` (those not known and not asked already); one answer each, undefined for one not asked. */
+  askRefs?(doc: RefDoc, refs: FoundRef[]): Promise<(RefAnswer | undefined)[]>
+  /** Open a reference's file in the viewer, from `doc`. */
+  openRef?(doc: RefDoc, target: RefFile): void
 }
 
 /** A web address in document positions. */
-export interface DocLink extends FoundUrl, GestureLink {}
+export interface DocUrl extends FoundUrl, GestureLink {
+  kind: 'url'
+}
+
+/**
+ * A file reference in document positions, with core's answer: its file, null (known to lead to none), or undefined
+ * (not known yet: `pending`, never underlined). `refs`: the references of the slice it was found in, for one question.
+ */
+export interface DocFile extends GestureLink {
+  kind: 'file'
+  text: string
+  ref: FoundRef
+  refs: readonly FoundRef[]
+  answer: RefFile | null | undefined
+}
+
+export type DocLink = DocUrl | DocFile
+
+/** Core's answers for a document's file references, as the layer reads them. */
+export type RefLookup = (ref: FoundRef) => RefFile | null | undefined
+const UNKNOWN: RefLookup = () => undefined
 
 /** An empty transaction that only redraws the underline. */
 const linkHover = Annotation.define<true>()
 const MARK = Decoration.mark({ class: 'cm-link-active' })
 const point = (x: number, y: number) => ({ x, y })
 
-/** The web address that covers `pos` (the character after it) in `state`, reading only the line's part around it. */
-export function linkAt(state: EditorState, pos: number): DocLink | null {
-  if (pos < 0 || pos >= state.doc.length) return null
+/** The part of the line around `pos` the links are looked for in, and where it starts in the document. */
+function sliceAt(state: EditorState, pos: number): { slice: LineSlice; at: number } {
   const line = state.doc.lineAt(pos)
   const w = scanWindow(line.from, line.to, pos)
-  const u = urlAt({ text: state.doc.sliceString(w.from, w.to), cutStart: w.from > line.from, cutEnd: w.to < line.to }, pos - w.from)
-  return u ? { ...u, from: w.from + u.from, to: w.from + u.to, opens: u.action.open } : null
+  return { slice: { text: state.doc.sliceString(w.from, w.to), cutStart: w.from > line.from, cutEnd: w.to < line.to }, at: w.from }
 }
 
-/** The address that holds the main cursor or ends at it: what Follow Link and the keyboard's menu act on. */
-export function linkAtCursor(state: EditorState): DocLink | null {
+/** The web address that covers `pos` (the character after it) in `state`, reading only the line's part around it. */
+export function linkAt(state: EditorState, pos: number): DocUrl | null {
+  if (pos < 0 || pos >= state.doc.length) return null
+  const { slice, at } = sliceAt(state, pos)
+  const u = urlAt(slice, pos - at)
+  return u ? { ...u, kind: 'url', from: at + u.from, to: at + u.to, opens: u.action.open } : null
+}
+
+/** The document `state` is, for its file references: none outside a session, and none on a diff's old side. */
+export function refDocOf(state: EditorState): RefDoc | null {
+  const c = state.facet(linkContext)
+  return c && c.sessionId !== null && c.side !== 'old' ? { sessionId: c.sessionId, path: c.path } : null
+}
+
+/** The file reference that covers `pos` in `state`, with what `answer` says of it; null where there is none. */
+export function refLinkAt(state: EditorState, pos: number, answer: RefLookup = UNKNOWN): DocFile | null {
+  if (pos < 0 || pos >= state.doc.length) return null
+  const c = state.facet(linkContext)
+  if (!refDocOf(state) || !c) return null
+  const { slice, at } = sliceAt(state, pos)
+  const refs = refsIn(slice, { lang: c.lang, path: c.path }).map((r) => ({ ...r, from: at + r.from, to: at + r.to }))
+  const ref = refs.find((r) => pos >= r.from && pos < r.to)
+  if (!ref) return null
+  const a = answer(ref)
+  return { kind: 'file', from: ref.from, to: ref.to, text: ref.text, ref, refs, answer: a, opens: !!a, ...(a === undefined ? { pending: true } : {}) }
+}
+
+/** The address, else the file reference, that covers `pos`. */
+export function anyLinkAt(state: EditorState, pos: number, answer: RefLookup = UNKNOWN): DocLink | null {
+  return linkAt(state, pos) ?? refLinkAt(state, pos, answer)
+}
+
+/**
+ * The address or file reference that holds the main cursor or ends at it: what Follow Link and the keyboard's menu act
+ * on. A reference is given whatever is known of it (none included: Follow Link then says so).
+ */
+export function linkAtCursor(state: EditorState, answer: RefLookup = UNKNOWN): DocLink | null {
   const head = state.selection.main.head
-  return linkAt(state, head) ?? (head > state.doc.lineAt(head).from ? linkAt(state, head - 1) : null)
+  return anyLinkAt(state, head, answer) ?? (head > state.doc.lineAt(head).from ? anyLinkAt(state, head - 1, answer) : null)
 }
 
-/** A link as the text menu takes it. */
+/** A link as the text menu takes it: an address, or a file reference with its answer (pending while it is out). */
 export function textLinkOf(l: DocLink): TextLink {
-  return { kind: 'url', text: l.text, url: l.action.open ? l.action.url : null }
+  if (l.kind === 'url') return { kind: 'url', text: l.text, url: l.action.open ? l.action.url : null }
+  return { kind: 'file', text: l.text, answer: l.answer === undefined ? 'pending' : l.answer === null ? 'none' : l.answer }
 }
 
 /** The elements of a line that are not its text: the unified diff's removed lines, a fold's `⋯`, a collapsed region. */
 const NOT_TEXT = '.cm-deletedChunk, .cm-foldPlaceholder, .cm-collapsedLines, .cm-widgetBuffer'
 
-/**
- * The address under the point `(x, y)` in `view`, `el` being the element there: only over a line's text, the character
- * whose box holds the point (so the space right of a line's end is on nothing).
- */
-export function linkAtPoint(view: EditorView, x: number, y: number, el: Element | null): DocLink | null {
+/** The character under the point `(x, y)` in `view`, `el` being the element there: only over a line's text. */
+function charAtPoint(view: EditorView, x: number, y: number, el: Element | null): number | null {
   if (!el || !view.contentDOM.contains(el) || !el.closest('.cm-line') || el.closest(NOT_TEXT)) return null
   const pos = view.posAtCoords({ x, y })
   if (pos === null) return null
   for (const c of [pos, pos - 1]) {
     if (c < 0 || c >= view.state.doc.length) continue
     const r = view.coordsForChar(c)
-    if (r && x >= r.left && x < r.right && y >= r.top && y < r.bottom) return linkAt(view.state, c)
+    if (r && x >= r.left && x < r.right && y >= r.top && y < r.bottom) return c
   }
   return null
+}
+
+/**
+ * The address or file reference under the point `(x, y)` in `view`, `el` being the element there: only over a line's
+ * text, the character whose box holds the point (so the space right of a line's end is on nothing). A reference
+ * carries what core answered for it, as far as the window remembers.
+ */
+export function linkAtPoint(view: EditorView, x: number, y: number, el: Element | null): DocLink | null {
+  const c = charAtPoint(view, x, y, el)
+  return c === null ? null : anyLinkAt(view.state, c, layerOf(view)?.lookup ?? UNKNOWN)
+}
+
+/** The link at the main cursor of `view`, with what the window remembers of a reference's answer. */
+export function cursorLink(view: EditorView): DocLink | null {
+  return linkAtCursor(view.state, layerOf(view)?.lookup ?? UNKNOWN)
+}
+
+/** Ask core about a file reference of `view` (with its slice's others): its answer, or undefined when it was not asked. */
+export async function askRef(view: EditorView, link: DocFile): Promise<RefAnswer | undefined> {
+  return (await layerOf(view)?.ask(link))?.[0]
+}
+
+/** Open a reference's file from `view`'s document, as its click does. */
+export function openRef(view: EditorView, target: RefFile): void {
+  layerOf(view)?.openFile(target)
 }
 
 /** Where a menu for the main cursor opens: under it, or at the text's top left while it is out of view. */
@@ -107,9 +205,14 @@ const elementOf = (t: EventTarget | null): Element | null => (t instanceof Eleme
 // bounded: the viewer's documents on screen, at most three (the file view, and a diff's one or two sides)
 const layers = new Set<LinkLayer>()
 
+function layerOf(view: EditorView): LinkLayer | undefined {
+  for (const l of layers) if (l.view === view) return l
+  return undefined
+}
+
 class LinkLayer {
   deco: DecorationSet = Decoration.none
-  private readonly view: EditorView
+  readonly view: EditorView
   private readonly hooks: () => LinkHooks | null
   private g: GestureState<DocLink> = idleGesture<DocLink>()
   /** The pointer's last place over the text, so a modifier pressed while it rests finds what is under it. */
@@ -145,15 +248,62 @@ class LinkLayer {
     this.tip(null)
   }
 
-  private linkUnder(x: number, y: number, el: Element | null): DocLink | null {
-    return linkAtPoint(this.view, x, y, el)
+  /** What the window remembers of core's answer for a reference of this document. */
+  readonly lookup: RefLookup = (ref) => {
+    const doc = refDocOf(this.view.state)
+    return doc ? this.hooks()?.refAnswer?.(doc, ref) : undefined
+  }
+
+  /** Ask core about `link` and the references of its slice, the one under the pointer first. */
+  ask(link: DocFile): Promise<(RefAnswer | undefined)[]> | undefined {
+    const doc = refDocOf(this.view.state)
+    const ask = this.hooks()?.askRefs
+    return doc && ask ? ask(doc, refsAround(link.refs, link.ref)).then((answers) => [answers[0]]) : undefined
+  }
+
+  openFile(target: RefFile): void {
+    const doc = refDocOf(this.view.state)
+    if (doc) this.hooks()?.openRef?.(doc, target)
+  }
+
+  /**
+   * The link under `(x, y)`: an address, or a file reference not known to lead to none. One not known yet is asked
+   * about (unless `ask` is false), and looked at again when the answer comes.
+   */
+  private linkUnder(x: number, y: number, el: Element | null, ask = true): DocLink | null {
+    const l = linkAtPoint(this.view, x, y, el)
+    if (!l || l.kind === 'url') return l
+    if (l.answer === null) return null
+    if (l.answer === undefined && ask) this.askFor(l)
+    return l
+  }
+
+  /** Ask about the references around `l`; when the answer comes, the resting pointer is looked at again, if the text is as it was. */
+  private askFor(l: DocFile): void {
+    const doc = this.view.state.doc
+    void this.ask(l)?.then(() => {
+      if (this.gone || this.view.state.doc !== doc || !this.at || !this.g.mod || this.g.press) return
+      this.step({ kind: 'key', flags: this.modFlags(), link: this.linkAtRest(false) })
+    })
   }
 
   /** What is under the resting pointer now (the text may have scrolled under it). */
-  private linkAtRest(): DocLink | null {
+  private linkAtRest(ask = true): DocLink | null {
     const at = this.at
     if (!at) return null
-    return this.linkUnder(at.x, at.y, this.view.root.elementFromPoint(at.x, at.y))
+    return this.linkUnder(at.x, at.y, this.view.root.elementFromPoint(at.x, at.y), ask)
+  }
+
+  /** A click on a reference not known at its press: it opens if the answer, when it comes, says it is a file, within L.viewerLinkListBudgetMs. */
+  private lateClick(link: DocFile): void {
+    const known = this.lookup(link.ref)
+    if (known) return this.openFile(known)
+    if (known === null) return
+    const released = performance.now()
+    void this.ask(link)?.then(([a]) => {
+      if (this.gone || performance.now() - released > L.viewerLinkListBudgetMs) return
+      if (a && a !== 'unknown') this.openFile(a)
+    })
   }
 
   private step(e: GestureEvent<DocLink>): GestureStep<DocLink> {
@@ -167,13 +317,18 @@ class LinkLayer {
       if (!this.view.composing) this.view.dispatch({ annotations: linkHover.of(true) })
     }
     this.tip(u && !this.g.press ? u : null)
-    if (s.effect?.do === 'open' && s.effect.link.action.open) this.hooks()?.openLink?.(s.effect.link.action.url)
-    else if (s.effect?.do === 'menu') this.hooks()?.linkMenu?.(this.view.contentDOM, point(s.effect.x, s.effect.y), textLinkOf(s.effect.link))
+    const fx = s.effect
+    if (fx?.do === 'open') {
+      const l = fx.link
+      if (l.kind === 'url' && l.action.open) this.hooks()?.openLink?.(l.action.url)
+      else if (l.kind === 'file' && l.answer) this.openFile(l.answer)
+    } else if (fx?.do === 'menu') this.hooks()?.linkMenu?.(this.view.contentDOM, point(fx.x, fx.y), textLinkOf(fx.link))
+    else if (fx?.do === 'late' && fx.link.kind === 'file') this.lateClick(fx.link)
     return s
   }
 
   private tip(l: DocLink | null): void {
-    const key = l ? `${l.from}:${l.to}:${l.text}` : null
+    const key = l ? `${l.from}:${l.to}:${l.text}:${l.kind === 'file' && l.answer ? targetText(l.answer) : ''}` : null
     if (!l || !this.at) {
       if (this.tipOut) this.hooks()?.linkTip?.(null)
       this.tipOut = false
@@ -183,7 +338,8 @@ class LinkLayer {
     if (key === this.tipKey) return
     this.tipKey = key
     this.tipOut = true
-    this.hooks()?.linkTip?.({ ...linkTipWords(l, protocolOs.system), x: this.at.x, y: this.at.y, key: key as string })
+    const words = l.kind === 'url' ? linkTipWords(l, protocolOs.system) : { target: l.answer ? targetText(l.answer) : l.text, action: clickWords(protocolOs.system) }
+    this.hooks()?.linkTip?.({ ...words, x: this.at.x, y: this.at.y, key: key as string })
   }
 
   move(e: MouseEvent): void {
@@ -202,15 +358,18 @@ class LinkLayer {
     this.step({ kind: 'leave' })
   }
 
-  /** A press: true when it is the link's, which the document then never sees. */
+  /**
+   * A press: true when it is the link's, which the document then never sees. A press on a reference not known yet is
+   * the document's, and its release is still followed, for a late click.
+   */
   press(e: MouseEvent): boolean {
     const flags = flagsOf(e)
     const link = linkModifier(flags, protocolOs.system) ? this.linkUnder(e.clientX, e.clientY, elementOf(e.target)) : null
     this.at = point(e.clientX, e.clientY)
     const s = this.step({ kind: 'press', x: e.clientX, y: e.clientY, button: e.button, detail: e.detail, flags, link })
+    if (this.g.press) this.listen()
     if (!s.take) return false
     e.preventDefault()
-    this.listen()
     return true
   }
 
@@ -254,12 +413,16 @@ class LinkLayer {
     const up = (e: MouseEvent): void => {
       if (e.button !== 0) return
       this.stopListening()
+      // a release on the document's own press is the document's too
       this.step({ kind: 'release', x: e.clientX, y: e.clientY, button: e.button, link: this.linkUnder(e.clientX, e.clientY, elementOf(e.target)) })
     }
     const key = (e: KeyboardEvent): void => {
       if (e.key !== 'Escape') return
-      e.preventDefault()
-      e.stopPropagation()
+      // only a press the link took is the link's to cancel
+      if (this.g.press?.taken) {
+        e.preventDefault()
+        e.stopPropagation()
+      }
       this.stopListening()
       this.step({ kind: 'cancel' })
     }

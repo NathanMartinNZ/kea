@@ -1,12 +1,12 @@
 // The text menu's items: what a field, a viewer document and other selected text offer, with each system's keys; a
-// web address's items; the keys and presses that open it.
+// web address's items and a file reference's; the keys and presses that open it.
 
 import { EditorState } from '@codemirror/state'
 import { describe, expect, it } from 'vitest'
 import { darwin } from '@kea/protocol/os/darwin'
 import { linux } from '@kea/protocol/os/linux'
 import { linkAt, linkAtCursor, textLinkOf } from '../viewer/linkView.ts'
-import { menuKey, pointerMenu, textMenuItems, type TextLink, type TextTarget } from './textMenu.ts'
+import { menuKey, pointerMenu, REF_NONE, REF_PENDING, textMenuItems, type TextLink, type TextTarget } from './textMenu.ts'
 
 const at = (o: Partial<TextTarget>): TextTarget => ({ kind: 'field', editable: true, hasSelection: true, secret: false, ...o })
 const rows = (t: TextTarget, os: 'darwin' | 'linux' = 'darwin') => textMenuItems(t, os, os === 'darwin' ? darwin.keys : linux.keys).map((i) => [i.label, i.shortcut, i.disabled ? i.reason : null])
@@ -101,5 +101,31 @@ describe('the text menu on a web address', () => {
     }
     expect(pointerMenu({ button: 0, ctrlKey: true }, 'darwin')).toBe(true)
     expect(pointerMenu({ button: 0, ctrlKey: true }, 'linux')).toBe(false)
+  })
+})
+
+describe('the text menu on a file reference', () => {
+  const file = (answer: Extract<TextLink, { kind: 'file' }>['answer']): TextLink => ({ kind: 'file', text: './util', answer })
+  const items = (link: TextLink | null, editable = false) => textMenuItems(at({ kind: 'document', editable, hasSelection: false, link }), 'darwin', darwin.keys).map((i) => [i.id, i.disabled ? i.reason : null])
+
+  it('U-FV-36 · Open File and Copy Path come first: disabled with “Looking for the file” while the answer is out, the same ids in the same places enabled for a file, still disabled with “No file found” for none; a reference known to lead to no file adds none', () => {
+    const own = [
+      ['copy', 'Nothing is selected'],
+      ['selectAll', null],
+    ]
+    const pending = items(file('pending'))
+    expect(pending).toEqual([['openFile', REF_PENDING], ['copyPath', REF_PENDING], ['sep:link', null], ...own])
+    const found = items(file({ path: 'src/util.ts', line: 3 }))
+    expect(found).toEqual([['openFile', null], ['copyPath', null], ['sep:link', null], ...own])
+    expect(items(file('none'))).toEqual([['openFile', REF_NONE], ['copyPath', REF_NONE], ['sep:link', null], ...own])
+    // the swap keeps every row in its place, so the focused one stays the same
+    expect(found.map((r) => r[0])).toEqual(pending.map((r) => r[0]))
+    expect(textMenuItems(at({ kind: 'document', editable: false, link: file('pending') }), 'darwin', darwin.keys).slice(0, 2).map((i) => i.label)).toEqual(['Open File', 'Copy Path'])
+    // an editable document's items follow the file's
+    expect(items(file({ path: 'a.ts' }), true).map((r) => r[0])).toEqual(['openFile', 'copyPath', 'sep:link', 'cut', 'copy', 'paste', 'selectAll'])
+    // a cached null is no link at all: the menu as before
+    expect(items(null)).toEqual(own)
+    expect(REF_PENDING).toBe('Looking for the file')
+    expect(REF_NONE).toBe('No file found')
   })
 })
