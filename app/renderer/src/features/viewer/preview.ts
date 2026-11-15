@@ -8,14 +8,14 @@
 // opens it in the viewer. Code fences are coloured by the highlight worker, one at a time, after the text is shown.
 
 import { KEA_FILE_HOST, KEA_FILE_SCHEME } from '@kea/protocol'
-import { openExternal } from '../../lib/bridge.ts'
+import { linkAction } from '../../lib/linkPolicy.ts'
+import { openWebLink } from '../sessions/actions.ts'
 import { highlighter } from './highlighter.ts'
 import { renderMarkdown, type MarkdownContext } from './markdown.ts'
 import { STYLE_PLAIN, tokenClass } from './syntax.ts'
 import { tokenStart, tokenStyle, TokenStore } from './tokens.ts'
 
 const TAGS = new Set(['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li', 'blockquote', 'pre', 'code', 'em', 'strong', 's', 'a', 'img', 'span', 'hr', 'br', 'table', 'thead', 'tbody', 'tr', 'th', 'td'])
-const EXTERNAL = /^(https?:\/\/|mailto:)/i
 const IMAGE_PREFIX = `${KEA_FILE_SCHEME}://${KEA_FILE_HOST}/`
 const ALIGN = /^text-align:\s*(left|center|right)$/
 
@@ -39,7 +39,7 @@ export function copyAllowed(from: Node, to: Node, doc: Document): void {
     if (tag === 'a') {
       const href = src.getAttribute('href')
       const path = src.getAttribute('data-path')
-      if (href !== null && EXTERNAL.test(href)) el.setAttribute('href', href)
+      if (href !== null && linkAction(href).open) el.setAttribute('href', href)
       else if (path !== null) el.setAttribute('data-path', path)
       if (title !== null) el.setAttribute('title', title)
     } else if (tag === 'img') {
@@ -125,7 +125,9 @@ export function showPreview(host: HTMLElement, source: string, ctx: MarkdownCont
     e.preventDefault()
     const href = a.getAttribute('href')
     const path = a.getAttribute('data-path')
-    if (href !== null && EXTERNAL.test(href)) openExternal(href)
+    const web = href === null ? null : linkAction(href)
+    // the link policy's address; one that did not open says why
+    if (web?.open) void openWebLink(web.url)
     else if (path !== null) h.openFile(path)
   }
   // a middle click, a ⌘-click and a drag would open or carry a link by themselves

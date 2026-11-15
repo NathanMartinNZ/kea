@@ -16,6 +16,7 @@
 
 import createMarkdownIt, { type MarkdownIt } from 'markdown-it'
 import { imageExtension, isWorktreePath, keaFileUrl } from '@kea/protocol'
+import { linkAction } from '../../lib/linkPolicy.ts'
 import { languageOf, LANGUAGE_NAMES } from './language.ts'
 
 export interface MarkdownContext {
@@ -68,9 +69,15 @@ export function imageUrl(ctx: MarkdownContext, src: string): string | null {
 
 export type LinkTarget = { kind: 'external'; url: string } | { kind: 'file'; path: string }
 
-/** Where a link of the preview leads, or null for one that leads nowhere Kea goes (an in-page anchor, a refused scheme). */
+/**
+ * Where a link of the preview leads, or null for one that leads nowhere Kea goes (an in-page anchor, a refused scheme,
+ * a web address the link policy would not hand over: one hiding a control or bidi character, or too long once encoded).
+ */
 export function linkTarget(ctx: Pick<MarkdownContext, 'path'>, href: string): LinkTarget | null {
-  if (EXTERNAL.test(href)) return { kind: 'external', url: href }
+  if (EXTERNAL.test(href)) {
+    const a = linkAction(href)
+    return a.open ? { kind: 'external', url: a.url } : null
+  }
   const path = worktreeTarget(ctx, href)
   return path === null ? null : { kind: 'file', path }
 }

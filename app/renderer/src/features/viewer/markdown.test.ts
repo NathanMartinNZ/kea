@@ -1,3 +1,4 @@
+import { L } from '@kea/protocol'
 import { describe, expect, it } from 'vitest'
 import { fenceLanguage, imageUrl, linkTarget, renderMarkdown, worktreeTarget } from './markdown.ts'
 
@@ -48,7 +49,7 @@ describe('the Markdown preview is inert', () => {
     expect(html).toContain('<a href="https://auto.example/x">https://auto.example/x</a>')
     const hrefs = [...html.matchAll(/href="([^"]*)"/g)].map((m) => m[1])
     // (a bare web address in the text is a link too, also inside what was raw HTML: text that opens the browser when clicked)
-    expect(hrefs).toEqual(['https://evil.example/x.png', 'https://evil.example', 'https://example.com/a?b=1&amp;c=2', 'mailto:a@example.com', 'https://auto.example/x'])
+    expect(hrefs).toEqual(['https://evil.example/x.png', 'https://evil.example/', 'https://example.com/a?b=1&amp;c=2', 'mailto:a@example.com', 'https://auto.example/x'])
     for (const h of hrefs) expect(/^(https?:\/\/|mailto:)/.test(h!), h).toBe(true)
     for (const scheme of ['javascript:', 'data:', 'file:', 'vbscript:', 'vscode:']) expect(hrefs.some((h) => h!.toLowerCase().startsWith(scheme)), scheme).toBe(false)
     for (const dead of ['js', 'JS', 'data', 'file', 'vb', 'app', 'proto']) expect(html).toContain(`<a>${dead}</a>`)
@@ -87,10 +88,15 @@ describe('the Markdown preview is inert', () => {
     expect(imageUrl(ctx, 'a.txt')).toBeNull()
     expect(imageUrl(ctx, 'a.PNG')).toBe('kea-file://f/Users/me/work%20tree/docs/guide/a.PNG?v=7')
     expect(imageUrl({ cwd: '/w/', path: 'r.md' }, 'a.png')).toBe('kea-file://f/w/a.png')
-    expect(linkTarget(ctx, 'https://example.com')).toEqual({ kind: 'external', url: 'https://example.com' })
+    expect(linkTarget(ctx, 'https://example.com')).toEqual({ kind: 'external', url: 'https://example.com/' })
     expect(linkTarget(ctx, 'x.md')).toEqual({ kind: 'file', path: 'docs/guide/x.md' })
     // os-ok: test data
     for (const no of ['javascript:alert(1)', 'data:text/html,x', 'file:///etc/passwd', 'kea://app/index.html', 'kea-file://f/etc/passwd', '#x', '../../../x']) expect(linkTarget(ctx, no), no).toBeNull()
+    // the terminal's rules: a web address that hides a control or bidi character, or is too long to hand over once
+    // encoded, is shown as its text; the address handed over is the parsed one
+    for (const no of ['https://example.com/\u202egnp.exe', 'https://example.com/\u001b[31m', `https://x.dev/${'a'.repeat(L.linkOpenMaxChars)}`]) expect(linkTarget(ctx, no), JSON.stringify(no.slice(0, 40))).toBeNull()
+    expect(linkTarget(ctx, 'HTTPS://Example.com/a b')).toBeNull()
+    expect(linkTarget(ctx, 'mailto:a@example.com')).toEqual({ kind: 'external', url: 'mailto:a@example.com' })
 
     expect(fenceLanguage('ts')).toBe('typescript')
     expect(fenceLanguage('typescript {1,3}')).toBe('typescript')
