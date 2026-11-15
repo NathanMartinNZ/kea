@@ -7,10 +7,11 @@
 // · bounded output: stdout is streamed to `onStdout` or collected up to a byte cap; stderr is kept up
 //   to L.processStderrMaxBytes; the rest is drained and dropped.
 // · concurrency pools: `git` / `ports` / `other` (L.poolGit / L.poolPorts / L.poolOther); waiting
-//   requests are served FIFO and a request cancelled while queued never spawns.
+//   requests are served FIFO and a request cancelled while queued never spawns. `queueSignal` withdraws a
+//   request that has not started and never touches one that has; `onStart` reports the child's pid.
 // · always reaped: the promise settles only after the child has exited and its pipes have closed.
 // · never rejects for a non-zero exit (callers decide what a status means); rejects for spawn
-//   failures (`SpawnError`), a full pool queue (`PoolFullError`) or an exception thrown by `onStdout`.
+//   failures (`SpawnError`), a full pool queue (`PoolFullError`) or an exception thrown by `onStdout` or `onStart`.
 // · `launchDetached` is the one exception to "killed when no longer needed, always waited for": an app the user
 //   keeps (a terminal app on Linux) is started in a session of its own with no pipes and let go once it runs.
 
@@ -51,6 +52,16 @@ export interface RunProcessOptions {
   stdin?: string | Uint8Array
   /** Abort → kill the process group (or never spawn, if still queued); result `cancelled: true`. */
   signal?: AbortSignal
+  /**
+   * Abort → take the request out of the pool's queue, so it never spawns; result `cancelled: true`, no pid. A child
+   * that has started is never signalled by it: it runs on under `timeoutMs` and `signal`.
+   */
+  queueSignal?: AbortSignal
+  /**
+   * Called once with the child's pid when it has started; never for a request that left the queue or failed to spawn.
+   * A throw kills the process group and rejects with the error, as `onStdout`'s does.
+   */
+  onStart?: (pid: number) => void
   /** Stderr bytes kept (default L.processStderrMaxBytes). */
   stderrMaxBytes?: number
   /** SIGTERM → SIGKILL grace when killing the group (default L.processKillGraceMs). */
@@ -162,27 +173,32 @@ export function heldCount(): number {
   return heldActive
 }
 
-function acquire(pool: Pool, signal: AbortSignal | undefined): Promise<boolean> {
+/** Any of `signals` aborting while the request waits takes it out of the queue (resolves false). */
+function acquire(pool: Pool, signals: readonly AbortSignal[]): Promise<boolean> {
   const st = pools[pool]
-  if (signal?.aborted) return Promise.resolve(false)
+  if (signals.some((s) => s.aborted)) return Promise.resolve(false)
   if (st.active < POOL_LIMITS[pool] && st.queue.size === 0) {
     st.active++
     return Promise.resolve(true)
   }
   if (st.queue.size >= L.poolQueueMax) return Promise.reject(new PoolFullError(pool))
   return new Promise<boolean>((resolve) => {
+    const unlisten = (): void => {
+      for (const s of signals) s.removeEventListener('abort', onAbort)
+    }
     const onAbort = (): void => {
+      unlisten()
       st.queue.delete(waiter)
       resolve(false)
     }
     const waiter: Waiter = {
       grant() {
-        signal?.removeEventListener('abort', onAbort)
+        unlisten()
         st.active++
         resolve(true)
       },
     }
-    signal?.addEventListener('abort', onAbort, { once: true })
+    for (const s of signals) s.addEventListener('abort', onAbort, { once: true })
     st.queue.add(waiter)
   })
 }
@@ -225,12 +241,13 @@ export async function runProcess(file: string, args: readonly string[], opts: Ru
   if (!Array.isArray(args) || args.some((a) => typeof a !== 'string')) throw new TypeError('runProcess: args must be an array of strings')
   if (!(opts.pool in pools)) throw new TypeError(`runProcess: unknown pool ${String(opts.pool)}`)
 
+  const signals = [opts.signal, opts.queueSignal].filter((s): s is AbortSignal => s !== undefined)
   const requested = monotonicMs()
-  const granted = await acquire(opts.pool, opts.signal)
+  const granted = await acquire(opts.pool, signals)
   const queuedMs = monotonicMs() - requested
   if (!granted) return notSpawned(opts, queuedMs)
   try {
-    if (opts.signal?.aborted) return notSpawned(opts, queuedMs)
+    if (signals.some((s) => s.aborted)) return notSpawned(opts, queuedMs)
     return await execute(file, args, opts, queuedMs)
   } finally {
     release(opts.pool)
@@ -245,7 +262,8 @@ export class HeldLimitError extends Error {
   }
 }
 
-export type HeldOptions = Omit<RunProcessOptions, 'pool' | 'stdin'> & {
+/** No pool, so no queue to leave (`queueSignal`); `onSpawn` reports the start (`onStart`). */
+export type HeldOptions = Omit<RunProcessOptions, 'pool' | 'stdin' | 'queueSignal' | 'onStart'> & {
   /** Called once the child runs. `closeStdin()` ends its stdin (EOF); it also closes when this process exits. */
   onSpawn(child: { pid: number; closeStdin(): void }): void
 }
@@ -289,7 +307,7 @@ export async function launchDetached(file: string, args: readonly string[], opts
   if (typeof file !== 'string' || file.length === 0) throw new TypeError('launchDetached: file must be a non-empty string')
   if (!Array.isArray(args) || args.some((a) => typeof a !== 'string')) throw new TypeError('launchDetached: args must be an array of strings')
   if (!(opts.pool in pools)) throw new TypeError(`launchDetached: unknown pool ${String(opts.pool)}`)
-  await acquire(opts.pool, undefined)
+  await acquire(opts.pool, [])
   try {
     return await new Promise<{ pid: number }>((resolve, reject) => {
       let child: ChildProcess
@@ -334,7 +352,7 @@ function signalGroup(pid: number | undefined, sig: NodeJS.Signals): void {
 function execute(
   file: string,
   args: readonly string[],
-  opts: Omit<RunProcessOptions, 'pool'>,
+  opts: Omit<RunProcessOptions, 'pool' | 'queueSignal'>,
   queuedMs: number,
   /** `runHeld`: stdin is a pipe kept open until the caller closes it. */
   held?: (child: { pid: number; closeStdin(): void }) => void,
@@ -492,6 +510,13 @@ function execute(
         const stdin = child.stdin
         try {
           held({ pid: child.pid, closeStdin: () => stdin?.end() })
+        } catch (e) {
+          parserError = { error: e }
+          startKill()
+        }
+      } else if (opts.onStart) {
+        try {
+          opts.onStart(child.pid)
         } catch (e) {
           parserError = { error: e }
           startKill()

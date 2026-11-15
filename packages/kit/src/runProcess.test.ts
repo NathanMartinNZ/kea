@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { L } from '@kea/protocol/limits'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { HeldLimitError, POOL_LIMITS, PoolFullError, SpawnError, activeCount, heldCount, launchDetached, queuedCount, runHeld, runProcess } from './runProcess.ts'
-import type { Pool, ProcessResult } from './runProcess.ts'
+import type { HeldOptions, Pool, ProcessResult } from './runProcess.ts'
 
 let tmp: string
 
@@ -238,6 +238,74 @@ describe('runProcess', () => {
     expect(all.every((r) => r.cancelled)).toBe(true)
     expect(all.filter((r) => r.pid !== undefined)).toHaveLength(POOL_LIMITS.ports)
     expect(queuedCount('ports')).toBe(0)
+  })
+
+  it('U-MEM-11 · queueSignal takes a queued request out with cancelled and no pid, and never signals a started child; onStart is called once at spawn, never for a request that left the queue; HeldOptions takes neither', async () => {
+    // Fill the `ports` pool; queue two more, withdraw the first.
+    const blockerCtrl = new AbortController()
+    const blockerStarts: number[] = []
+    const blockers = Array.from({ length: POOL_LIMITS.ports }, () =>
+      runProcess('/bin/sleep', ['30'], { pool: 'ports', signal: blockerCtrl.signal, onStart: (pid) => blockerStarts.push(pid) }),
+    )
+    const withdrawnCtrl = new AbortController()
+    const withdrawnStart = vi.fn()
+    const withdrawn = runProcess('/bin/echo', ['never'], { pool: 'ports', queueSignal: withdrawnCtrl.signal, onStart: withdrawnStart })
+    const keptStart = vi.fn()
+    const kept = runProcess('/bin/echo', ['kept'], { pool: 'ports', queueSignal: new AbortController().signal, onStart: keptStart })
+    await vi.waitFor(() => expect(queuedCount('ports')).toBe(2))
+    withdrawnCtrl.abort()
+    expect(await withdrawn).toMatchObject({ cancelled: true, pid: undefined, code: null })
+    expect(withdrawnStart).not.toHaveBeenCalled()
+    expect(queuedCount('ports')).toBe(1)
+    blockerCtrl.abort()
+    const blocked = await Promise.all(blockers)
+    expect(blockerStarts).toEqual(blocked.map((r) => r.pid))
+    const k = await kept
+    expect(k).toMatchObject({ code: 0, cancelled: false })
+    expect(keptStart).toHaveBeenCalledTimes(1)
+    expect(keptStart).toHaveBeenCalledWith(k.pid)
+    expect(activeCount('ports')).toBe(0)
+
+    // Started: aborting queueSignal leaves the child running; it ends on its own with its own code.
+    const stop = join(tmp, 'queue-signal-stop')
+    const startedCtrl = new AbortController()
+    let startedPid = 0
+    const m = onMarker('ready')
+    const running = runProcess('/bin/sh', ['-c', `echo ready; while [ ! -e "$1" ]; do sleep 0.02; done; exit 7`, 'sh', stop], {
+      pool: 'other',
+      queueSignal: startedCtrl.signal,
+      onStdout: m.onStdout,
+      onStart: (pid) => (startedPid = pid),
+    })
+    await m.seen
+    startedCtrl.abort()
+    expect(exists(startedPid), 'a started child is never signalled by queueSignal').toBe(true)
+    fs.writeFileSync(stop, '')
+    const r = await running
+    expect(r).toMatchObject({ code: 7, signal: null, cancelled: false, timedOut: false, pid: startedPid })
+    fs.rmSync(stop)
+
+    // Already withdrawn: never spawns. A spawn failure is no start. A throwing onStart kills the child and rejects.
+    const never = vi.fn()
+    expect(await runProcess('/bin/echo', ['x'], { pool: 'other', queueSignal: AbortSignal.abort(), onStart: never })).toMatchObject({ cancelled: true, pid: undefined })
+    await expect(runProcess(join(tmp, 'no-such-binary'), [], { pool: 'other', onStart: never })).rejects.toBeInstanceOf(SpawnError)
+    expect(never).not.toHaveBeenCalled()
+    await expect(
+      runProcess('/bin/sleep', ['30'], {
+        pool: 'other',
+        onStart: () => {
+          throw new Error('onStart blew up')
+        },
+      }),
+    ).rejects.toThrow('onStart blew up')
+    expect(activeCount('other')).toBe(0)
+
+    // runHeld has no pool, so neither option is part of its options.
+    // @ts-expect-error runHeld has no queue to leave
+    const heldWithQueue: HeldOptions = { onSpawn: () => {}, queueSignal: AbortSignal.abort() }
+    // @ts-expect-error runHeld reports its start through onSpawn
+    const heldWithStart: HeldOptions = { onSpawn: () => {}, onStart: () => {} }
+    expect([heldWithQueue, heldWithStart]).toHaveLength(2)
   })
 
   it('U-MEM-11 · runHeld: stdin stays open until closeStdin(), so EOF tells the child its parent is gone; the child is reaped', async () => {
