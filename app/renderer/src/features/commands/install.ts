@@ -32,7 +32,8 @@ export function installCommands(): void {
   if (installed) return
   installed = true
   installBindings()
-  // Linux's one-time hint: plain Ctrl+C over a selection interrupted rather than copied; shown on that terminal
+  // Linux's one-time hint: plain Ctrl+C over a selection interrupted rather than copied (the setting turned off);
+  // shown on that terminal
   let hintOn: string | null = null
   const copyHint = new CopyHint(
     () => call('hints.once', { hint: 'ctrlCopy' }).then((r) => r.show),

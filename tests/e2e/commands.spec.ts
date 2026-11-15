@@ -1195,7 +1195,7 @@ test('E-KB-5 · a menu’s own button closes it: the editor caret and the header
 /** Where Kea's own keys copy and paste: on Linux the router, whose harness display has a clipboard of its own. */
 const NOT_ROUTER_CLIPBOARD = protocolOs.keys.clipboard === 'router' ? null : 'plain Ctrl+C and Ctrl+V are the terminal’s own only on Linux (macOS copies with ⌘C), and this system’s clipboard is the person’s'
 
-test('E-TERM-16 · copy and paste in a terminal through the real clipboard (Linux): Ctrl+Shift+C and Ctrl+Shift+V round-trip a selection; plain Ctrl+C over a selection still interrupts and offers to copy instead; with that on, Ctrl+C copies and clears the selection, Ctrl+V pastes, and Ctrl+C with nothing selected interrupts', async ({ run, launch }) => {
+test('E-TERM-16 · copy and paste in a terminal through the real clipboard (Linux): Ctrl+Shift+C and Ctrl+Shift+V round-trip a selection; out of the box plain Ctrl+C copies a selection and clears it, Ctrl+V pastes, and Ctrl+C with nothing selected interrupts; with the setting turned off, Ctrl+C over a selection interrupts and offers to copy instead, and Ctrl+V reaches the program', async ({ run, launch }) => {
   test.skip(NOT_ROUTER_CLIPBOARD !== null, skipNote(NOT_ROUTER_CLIPBOARD ?? ''))
   claudeByDefault(run)
   const kea = await launch()
@@ -1242,24 +1242,24 @@ test('E-TERM-16 · copy and paste in a terminal through the real clipboard (Linu
   await page.keyboard.press('Control+Shift+KeyV')
   await next('the paste', 'alpha')
 
-  // ── plain Ctrl+C over a selection: still the interrupt, and the hint offers the setting ──
-  await select('bravo')
-  await page.keyboard.press('Control+KeyC')
-  await next('Ctrl+C at the program', '\x03')
+  /** Whether Copy and Paste list plain Ctrl+C and Ctrl+V in the Keyboard Shortcuts sheet; undefined until it is drawn. */
+  const ctrlKeysListed = async (): Promise<boolean | undefined> => {
+    const rows = await keyboardRows(kea)
+    const copy = rows.find((r) => r.id === 'terminal.copy')
+    const paste = rows.find((r) => r.id === 'terminal.paste')
+    return copy && paste ? copy.keys.includes('Ctrl+C') && paste.keys.includes('Ctrl+V') : undefined
+  }
+  /** The sheet lists the keys (or not), then closes, and the keyboard goes back to the terminal. */
+  const sheetLists = async (what: string, listed: boolean) => {
+    await page.evaluate(() => (window as unknown as { __keaProbe: { run(id: string): boolean } }).__keaProbe.run('app.shortcuts'))
+    await until(what, async () => (await ctrlKeysListed()) === listed || undefined)
+    await page.keyboard.press('Escape')
+    await clickTerminal(kea)
+  }
   const hint = page.getByRole('status').filter({ hasText: 'Ctrl+C sent an interrupt' })
-  await expect(hint).toBeVisible()
-  await expect(hint).toContainText('Copy is Ctrl+Shift+C')
-  expect(copies(), 'nothing was copied').toBe(1)
-  await hint.getByRole('button', { name: 'Use Ctrl+C to copy' }).click()
-  await expect(hint).toHaveCount(0)
-  // the key lists show the keys it adds
-  await page.evaluate(() => (window as unknown as { __keaProbe: { run(id: string): boolean } }).__keaProbe.run('app.shortcuts'))
-  await until('Copy lists Ctrl+C', async () => (await keyboardRows(kea)).find((r) => r.id === 'terminal.copy')?.keys.includes('Ctrl+C') || undefined)
-  expect((await keyboardRows(kea)).find((r) => r.id === 'terminal.paste')?.keys).toContain('Ctrl+V')
-  await page.keyboard.press('Escape')
-  await clickTerminal(kea)
 
-  // ── with it on: Ctrl+C copies and clears the selection, Ctrl+V pastes, Ctrl+C with nothing selected interrupts ──
+  // ── out of the box: Ctrl+C copies and clears the selection, Ctrl+V pastes, Ctrl+C with nothing selected interrupts ──
+  await sheetLists('Copy and Paste list Ctrl+C and Ctrl+V', true)
   await select('bravo')
   await page.keyboard.press('Control+KeyC')
   await until('main copied', () => copies() === 2 || undefined)
@@ -1269,6 +1269,26 @@ test('E-TERM-16 · copy and paste in a terminal through the real clipboard (Linu
   await page.keyboard.press('Control+KeyC')
   await next('Ctrl+C with nothing selected', '\x03')
   await expect(hint).toHaveCount(0)
+
+  // ── turned off: both keys are the program's, and Ctrl+C over a selection shows the hint, which offers the setting ──
+  fs.writeFileSync(path.join(run.home, 'settings.json'), `${JSON.stringify({ general: { defaultAgent: 'claude' }, terminal: { ctrlCopyPaste: false } }, null, 2)}\n`)
+  await sheetLists('Copy and Paste no longer list Ctrl+C and Ctrl+V', false)
+  await select('alpha')
+  await page.keyboard.press('Control+KeyC')
+  await next('Ctrl+C over a selection at the program', '\x03')
+  await expect(hint).toBeVisible()
+  await expect(hint).toContainText('Copy is Ctrl+Shift+C')
+  expect(copies(), 'nothing was copied').toBe(2)
+  await page.keyboard.press('Control+KeyV')
+  await next('Ctrl+V at the program', '\x16')
+  await hint.getByRole('button', { name: 'Use Ctrl+C to copy' }).click()
+  await expect(hint).toHaveCount(0)
+  // the hint's button turned it back on
+  await sheetLists('Copy and Paste list Ctrl+C and Ctrl+V again', true)
+  await select('bravo')
+  await page.keyboard.press('Control+KeyC')
+  await until('main copied', () => copies() === 3 || undefined)
+  await until('the selection cleared', async () => !(await hasSelection()) || undefined)
   await kea.assertUnfocused()
 })
 

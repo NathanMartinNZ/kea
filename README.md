@@ -192,10 +192,13 @@ stops them.
 | Open in Editor | `⇧⌘O` | `Ctrl+Shift+Alt+O` |
 | Archive the session | `⇧⌘⌫` | `Ctrl+Shift+Backspace` |
 | Command Palette | `⇧⌘P` | `Ctrl+Shift+Alt+P` |
+| Copy · paste in a terminal | `⌘C` · `⌘V` | `Ctrl+C` · `Ctrl+V`, or `Ctrl+Shift+C` · `Ctrl+Shift+V` |
 | Close the window · Quit Kea Completely | `⌘Q` · `⌥⌘Q` | `Ctrl+Shift+Q` · `Ctrl+Shift+Alt+Q` |
 
 Help › Keyboard Shortcuts lists every command with its current keys. Keys that a terminal program needs, such as
-`Ctrl+C`, always reach the terminal.
+`Ctrl+C`, reach the terminal. On Linux, `Ctrl+C` copies instead only while text is selected in the terminal, and
+`Ctrl+V` pastes; turning off Settings › Terminal › "Ctrl+C copies selected text, Ctrl+V pastes" gives both keys to the
+program (vim's `Ctrl+V`, for one).
 
 ### Settings and key bindings
 

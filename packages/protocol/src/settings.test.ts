@@ -66,6 +66,18 @@ describe('settings schema', () => {
     expect(bad.notices.map((n) => n.key)).toEqual(['general.fontSize'])
   })
 
+  it('U-SET-16 · plain Ctrl+C and Ctrl+V copy and paste in a terminal by default: a settings file that never set it has it on, and one that says false or true keeps that choice', () => {
+    const KEY = 'terminal.ctrlCopyPaste'
+    expect(SETTINGS.find((d) => d.key === KEY)?.default).toBe(true)
+    // the file holds only what the user changed, so a file without the key takes the default
+    for (const file of [{}, { terminal: { copyOnSelect: true } }]) expect(parseSettings(file, []).values.get(KEY)).toBe(true)
+    for (const chosen of [false, true]) {
+      const { values, notices } = parseSettings({ terminal: { ctrlCopyPaste: chosen } }, [])
+      expect(values.get(KEY)).toBe(chosen)
+      expect(notices).toEqual([])
+    }
+  })
+
   it('U-SET-1 · defaults apply when the file is empty', () => {
     const { values, notices } = parseSettings({}, [claude])
     expect(notices).toEqual([])

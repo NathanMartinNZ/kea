@@ -9,7 +9,7 @@ import type { Appearance, TerminalTheme } from '@kea/terminal'
 
 export type TerminalPrefs = TerminalSettings & {
   copyOnSelect: boolean
-  /** Linux: plain Ctrl+C copies a selection the person made and Ctrl+V pastes, in a terminal (the key router reads it). */
+  /** Linux: plain Ctrl+C copies a selection the person made and Ctrl+V pastes, in a terminal (on by default; the key router reads it). */
   ctrlCopyPaste: boolean
   clipboardWrite: (typeof CLIPBOARD_WRITE)[number]
   /**

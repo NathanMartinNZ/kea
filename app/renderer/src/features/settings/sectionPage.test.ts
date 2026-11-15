@@ -45,12 +45,14 @@ describe("Settings draws this system's rows", () => {
     expect(optionsOf(before, 'general.terminalApp')).toEqual(['auto', ...protocolOs.window.terminalApps])
   })
 
-  it('U-PLT-60 · “Ctrl+C copies selected text, Ctrl+V pastes” is Linux’s row, off by default: macOS, which copies with ⌘C, hides it', () => {
+  it('U-PLT-60 · “Ctrl+C copies selected text, Ctrl+V pastes” is Linux’s row, on by default, its help saying how to give programs Ctrl+V back: macOS, which copies with ⌘C, hides it', () => {
     const KEY = 'terminal.ctrlCopyPaste'
     expect(protocolDarwin.window.hiddenSettings).toContain(KEY)
     expect(protocolLinux.window.hiddenSettings).not.toContain(KEY)
     expect(settingRows([], protocolDarwin).some((r) => r.key === KEY)).toBe(false)
-    expect(settingRows([], protocolLinux).find((r) => r.key === KEY)).toMatchObject({ section: 'Terminal', control: 'toggle', default: false })
+    const row = settingRows([], protocolLinux).find((r) => r.key === KEY)
+    expect(row).toMatchObject({ section: 'Terminal', control: 'toggle', default: true })
+    expect(row?.help).toContain('Turn this off')
   })
 
   it("U-PLT-38 · a generated page draws core's rows once core answers (this system's terminal apps, no backup row on Linux); the schema's own until then, without the backup row on Linux", async () => {

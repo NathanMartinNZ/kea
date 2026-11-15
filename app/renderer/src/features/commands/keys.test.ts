@@ -1,8 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { bindings, COMMANDS, MAIN_COMMANDS, NATIVE_ROLES, parseChord, parseShortcut, type KeyLabels } from '@kea/protocol'
+import { bindings, COMMANDS, MAIN_COMMANDS, NATIVE_ROLES, parseChord, parseSettings, parseShortcut, type KeyLabels } from '@kea/protocol'
 import { darwin } from '@kea/protocol/os/darwin'
 import { linux } from '@kea/protocol/os/linux'
 import { selectorFor } from '../composer/keys.ts'
+import { terminalPrefs } from '../terminal/prefs.ts'
 import { chordOf, copyHintDue, ctrlCopyPasteKeys, ctrlKeyRole, modClick, primaryHeld, primaryLabel, routeKey, scopedBinding, setBindings, terminalKeyOverride, type KeyLike, type RouteContext } from './keys.ts'
 
 /** A keydown as Chromium reports it on a US layout; `mac`: ⌥ composes another character, as on a Mac (⌥⌘Q → œ). */
@@ -402,6 +403,31 @@ describe('plain Ctrl+C and Ctrl+V on Linux', () => {
     expect(ctrlCopyPasteKeys('terminal.copy', false, linux.keys)).toEqual([])
     expect(ctrlCopyPasteKeys('terminal.copy', true, darwin.keys)).toEqual([])
     expect(ctrlCopyPasteKeys('session.new', true, linux.keys)).toEqual([])
+  })
+
+  it('U-TERM-65 · out of the box, Ctrl+C over a selection copies and Ctrl+V pastes in a terminal, the key lists show both and no hint is due; a user who turned the setting off keeps the terminal’s Ctrl+C and Ctrl+V; macOS is unchanged', () => {
+    // the terminal's preferences from a settings file without the key: what the router reads (`prefs.get()`)
+    const fresh = terminalPrefs(parseSettings({}, []).values).ctrlCopyPaste
+    expect(fresh).toBe(true)
+    const ctx = { ...term, ctrlCopyPaste: fresh }
+    const sel = { ...ctx, userSelection: true }
+    expect(route(k('ctrl+c'), sel)).toEqual({ do: 'edit', id: 'terminal.copy', role: 'copy', plain: true })
+    expect(route(k('ctrl+c'), ctx)).toEqual({ do: 'pass' }) // nothing selected: the interrupt
+    expect(route(k('ctrl+v'), ctx)).toEqual({ do: 'edit', id: 'terminal.paste', role: 'paste', plain: true })
+    expect(route(k('ctrl+shift+c'), sel)).toEqual({ do: 'edit', id: 'terminal.copy', role: 'copy' })
+    expect(route(k('ctrl+shift+v'), ctx)).toEqual({ do: 'edit', id: 'terminal.paste', role: 'paste' })
+    expect(copyHintDue('ctrl+c', sel, linux.keys)).toBe(false)
+    expect([ctrlCopyPasteKeys('terminal.copy', fresh, linux.keys), ctrlCopyPasteKeys('terminal.paste', fresh, linux.keys)]).toEqual([['Ctrl+C'], ['Ctrl+V']])
+    // turned off in Settings (or in the file): both keys are the terminal's, and Ctrl+C over a selection is the hint's moment
+    const off = { ...term, ctrlCopyPaste: terminalPrefs(parseSettings({ terminal: { ctrlCopyPaste: false } }, []).values).ctrlCopyPaste }
+    expect(route(k('ctrl+c'), { ...off, userSelection: true })).toEqual({ do: 'pass' })
+    expect(route(k('ctrl+v'), off)).toEqual({ do: 'pass' })
+    expect(copyHintDue('ctrl+c', { ...off, userSelection: true }, linux.keys)).toBe(true)
+    expect(ctrlCopyPasteKeys('terminal.copy', off.ctrlCopyPaste, linux.keys)).toEqual([])
+    // macOS copies with ⌘C and pastes with ⌘V, whatever the setting
+    for (const s of ['ctrl+c', 'ctrl+v']) expect(ctrlKeyRole(s, sel, darwin.keys), s).toBeNull()
+    expect(copyHintDue('ctrl+c', { ...off, userSelection: true }, darwin.keys)).toBe(false)
+    expect(ctrlCopyPasteKeys('terminal.copy', fresh, darwin.keys)).toEqual([])
   })
 
   it('U-TERM-55 · the copy hint’s moment: Ctrl+C over text the person selected in a terminal, on Linux, with the setting off', () => {

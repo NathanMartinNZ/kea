@@ -9,9 +9,9 @@
 //                                    reach the focused element); Linux: the router asks main for the role
 //                                    (Ctrl+Shift+C / V, Ctrl+Insert, Shift+Insert), the menu registering no key
 //   ⌘A in a terminal               → Select All of the terminal's text (macOS; on Linux Ctrl+A is the shell's)
-//   Ctrl+C, Ctrl+V in a terminal   → Linux with `terminal.ctrlCopyPaste` on: the copy role while the person has
-//                                    selected text there (else the PTY's interrupt), the paste role; off, the PTY's,
-//                                    and Ctrl+C over such a selection is the moment of a one-time hint
+//   Ctrl+C, Ctrl+V in a terminal   → Linux with `terminal.ctrlCopyPaste` on (the default): the copy role while the
+//                                    person has selected text there (else the PTY's interrupt), the paste role; turned
+//                                    off, the PTY's, and Ctrl+C over such a selection is the moment of a one-time hint
 //   a scoped binding               → only while its context has the keyboard (`scope.ts`); a scoped key without
 //                                    primary is the context's own and is passed to it (a viewer's keys; ↵ in the
 //                                    detached overlay; F2 and ⌦ in the file tree), which finds its command with
@@ -122,7 +122,10 @@ export interface RouteContext {
   scopes?: readonly KeyScope[]
   /** A handler for the command exists and allows it now (with the binding's argument, e.g. `⌘3`'s index). */
   has(id: string, args?: unknown): boolean
-  /** Plain Ctrl+C and Ctrl+V copy and paste in a terminal (`terminal.ctrlCopyPaste`), where the router owns the clipboard. */
+  /**
+   * Plain Ctrl+C and Ctrl+V copy and paste in a terminal (`terminal.ctrlCopyPaste`, on by default), where the router
+   * owns the clipboard. Absent reads as off: the window's router always passes the setting's value.
+   */
   ctrlCopyPaste?: boolean
   /** The terminal with the keyboard holds text the person selected (not the find bar's match). */
   userSelection?: boolean
@@ -205,9 +208,9 @@ export function routeKey(e: KeyLike, ctx: RouteContext, keys: KeyLabels = protoc
 }
 
 /**
- * What plain Ctrl+C or Ctrl+V does in a terminal where the router owns the clipboard (Linux) and the person asked for
- * it (`terminal.ctrlCopyPaste`): Ctrl+C copies while they have text selected there, Ctrl+V pastes. Null: the key is
- * the terminal's own (Ctrl+C with nothing selected interrupts).
+ * What plain Ctrl+C or Ctrl+V does in a terminal where the router owns the clipboard (Linux) while
+ * `terminal.ctrlCopyPaste` is on (the default): Ctrl+C copies while the person has text selected there, Ctrl+V pastes.
+ * Null: the key is the terminal's own (Ctrl+C with nothing selected interrupts; both, with the setting turned off).
  */
 export function ctrlKeyRole(chord: string, ctx: RouteContext, keys: KeyLabels = protocolOs.keys): 'copy' | 'paste' | null {
   if (!ctx.inTerminal || !ctx.ctrlCopyPaste || keys.clipboard !== 'router') return null
@@ -217,7 +220,7 @@ export function ctrlKeyRole(chord: string, ctx: RouteContext, keys: KeyLabels = 
 
 /**
  * The one-time copy hint's moment: plain Ctrl+C in a terminal over text the person selected, on a system where it
- * interrupts rather than copies (Linux, `terminal.ctrlCopyPaste` off). The key still goes to the PTY.
+ * interrupts rather than copies (Linux, with `terminal.ctrlCopyPaste` turned off). The key still goes to the PTY.
  */
 export function copyHintDue(chord: string | null, ctx: RouteContext, keys: KeyLabels = protocolOs.keys): boolean {
   return chord === 'ctrl+c' && ctx.inTerminal && !ctx.ctrlCopyPaste && ctx.userSelection === true && keys.clipboard === 'router'

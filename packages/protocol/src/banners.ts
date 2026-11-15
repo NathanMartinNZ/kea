@@ -33,7 +33,8 @@ export type Banner = z.infer<typeof zBanner>
 
 /**
  * The one-time hints a window shows the first time their moment comes in this KEA_HOME. `ctrlCopy`: on Linux, Ctrl+C
- * pressed in a terminal with text selected, which sends an interrupt rather than copying.
+ * pressed in a terminal with text selected while `terminal.ctrlCopyPaste` is turned off, which sends an interrupt
+ * rather than copying.
  */
 export const HINTS = ['ctrlCopy'] as const
 export type Hint = (typeof HINTS)[number]
