@@ -33,7 +33,7 @@ import { changesOrder, gitEntry, gitHead, imageExtension, keaFileUrl, RpcError, 
 import { call } from '../../lib/rpc.ts'
 import { commands } from '../commands/registry.ts'
 import { diffHeader, type LineCounts } from '../files/changes.ts'
-import { copyText } from '../sessions/actions.ts'
+import { copyText, openWebLink } from '../sessions/actions.ts'
 import { sessions } from '../sessions/state.svelte.ts'
 import { followSessionStore } from '../sessions/visible.ts'
 import { goTo, openFindBar, openGotoBar, openReplaceBar } from './bars.ts'
@@ -50,6 +50,7 @@ import { highlighter, tokenizeInto } from './highlighter.ts'
 import { applyFromDisk, historyBytes, historyClearedForMemory } from './history.ts'
 import { languageOf } from './language.ts'
 import { defaultIndent, languageAids } from './languageAids.ts'
+import { linkAtCursor, type DocLink, type LinkTip } from './linkView.ts'
 import { keepYours, marksOf, setMarks, useTheFiles } from './marks.ts'
 import { chunkCount, diffCounts, goToChunk, hideDiff, originalOf, showDiff, type DiffLayout, type ShownDiff } from './merge.ts'
 import { textStats, viewPolicy } from './policy.ts'
@@ -59,6 +60,7 @@ import { merge } from './rebase.ts'
 import { reference, selectedLines } from './reference.ts'
 import { reloadChanges } from './reload.ts'
 import { showOldestUnsaved } from './review.svelte.ts'
+import { openTextMenu } from './textTarget.ts'
 import { EditTokens } from './editTokens.ts'
 import { DocSave, saveText, type SaveAnswer, type SaveCall, type SaveFacts } from './saving.ts'
 import { EMPTY_VIEW, type TabPosition, type TabViewState, type ViewerTab } from './tab.ts'
@@ -518,7 +520,7 @@ export function documentFromHand(d: HandedDocument): FileDocument {
   }
   if (lang && store) doc.colours = new EditTokens({ doc: docKey(d.sessionId, d.path), lang: lang.id, store, budgetMs: policy.budgetMs, onTokens: () => (doc.tokenised = store.lines) })
   const at = (n: number): number => Math.min(n, text.length)
-  const state = fileState({ path: d.path, lines, eol: d.eol, policy, store, wrap: wrapFor(lang?.id, wrapFlags, policy.wrap), changes: null, edit: editingFor(doc, text) }, EMPTY_VIEW, null)
+  const state = fileState({ path: d.path, sessionId: d.sessionId, lang: lang?.id ?? null, lines, eol: d.eol, policy, store, wrap: wrapFor(lang?.id, wrapFlags, policy.wrap), changes: null, edit: editingFor(doc, text) }, EMPTY_VIEW, null)
   const ranges = d.selection.map((r) => EditorSelection.range(at(r.anchor), at(r.head)))
   doc.state = state.update({
     ...(ranges.length > 0 ? { selection: EditorSelection.create(ranges) } : {}),
@@ -551,6 +553,8 @@ type Shown =
 export class ViewerController {
   /** What the component draws: plain data, replaced whole. */
   ui = $state.raw<ViewerUi>(blank('', 'file'))
+  /** The tip of the link under the pointer, as plain values (the window has one: its documents' owner draws it). */
+  linkTip = $state.raw<LinkTip | null>(null)
 
   private readonly host: ViewerHost
   private sessionId = ''
@@ -576,7 +580,18 @@ export class ViewerController {
   /** Save was asked for while an input method composed: it runs when the composition ends. */
   private saveAfterComposing = false
   private disposed = false
-  private readonly hooks: EditorHooks = { update: (u) => this.updated(u), scrolled: () => this.queueSave() }
+  /** Whether an address holds the cursor, as Follow Link's availability was last read (`cursorLinkNow`). */
+  private cursorLink = false
+  // the link functions call what they reach only when they run (a test may stand in a module without them)
+  private readonly hooks: EditorHooks = {
+    update: (u) => this.updated(u),
+    scrolled: () => this.queueSave(),
+    openLink: (url) => void openWebLink(url),
+    linkMenu: (el, at, link) => openTextMenu(el, at, link, true),
+    linkTip: (tip) => {
+      this.linkTip = tip
+    },
+  }
 
   constructor(host: ViewerHost) {
     this.host = host
@@ -1008,7 +1023,7 @@ export class ViewerController {
     if (editable && store && lang) doc.colours = new EditTokens({ doc: this.key, lang: lang.id, store, budgetMs: policy.budgetMs, onTokens: () => (doc.tokenised = store.lines) })
     doc.readOnly = editable ? readOnlyNow(doc, this.sessionId, this.path) : null
     const edit = doc.save && doc.readOnly === null ? editingFor(doc, Text.of(lines)) : null
-    const state = fileState({ path: this.path, lines, eol: t.eol, policy, store, wrap: wrapFor(lang?.id, wrapFlags, policy.wrap), changes: null, edit }, kept, this.pendingGoto)
+    const state = fileState({ path: this.path, sessionId: this.sessionId, lang: lang?.id ?? null, lines, eol: t.eol, policy, store, wrap: wrapFor(lang?.id, wrapFlags, policy.wrap), changes: null, edit }, kept, this.pendingGoto)
     this.kept = kept
     this.showFileDocument(doc, state, text, false)
   }
@@ -1370,7 +1385,8 @@ export class ViewerController {
     this.park()
     hideFile()
     const doc = s.doc
-    const diff = showDiff(host, layout, { path: this.path, oldLines: base.toJSON(), newLines: lines, oldEol: doc.eol, newEol: doc.eol, oldStore: null, newStore: null }, back, null, this.hooks)
+    const lang = doc.lang?.id ?? null
+    const diff = showDiff(host, layout, { path: this.path, sessionId: this.sessionId, oldLang: lang, newLang: lang, oldLines: base.toJSON(), newLines: lines, oldEol: doc.eol, newEol: doc.eol, oldStore: null, newStore: null }, back, null, this.hooks)
     this.shown = { kind: 'compare', diff, doc, back }
     this.afterCompare = false
     // Compare's own line says what is on screen (`compareNotice`); the file's notices are not this view's
@@ -1514,7 +1530,7 @@ export class ViewerController {
     const newLang = r.new.exists ? languageOf(this.path, newLines[0]) : null
     const oldStore = oldLang && layout === 'split' ? new TokenStore() : null
     const newStore = newLang ? new TokenStore() : null
-    const diff = showDiff(host, layout, { path: this.path, oldLines, newLines, oldEol: r.old.text?.eol ?? 'lf', newEol: r.new.text?.eol ?? 'lf', oldStore, newStore }, kept, this.pendingGoto, this.hooks)
+    const diff = showDiff(host, layout, { path: this.path, sessionId: this.sessionId, oldLang: oldLang?.id ?? null, newLang: newLang?.id ?? null, oldLines, newLines, oldEol: r.old.text?.eol ?? 'lf', newEol: r.new.text?.eol ?? 'lf', oldStore, newStore }, kept, this.pendingGoto, this.hooks)
     const next: Shown = { kind: 'diff', diff, oldStore, newStore, jobs: { old: null, new: null }, read: r }
     this.shown = next
     const goto = this.pendingGoto
@@ -1641,8 +1657,29 @@ export class ViewerController {
           }
         })
       }
+    } else if ((s.kind === 'diff' || s.kind === 'compare') && u.view === s.diff.old) {
+      if (u.selectionSet || u.focusChanged) this.followable()
+      return
     } else if (!((s.kind === 'diff' || s.kind === 'compare') && u.view === s.diff.view)) return
+    if (u.selectionSet || u.docChanged || u.focusChanged) this.followable()
     if (u.selectionSet || u.transactions.some((tr) => tr.effects.some((e) => e.is(foldEffect) || e.is(unfoldEffect)))) this.queueSave()
+  }
+
+  /** Follow Link's availability, reported to the menu bar only when it changes (not at every move of the cursor). */
+  private followable(): void {
+    const view = this.linkView()
+    const now = view !== null && linkAtCursor(view.state) !== null
+    if (now === this.cursorLink) return
+    this.cursorLink = now
+    queueMicrotask(() => commands.changed())
+  }
+
+  /** The address that holds the main cursor of `linkView()` or ends at it, now; what it says is kept, so a change is reported. */
+  cursorLinkNow(): DocLink | null {
+    const view = this.linkView()
+    const link = view ? linkAtCursor(view.state) : null
+    this.cursorLink = link !== null
+    return link
   }
 
   /** The user changed the document on screen: its save state and its tab (its colours follow by themselves). */
@@ -1691,6 +1728,13 @@ export class ViewerController {
     const s = this.shown
     if (s.kind === 'file') return this.ui.body.kind === 'text' ? s.view : null
     return s.kind === 'diff' || s.kind === 'compare' ? s.diff.view : null
+  }
+
+  /** The document Follow Link acts on: the text on screen, or a side-by-side diff's old side while it has the keyboard. */
+  linkView(): EditorView | null {
+    const s = this.shown
+    if ((s.kind === 'diff' || s.kind === 'compare') && s.diff.old?.hasFocus) return s.diff.old
+    return this.textView()
   }
 
   focus(): void {

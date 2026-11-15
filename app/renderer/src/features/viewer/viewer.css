@@ -422,6 +422,20 @@
   cursor: pointer;
 }
 
+/* the web address under the pointer while the link modifier is held (linkView.ts): underlined in its text's own
+   colour (the mark is the innermost element, inside each token's), under the hand */
+.viewer .cm-editor .cm-link-active {
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* the link tip's second line: what a click does */
+.viewer-link-tip-action {
+  display: block;
+  font-family: var(--font-ui);
+  word-break: normal;
+}
+
 /* ── the bars (find and replace, go to line) ── */
 
 .viewer .cm-editor .cm-panels {

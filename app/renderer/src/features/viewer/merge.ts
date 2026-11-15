@@ -24,6 +24,10 @@ export type DiffLayout = (typeof DIFF_LAYOUTS)[number]
 export interface DiffDoc {
   /** The file's path in its folder: each side's accessible name starts with it. */
   path: string
+  /** The session the file is in, and each side's language id, for their links. */
+  sessionId?: string
+  oldLang?: string | null
+  newLang?: string | null
   oldLines: readonly string[]
   newLines: readonly string[]
   oldEol: LineEnding
@@ -50,9 +54,11 @@ let unified: EditorView | null = null
 let split: MergeView | null = null
 let merges = 0
 
-function side(lines: readonly string[], eol: LineEnding, store: TokenStore | null, label: string): Extension[] {
+function side(d: DiffDoc, which: 'old' | 'new', label: string): Extension[] {
+  const lines = which === 'old' ? d.oldLines : d.newLines
   const guides = indentUnitOf(Text.of(lines.slice(0, L.highlightChunkLines) as string[]), emptyState().tabSize)
-  return [lineNumbers(), baseExtensions({ eol, store, guides, label }), PHRASES]
+  const context = { sessionId: d.sessionId ?? null, path: d.path, lang: (which === 'old' ? d.oldLang : d.newLang) ?? null, side: which }
+  return [lineNumbers(), baseExtensions({ eol: which === 'old' ? d.oldEol : d.newEol, store: which === 'old' ? d.oldStore : d.newStore, guides, label, context }), PHRASES]
 }
 
 function endSplit(): void {
@@ -83,7 +89,7 @@ export function showDiff(host: HTMLElement, layout: DiffLayout, d: DiffDoc, kept
         doc,
         selection,
         extensions: [
-          side(d.newLines, d.newEol, d.newStore, `${d.path}, changes`),
+          side(d, 'new', `${d.path}, changes`),
           unifiedMergeView({ original: Text.of(d.oldLines as string[]), highlightChanges: true, gutter: true, mergeControls: false, syntaxHighlightDeletions: false, collapseUnchanged: COLLAPSE }),
         ],
       }),
@@ -94,8 +100,8 @@ export function showDiff(host: HTMLElement, layout: DiffLayout, d: DiffDoc, kept
   endSplit()
   merges++
   const m = new MergeView({
-    a: { doc: Text.of(d.oldLines as string[]), extensions: side(d.oldLines, d.oldEol, d.oldStore, `${d.path}, before`) },
-    b: { doc, selection, extensions: side(d.newLines, d.newEol, d.newStore, `${d.path}, after`) },
+    a: { doc: Text.of(d.oldLines as string[]), extensions: side(d, 'old', `${d.path}, before`) },
+    b: { doc, selection, extensions: side(d, 'new', `${d.path}, after`) },
     parent: host,
     highlightChanges: true,
     gutter: true,

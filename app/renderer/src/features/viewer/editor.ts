@@ -16,6 +16,7 @@ import { folding } from './folding.ts'
 import { changeGutter } from './gutter.ts'
 import { indentGuides, indentUnitOf } from './guides.ts'
 import { tokenHighlighting, tokenStore } from './highlight.ts'
+import { linkContext, linkLayer, type LinkContext, type LinkHooks } from './linkView.ts'
 import type { ViewPolicy } from './policy.ts'
 import { editing, fileLineEnding, type EditingOptions } from './editing.ts'
 import { undoHistory } from './history.ts'
@@ -26,8 +27,11 @@ import type { TabPosition, TabViewState } from './tab.ts'
 import type { TokenStore } from './tokens.ts'
 import { positionAt, restoreFolds, selectionFor } from './viewState.ts'
 
-/** What the document on screen tells its owner (the viewer's controller). */
-export interface EditorHooks {
+/**
+ * What the document on screen tells its owner (the viewer's controller), and what its links ask of it: opening an
+ * address, the text menu, the tip (`LinkHooks`, each optional).
+ */
+export interface EditorHooks extends LinkHooks {
   update(u: ViewUpdate): void
   /** A scroll came to rest. */
   scrolled(): void
@@ -60,6 +64,8 @@ const wrapping = new Compartment()
 let hooks: EditorHooks | null = null
 /** One listener for every state: it speaks to whoever owns the document on screen. */
 const listener = EditorView.updateListener.of((u) => hooks?.update(u))
+/** The links of every document, which reach the window through the same owner. */
+const links = linkLayer(() => hooks)
 
 /** A read-only document's own part: refused changes and the navigation keys. */
 export function readOnlyDocument(): Extension {
@@ -70,9 +76,10 @@ export function readOnlyDocument(): Extension {
  * What every text document of the viewer has, file or diff. `label`: what the text is, said to assistive technology
  * (a text box without a name is only "edit text"). A diff's sides join their lines with the file's line ending; a file
  * document has none of its own (`fileLineEnding` gives a copy the file's), so text pasted into it splits into lines
- * whatever its endings, and its read-only part is in a compartment (`fileState`).
+ * whatever its endings, and its read-only part is in a compartment (`fileState`). `context`: what the document is, for
+ * its links.
  */
-export function baseExtensions(o: { eol: LineEnding; store: TokenStore | null; guides: number | null; label: string; file?: boolean }): Extension[] {
+export function baseExtensions(o: { eol: LineEnding; store: TokenStore | null; guides: number | null; label: string; file?: boolean; context?: LinkContext }): Extension[] {
   return [
     o.file ? [] : readOnlyDocument(),
     EditorView.contentAttributes.of({ 'aria-label': o.label }),
@@ -85,6 +92,8 @@ export function baseExtensions(o: { eol: LineEnding; store: TokenStore | null; g
     tokenHighlighting(),
     o.store ? tokenStore.of(o.store) : [],
     bars(),
+    links,
+    o.context ? linkContext.of(o.context) : [],
     listener,
   ]
 }
@@ -92,6 +101,9 @@ export function baseExtensions(o: { eol: LineEnding; store: TokenStore | null; g
 export interface FileDoc {
   /** The file's path in its folder: the text's accessible name. */
   path: string
+  /** The session the file is in, and its language id, for its links. */
+  sessionId?: string
+  lang?: string | null
   lines: readonly string[]
   eol: LineEnding
   policy: ViewPolicy
@@ -122,7 +134,7 @@ export function fileState(d: FileDoc, kept: TabViewState, goto: TabPosition | nu
       // puts the marks back, so both are in the same state)
       marks(),
       undoHistory(),
-      baseExtensions({ eol: d.eol, store: d.store, guides: d.policy.plain ? null : indentUnitOf(doc, EMPTY.tabSize), label: d.path, file: true }),
+      baseExtensions({ eol: d.eol, store: d.store, guides: d.policy.plain ? null : indentUnitOf(doc, EMPTY.tabSize), label: d.path, file: true, context: { sessionId: d.sessionId ?? null, path: d.path, lang: d.lang ?? null, side: 'file' } }),
       wrapping.of(d.wrap && d.policy.wrap ? EditorView.lineWrapping : []),
     ],
   })

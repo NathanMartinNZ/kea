@@ -23,7 +23,7 @@ import { changeMarker, commitAll, gitIn, gutterLines, loginSource, png, sessionW
 import { documentKey, tryToEditDocument } from '../support/app-editing.ts'
 import { chooseMenuItem, waitMenuItem } from '../support/app-palette.ts'
 import { expect, test } from './fixtures.ts'
-import { sysKey, textKey } from '../support/keys.ts'
+import { MOD_CLICK, sysKey, textKey } from '../support/keys.ts'
 import { protocolOs } from '../../packages/protocol/src/os/index.ts'
 import { COLOR, SIZE_PX } from '../../packages/ui/src/generated/tokens.ts'
 import { harnessOs } from '../../tools/perf/src/os/index.ts'
@@ -1062,6 +1062,179 @@ test('E-FV-21 · a change three quarters down a long file is a mark three quarte
   await page.keyboard.press(sysKey('Meta+Shift+v'))
   await waitBody(kea, NOTES, 'preview')
   expect(await changeRulerShown(kea), 'no ruler on the preview').toBeNull()
+})
+
+/** The middle of the character `index` places into the first `needle` in the text of the editor `editor` (the diff's new side, or the file view, by default). */
+async function charPoint(kea: Kea, needle: string, index = 0, editor = '.viewer .cm-editor:not(.cm-merge-a)'): Promise<{ x: number; y: number }> {
+  const page = await kea.page()
+  const p = await page.evaluate(
+    ([sel, text, i]) => {
+      for (const line of document.querySelectorAll(`${sel} .cm-content .cm-line`)) {
+        const at = (line.textContent ?? '').indexOf(text)
+        if (at < 0) continue
+        let want = at + i
+        const walk = document.createTreeWalker(line, NodeFilter.SHOW_TEXT)
+        for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+          const len = n.textContent?.length ?? 0
+          if (want >= len) {
+            want -= len
+            continue
+          }
+          const r = document.createRange()
+          r.setStart(n, want)
+          r.setEnd(n, want + 1)
+          const b = r.getBoundingClientRect()
+          return { x: b.left + b.width / 2, y: b.top + b.height / 2 }
+        }
+      }
+      return null
+    },
+    [editor, needle, index] as const,
+  )
+  if (!p) throw new Error(`"${needle}" is not on screen in ${editor}`)
+  return p
+}
+
+test('E-FV-25 · web addresses in the file view: with the link modifier held over one it is underlined under the hand with a tip, and without it nothing changes; a modifier-click opens it and leaves the caret where it was, a modifier-drag from it opens nothing, a modifier-click elsewhere moves the caret; a right-click offers Open Link and Copy Link; F12 follows the one at the cursor; an address with a bidi character offers Copy Link alone; in a read-only file, a file that can be edited and both sides of a diff', async ({ run, launch }) => {
+  test.setTimeout(150_000)
+  const kea = await launch()
+  const page = await kea.page()
+  const DOCS = 'https://example.com/docs?q=1'
+  const BIDI = 'https://example.com/‮gnp.exe'
+  const lines = [`// docs: ${DOCS} for more`, 'export const answer = 42', "const other = 'plain text here'", `// bad: ${BIDI} here`, '']
+  const { worktree } = await sessionWith(kea, run, { 'src/locked.ts': lines.join('\n'), 'src/open.ts': lines.join('\n'), 'src/changed.ts': '// origin https://example.com/old\nexport const one = 1\n' })
+  fs.chmodSync(path.join(worktree, 'src/locked.ts'), 0o444)
+  writeFiles(worktree, { 'src/changed.ts': '// origin https://example.com/old\nexport const one = 1\n// see https://example.com/changed\n' })
+  const clipboard = await recordClipboard(kea)
+  const menu = page.getByRole('menu', { name: 'Text menu' })
+  const active = page.locator('.viewer .cm-link-active')
+  const tip = page.locator('.viewer .viewer-link-tip')
+  const ACTION = protocolOs.system === 'darwin' ? '⌘-click to open' : 'Ctrl-click to open'
+  const selection = async () => (await viewer(kea))?.text?.selection
+  const underlinedText = async () => (await active.allInnerTexts()).join('')
+  /** A press and release where the pointer is, the modifier held or not. */
+  const click = async (p: { x: number; y: number }, mod: boolean) => {
+    if (mod) await page.keyboard.down(MOD_CLICK)
+    await page.mouse.move(p.x, p.y)
+    await page.mouse.down()
+    await page.mouse.up()
+    if (mod) await page.keyboard.up(MOD_CLICK)
+  }
+
+  // ── a read-only file ──
+  await clickFile(kea, 'src/locked.ts')
+  expect((await waitBody(kea, 'src/locked.ts', 'text')).ui.readOnly).toBe('no permission')
+  await click(await charPoint(kea, 'answer'), false)
+  const caret = await waitViewer(kea, 'the caret on line 2', (v) => v.text?.selection.from.line === 2)
+  // without the modifier: the I-beam and nothing underlined
+  const docs = await charPoint(kea, DOCS, 10)
+  await page.mouse.move(docs.x, docs.y)
+  expect(await page.evaluate(({ x, y }) => getComputedStyle(document.elementFromPoint(x, y) as Element).cursor, docs)).toBe('text')
+  await expect(active).toHaveCount(0)
+  // the modifier pressed with the pointer resting: underlined in place, the hand, the tip; released: gone
+  await page.keyboard.down(MOD_CLICK)
+  await expect.poll(underlinedText).toBe(DOCS)
+  expect(await page.evaluate(({ x, y }) => getComputedStyle(document.elementFromPoint(x, y) as Element).cursor, docs)).toBe('pointer')
+  expect(await active.first().evaluate((e) => getComputedStyle(e).textDecorationLine)).toContain('underline')
+  await expect(tip).toBeVisible()
+  await expect(tip).toContainText(DOCS)
+  await expect(tip).toContainText(ACTION)
+  await page.keyboard.up(MOD_CLICK)
+  await expect(active).toHaveCount(0)
+  await expect(tip).toHaveCount(0)
+  // a modifier-click opens it (main records it under the harness) and the caret stays
+  expect(await opened(kea), 'nothing opened yet').toEqual([])
+  await click({ x: docs.x + 2, y: docs.y }, true)
+  await expect.poll(() => opened(kea)).toEqual([DOCS])
+  expect(await selection(), 'the caret where it was').toEqual(caret.text?.selection)
+  // a modifier-drag from it opens nothing and selects nothing
+  await page.keyboard.down(MOD_CLICK)
+  await page.mouse.move(docs.x, docs.y)
+  await page.mouse.down()
+  await page.mouse.move(docs.x + 40, docs.y, { steps: 4 })
+  await page.mouse.up()
+  await page.keyboard.up(MOD_CLICK)
+  expect(await selection(), 'nothing selected').toEqual(caret.text?.selection)
+  // a modifier-click away from a link is a plain click
+  await click(await charPoint(kea, 'plain text'), true)
+  await waitViewer(kea, 'the caret moved to line 3', (v) => v.text?.selection.from.line === 3)
+  // a right-click: Open Link and Copy Link above the document's items; Copy Link copies the address as it reads
+  await page.mouse.click(docs.x, docs.y, { button: 'right' })
+  await expect(menu).toBeVisible()
+  expect((await menu.getByRole('menuitem').allInnerTexts()).map((t) => t.replace(/\s+/g, ' ').trim())).toEqual(['Open Link', 'Copy Link', expect.stringMatching(/^Copy/), expect.stringMatching(/^Select All/)])
+  await menu.getByRole('menuitem', { name: 'Copy Link' }).click()
+  await expect(menu).toHaveCount(0)
+  await expect.poll(clipboard).toEqual([DOCS])
+  // F12 at the cursor follows the address
+  await click(docs, false)
+  await waitViewer(kea, 'the caret in the address', (v) => v.text?.selection.from.line === 1)
+  await page.keyboard.press('F12')
+  await expect.poll(() => opened(kea)).toEqual([DOCS, DOCS])
+  // an address with a bidi character: underlined, its tip says why, its click and F12 offer Copy Link alone, nothing opens
+  const bad = await charPoint(kea, 'bad: https', 8)
+  await page.keyboard.down(MOD_CLICK)
+  await page.mouse.move(bad.x, bad.y)
+  await expect.poll(underlinedText).toBe(BIDI)
+  await expect(tip).toContainText('https://example.com/\\u202egnp.exe')
+  await expect(tip).toContainText('This address cannot be opened: copy it instead')
+  await page.mouse.down()
+  await page.mouse.up()
+  await page.keyboard.up(MOD_CLICK)
+  await expect(menu).toBeVisible()
+  expect(await menu.getByRole('menuitem').allInnerTexts()).toEqual(['Copy Link'])
+  await page.keyboard.press('Escape')
+  await expect(menu).toHaveCount(0)
+  await click(bad, false)
+  await waitViewer(kea, 'the caret in the bidi address', (v) => v.text?.selection.from.line === 4)
+  await page.keyboard.press('F12')
+  await expect(menu).toBeVisible()
+  expect(await menu.getByRole('menuitem').allInnerTexts()).toEqual(['Copy Link'])
+  await menu.getByRole('menuitem', { name: 'Copy Link' }).click()
+  await expect.poll(clipboard).toEqual([DOCS, BIDI])
+  expect(await opened(kea), 'the bidi address never opened').toEqual([DOCS, DOCS])
+
+  // ── a file that can be edited ──
+  await clickFile(kea, 'src/open.ts')
+  expect((await waitBody(kea, 'src/open.ts', 'text')).ui.editable).toBe(true)
+  await click(await charPoint(kea, 'answer'), false)
+  const editCaret = await waitViewer(kea, 'the caret on line 2', (v) => v.text?.selection.from.line === 2)
+  const docs2 = await charPoint(kea, DOCS, 12)
+  await page.keyboard.down(MOD_CLICK)
+  await page.mouse.move(docs2.x, docs2.y)
+  await expect.poll(underlinedText).toBe(DOCS)
+  await page.mouse.down()
+  await page.mouse.up()
+  await page.keyboard.up(MOD_CLICK)
+  await expect.poll(() => opened(kea)).toHaveLength(3)
+  expect(await selection(), 'the caret where it was, nothing typed').toEqual(editCaret.text?.selection)
+  expect((await viewer(kea))?.ui.unsaved).toBe(false)
+  await page.mouse.click(docs2.x, docs2.y, { button: 'right' })
+  await expect(menu).toBeVisible()
+  expect((await menu.getByRole('menuitem').allInnerTexts()).map((t) => t.replace(/\s+/g, ' ').trim().split(' ')[0])).toEqual(['Open', 'Copy', 'Cut', 'Copy', 'Paste', 'Select'])
+  await menu.getByRole('menuitem', { name: 'Open Link' }).click()
+  await expect.poll(() => opened(kea)).toEqual([DOCS, DOCS, DOCS, DOCS])
+
+  // ── a diff: the new side, then side by side the old one ──
+  await clickChange(kea, 'src/changed.ts')
+  await waitBody(kea, 'src/changed.ts', 'diff')
+  const changed = await charPoint(kea, 'example.com/changed', 3)
+  await page.keyboard.down(MOD_CLICK)
+  await page.mouse.move(changed.x, changed.y)
+  await expect.poll(underlinedText).toBe('https://example.com/changed')
+  await page.mouse.down()
+  await page.mouse.up()
+  await page.keyboard.up(MOD_CLICK)
+  await expect.poll(async () => (await opened(kea)).at(-1)).toBe('https://example.com/changed')
+  await click(changed, false)
+  await page.keyboard.press('F12')
+  await expect.poll(() => opened(kea)).toHaveLength(6)
+  await page.locator('.viewer-switch button', { hasText: 'Split' }).click()
+  await waitViewer(kea, 'side by side', (v) => v.ui.layout === 'split')
+  const old = await charPoint(kea, 'example.com/old', 3, '.viewer .cm-editor.cm-merge-a')
+  await click(old, true)
+  await expect.poll(async () => (await opened(kea)).at(-1)).toBe('https://example.com/old')
+  expect(await opened(kea)).toHaveLength(7)
+  expect(await kea.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length), 'no window but Kea’s').toBe(1)
 })
 
 test('E-KB-7 ·the text menu: a right-click on a field offers Cut, Copy, Paste and Select All with their keys, and its picks act on that field; on the viewer’s code it offers the same in a file that can be edited and Copy and Select All in a read-only one, Cut and Copy disabled while nothing is selected, Select All selecting the whole file; one menu at a time', async ({ run, launch }) => {

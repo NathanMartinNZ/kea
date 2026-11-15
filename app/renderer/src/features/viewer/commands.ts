@@ -1,12 +1,13 @@
 // The viewer's commands (the command table's Viewer category): Switch File / Diff, Go to Line…, Find in File, and for an
 // editable document Replace in File, Save and Indent Less / More; the wrap, preview and layout toggles, Next / Previous
-// Change and Changed File, Send / Copy Reference, Open in Editor, and for a web page Open in Browser. They act on the
-// viewer that has the screen (`controller.svelte.ts`); with none, they are unavailable with their reason. Send
-// Reference, Copy Reference, Open in Editor and Open in Browser hand over the file as it is on disk, so with unsaved
-// changes they ask first (`review.svelte.ts`). Two Viewer rows are the tab strip's and are registered by it
-// (`shell/TerminalPane.svelte`): `viewer.open` and `viewer.pinTab`. `App.svelte` calls this once for the window.
+// Change and Changed File, Send / Copy Reference, Open in Editor, for a web page Open in Browser, and Follow Link for
+// the web address at the cursor. They act on the viewer that has the screen (`controller.svelte.ts`); with none, they
+// are unavailable with their reason. Send Reference, Copy Reference, Open in Editor and Open in Browser hand over the
+// file as it is on disk, so with unsaved changes they ask first (`review.svelte.ts`). Two Viewer rows are the tab
+// strip's and are registered by it (`shell/TerminalPane.svelte`): `viewer.open` and `viewer.pinTab`. `App.svelte` calls
+// this once for the window, which also makes the window's one tracker of the link modifier (`linkView.ts`).
 //
-// The viewer's keys without `⌘` (`⌃G`, `⌥Z`, `⌥↓`, `⌥↑`, `]`, `[`) are passed to it by the key router; it finds
+// The viewer's keys without `⌘` (`⌃G`, `⌥Z`, `⌥↓`, `⌥↑`, `]`, `[`, `F12`) are passed to it by the key router; it finds
 // their command with `scopedBinding` and runs it (`Viewer.svelte`).
 
 import { isPage } from '@kea/protocol'
@@ -16,13 +17,16 @@ import { watch } from '../../lib/reactive.svelte.ts'
 import { call } from '../../lib/rpc.ts'
 import { commands } from '../commands/registry.ts'
 import { openInEditor } from '../editor/open.ts'
-import { copyText } from '../sessions/actions.ts'
+import { copyText, openWebLink } from '../sessions/actions.ts'
 import { activeSessionId, sessions, showToast } from '../sessions/state.svelte.ts'
 import { wantAgentTab } from '../status/viewing.svelte.ts'
 import { sendText } from '../terminal/sendText.ts'
 import { currentViewer, forgetClosedTabs, forgetDocuments, setTabOracle, type NoteAction, type ViewerController } from './controller.svelte.ts'
+import { cursorPoint, textLinkOf, watchLinkModifier } from './linkView.ts'
+import { NO_LINK } from './links.ts'
 import { NOT_REFERABLE, referable } from './reference.ts'
 import { askHandOff } from './review.svelte.ts'
+import { openTextMenu } from './textTarget.ts'
 
 const NO_TAB = 'No file tab is showing'
 const NO_TEXT = 'This tab shows no text'
@@ -117,6 +121,15 @@ export async function noteAction(c: ViewerController, action: NoteAction): Promi
 
 export function copyPath(c: ViewerController): void {
   void copyText(c.ui.path)
+}
+
+/** Follow Link: the web address at the cursor opens; one the link policy will not open offers Copy Link at the cursor. */
+function followLink(c: ViewerController): void {
+  const view = c.linkView()
+  const link = c.cursorLinkNow()
+  if (!view || !link) return
+  if (link.action.open) void openWebLink(link.action.url)
+  else openTextMenu(view.contentDOM, cursorPoint(view), textLinkOf(link), true)
 }
 
 /**
@@ -229,7 +242,17 @@ export function registerViewerCommands(strip: TabStrip): Disposable {
       when: () => whyNoPage(viewer()) === null,
       unavailableReason: () => whyNoPage(viewer()) ?? NO_TAB,
     }),
+    commands.register('viewer.followLink', {
+      run: () => {
+        const c = viewer()
+        if (c) followLink(c)
+      },
+      when: () => viewer()?.cursorLinkNow() != null,
+      unavailableReason: () => (hasText() ? NO_LINK : whyNoText()),
+    }),
   ]
+  // the link modifier pressed or released while the pointer rests on a document, and the window's blur
+  const offModifier = watchLinkModifier(window)
   // No document of a session that left the screen is kept, and none of a tab that is gone (the strip
   // says which files have one)
   const off = watch(activeSessionId, () => forgetDocuments(activeSessionId()))
@@ -244,6 +267,7 @@ export function registerViewerCommands(strip: TabStrip): Disposable {
       off()
       offTabs()
       offHistory()
+      offModifier()
       setTabOracle(null)
       disposeAll(ds)
     },

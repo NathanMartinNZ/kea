@@ -630,6 +630,12 @@ export const L = {
   browserAnswerDeadlineMs: 12000,
   /** pages and links main is handing to the browser at once, from every window; one more is refused at once (hand-offs) */
   browserHandoffsMax: 8,
+  /** of a line in the file view, the characters read around the one under the pointer or at the cursor to find a web address, half on each side, so a long minified line costs nothing; at least twice viewer_link_max_chars, so an address under the pointer is read whole (characters) */
+  viewerLinkScanChars: 4096,
+  /** the longest web address the file view finds, as written; at most link_open_max_chars, so an address it finds is never longer than main takes (characters) */
+  viewerLinkMaxChars: 2048,
+  /** how far the pointer may move between a modifier press on a file view's link and its release for the link to open; a longer move opens nothing (px) */
+  viewerLinkClickSlopPx: 4,
   /** a window asked to review its unsaved files says it has the request within this long; one that does not, with unsaved files, stops the quit or close (ms) */
   windowReviewAckMs: 2000,
   /** NUL in the first bytes → binary (bytes) */
@@ -1108,6 +1114,9 @@ export const LIMIT_META: Record<LimitName, { unit: string; why: string; whyLinux
   browserHandoffDeadlineMs: { unit: "ms", why: "how long main waits for a page or link to start opening in the browser, a queued launch included; one not started by then is dropped and said not to have answered, one started is handed over" },
   browserAnswerDeadlineMs: { unit: "ms", why: "how long the window waits for main's answer to a page or link it asked to open; with none by then it says the browser did not answer" },
   browserHandoffsMax: { unit: "hand-offs", why: "pages and links main is handing to the browser at once, from every window; one more is refused at once" },
+  viewerLinkScanChars: { unit: "characters", why: "of a line in the file view, the characters read around the one under the pointer or at the cursor to find a web address, half on each side, so a long minified line costs nothing; at least twice viewer_link_max_chars, so an address under the pointer is read whole" },
+  viewerLinkMaxChars: { unit: "characters", why: "the longest web address the file view finds, as written; at most link_open_max_chars, so an address it finds is never longer than main takes" },
+  viewerLinkClickSlopPx: { unit: "px", why: "how far the pointer may move between a modifier press on a file view's link and its release for the link to open; a longer move opens nothing" },
   windowReviewAckMs: { unit: "ms", why: "a window asked to review its unsaved files says it has the request within this long; one that does not, with unsaved files, stops the quit or close" },
   binarySniffBytes: { unit: "bytes", why: "NUL in the first bytes → binary" },
   diffMaxBytes: { unit: "bytes", why: "either diff side larger → not rendered" },

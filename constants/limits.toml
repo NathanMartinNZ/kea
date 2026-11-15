@@ -1597,6 +1597,21 @@ value = 8
 unit = "hand-offs"
 why = "pages and links main is handing to the browser at once, from every window; one more is refused at once"
 
+[viewer_link_scan_chars]
+value = 4096
+unit = "characters"
+why = "of a line in the file view, the characters read around the one under the pointer or at the cursor to find a web address, half on each side, so a long minified line costs nothing; at least twice viewer_link_max_chars, so an address under the pointer is read whole"
+
+[viewer_link_max_chars]
+value = 2048
+unit = "characters"
+why = "the longest web address the file view finds, as written; at most link_open_max_chars, so an address it finds is never longer than main takes"
+
+[viewer_link_click_slop_px]
+value = 4
+unit = "px"
+why = "how far the pointer may move between a modifier press on a file view's link and its release for the link to open; a longer move opens nothing"
+
 [window_review_ack_ms]
 value = 2000
 unit = "ms"

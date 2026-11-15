@@ -18,6 +18,9 @@ unscoped one, so the scope is not provided while the document is read-only).
 An editable document's line under the header says what is pressing about its text (changed on disk where the user
 edited, not saved, deleted on disk, closing) with its actions; "Read-only" after the language gives its reason as a
 tooltip.
+
+The link tip: the web address under the pointer while the link modifier is held, and what a click does with it
+(`linkView.ts` finds it; the controller holds its plain values). Drawn anew for each link, so its delay starts again.
 -->
 <script lang="ts">
   import { onDestroy, tick, untrack } from 'svelte'
@@ -247,4 +250,13 @@ tooltip.
       </p>
     {/if}
   </div>
+  {#if ctl.linkTip}
+    {@const tip = ctl.linkTip}
+    {#key tip.key}
+      <div class="link-tip viewer-link-tip" role="tooltip" style:left="{tip.x}px" style:top="{tip.y}px">
+        <span>{tip.target}</span>
+        <span class="viewer-link-tip-action">{tip.action}</span>
+      </div>
+    {/key}
+  {/if}
 </div>

@@ -292,6 +292,7 @@ describe('cursors', () => {
         '.viewer .cm-editor .cm-foldPlaceholder',
         '.viewer .cm-editor .cm-collapsedLines',
         '.viewer .kea-change-ruler',
+        '.viewer .cm-editor .cm-link-active',
         '.viewer-preview a[data-path]',
         '.viewer-preview a[href]',
         '.kea-terminal .xterm.enable-mouse-events .xterm-cursor-pointer',

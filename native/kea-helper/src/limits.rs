@@ -629,6 +629,12 @@ pub const BROWSER_HANDOFF_DEADLINE_MS: u64 = 8000;
 pub const BROWSER_ANSWER_DEADLINE_MS: u64 = 12000;
 /// pages and links main is handing to the browser at once, from every window; one more is refused at once (hand-offs)
 pub const BROWSER_HANDOFFS_MAX: u64 = 8;
+/// of a line in the file view, the characters read around the one under the pointer or at the cursor to find a web address, half on each side, so a long minified line costs nothing; at least twice viewer_link_max_chars, so an address under the pointer is read whole (characters)
+pub const VIEWER_LINK_SCAN_CHARS: u64 = 4096;
+/// the longest web address the file view finds, as written; at most link_open_max_chars, so an address it finds is never longer than main takes (characters)
+pub const VIEWER_LINK_MAX_CHARS: u64 = 2048;
+/// how far the pointer may move between a modifier press on a file view's link and its release for the link to open; a longer move opens nothing (px)
+pub const VIEWER_LINK_CLICK_SLOP_PX: u64 = 4;
 /// a window asked to review its unsaved files says it has the request within this long; one that does not, with unsaved files, stops the quit or close (ms)
 pub const WINDOW_REVIEW_ACK_MS: u64 = 2000;
 /// NUL in the first bytes → binary (bytes)
