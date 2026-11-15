@@ -150,6 +150,7 @@ export const darwin: MainOs = {
   // the app macOS opens web addresses with (the default browser the user chose), named by its path: `open` on the file
   // alone would use whatever app opens `.html` files, which may be an editor
   browser: {
+    route: 'open -a',
     openPage: async (file, via) => {
       const app = await via.app.getApplicationInfoForProtocol('https://').then(
         (info) => info.path,
@@ -157,7 +158,14 @@ export const darwin: MainOs = {
       )
       if (!app) return 'No default browser was found'
       try {
-        const r = await via.run('/usr/bin/open', ['-a', app, file], { pool: 'other', timeoutMs: L.editorLaunchTimeoutMs })
+        // main's deadline only takes a launch still queued out of the pool; `open` keeps its own timeout
+        const r = await via.run('/usr/bin/open', ['-a', app, file], {
+          pool: 'other',
+          timeoutMs: L.editorLaunchTimeoutMs,
+          queueSignal: via.queueSignal,
+          onStart: () => via.started(),
+        })
+        if (r.cancelled) return PAGE_NOT_OPENED
         return r.code === 0 && !r.timedOut ? null : r.stderr.trim().split('\n').at(-1) || PAGE_NOT_OPENED
       } catch {
         return PAGE_NOT_OPENED

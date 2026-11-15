@@ -585,7 +585,12 @@ export const linux: MainOs = {
   // the desktop's app for web pages (`xdg-open`'s handler for the page's type, which a desktop sets with its default
   // browser), started by Electron apart from Kea, so that a browser it starts in the foreground is never waited on
   browser: {
+    route: 'electron',
     openPage: async (file, via) => {
+      // main stopped waiting before Electron was called: nothing is started
+      if (via.queueSignal.aborted) return 'The page could not be opened'
+      // Electron's call cannot be taken back: from here main's deadline says the browser has not answered yet
+      via.called()
       const error = await via.shell.openPath(file).catch(() => 'The page could not be opened')
       return error === '' ? null : error
     },

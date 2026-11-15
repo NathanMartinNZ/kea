@@ -13,7 +13,8 @@
 // count, and the unsaved files a window rebuilt on Wayland hands over (`takeDocuments`). Ports and main's messages
 // arrive by window.postMessage from the preload, because contextBridge cannot carry MessagePorts.
 
-import { asCollectedResources, isCommandId, isReviewReason, zHandedDocuments, zUpdateState, zWindowHandoff, zWindowMenuNode, type CollectedResources, type CommandInvocation, type EditRole, type HandedDocuments, type MenuState, type ResourceReport, type ReviewReason, type UpdateState, type WindowHandoff, type WindowMenuNode } from '@kea/protocol'
+import { asCollectedResources, isCommandId, isReviewReason, L, zHandedDocuments, zUpdateState, zWindowHandoff, zWindowMenuNode, type CollectedResources, type CommandInvocation, type EditRole, type HandedDocuments, type MenuState, type ResourceReport, type ReviewReason, type UpdateState, type WindowHandoff, type WindowMenuNode } from '@kea/protocol'
+import { AnswerWait, BROWSER_DID_NOT_ANSWER } from './answerWait.ts'
 
 export type { HandedDocuments, ReviewReason }
 
@@ -85,7 +86,8 @@ let reporter: (() => ResourceReport) | null = null
 /** What this window hands the one main rebuilds in its place (the composer's drafts). */
 let handoffSource: (() => WindowHandoff) | null = null
 /** Open in Browser's request to main, while it is out (one at a time: a newer one replaces it). */
-let pageOpen: { reqId: number; done(message: string | null): void } | null = null
+// bounded: one request and its timer, at most L.browserAnswerDeadlineMs
+const pageWait = new AnswerWait(L.browserAnswerDeadlineMs, BROWSER_DID_NOT_ANSWER)
 /** Settings › Notifications' question to main, while it is out (one at a time: a newer one replaces it). */
 let notificationAsk: { reqId: number; done(denied: boolean): void } | null = null
 /** What answers main's review of the window's unsaved files (the viewer's); null: the bridge answers proceed. */
@@ -171,11 +173,8 @@ window.addEventListener('message', (e: MessageEvent) => {
       return
     }
     case 'pageOpened': {
-      const ask = pageOpen
-      if (!ask || ask.reqId !== d.reqId) return
-      pageOpen = null
       const m = (d as { message?: unknown }).message
-      ask.done(typeof m === 'string' ? m : null)
+      pageWait.answer(d.reqId, typeof m === 'string' ? m : null)
       return
     }
     case 'notificationState': {
@@ -397,15 +396,14 @@ export function pickFolder(purpose: 'add' | 'locate'): Promise<string | null> {
 
 /**
  * Open a web page of the session on screen (an absolute path) in the default browser. Main checks the path and opens
- * it; the answer is why not in words, or null once it is handed over (and for a request a newer one replaced).
+ * it; the answer is why not in words, or null once it is handed over (and for a request a newer one replaced). With no
+ * answer by L.browserAnswerDeadlineMs it says the browser did not answer.
  */
 export function openPage(path: string): Promise<string | null> {
-  return new Promise((resolve) => {
-    pageOpen?.done(null)
-    const reqId = nextReq++
-    pageOpen = { reqId, done: resolve }
-    window.kea.openPage(reqId, path)
-  })
+  const reqId = nextReq++
+  const answer = pageWait.begin(reqId)
+  window.kea.openPage(reqId, path)
+  return answer
 }
 
 /** Reveal a folder in the file manager (project.reveal, session.reveal). */

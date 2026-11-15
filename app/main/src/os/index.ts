@@ -254,15 +254,26 @@ export interface Report {
   platform(o: ReportInput): PlatformReport
 }
 
-/** What `browser` acts through: Electron's `app` and `shell`, and kit's `runProcess` (argv, never a shell string). */
+/**
+ * What `browser` acts through: Electron's `app` and `shell`, kit's `runProcess` (argv, never a shell string), and the
+ * hand-off main is waiting on (`browserHandoffs.ts`).
+ */
 export interface BrowserVia {
   app: Pick<App, 'getApplicationInfoForProtocol'>
   shell: Pick<Shell, 'openPath'>
-  run(file: string, args: readonly string[], o: RunProcessOptions): Promise<Pick<ProcessResult, 'code' | 'timedOut' | 'stderr'>>
+  run(file: string, args: readonly string[], o: RunProcessOptions): Promise<Pick<ProcessResult, 'code' | 'timedOut' | 'cancelled' | 'stderr'>>
+  /** Aborted when main stops waiting for the hand-off to start; passed to `run` as its `queueSignal`, so nothing started is stopped. */
+  queueSignal: AbortSignal
+  /** The route has made a call it cannot take back (Electron's), before it has started. */
+  called(): void
+  /** The route has started the hand-off. */
+  started(): void
 }
 
 /** `browser`: a web page of a worktree in the user's default browser (the viewer's Open in Browser). */
 export interface Browser {
+  /** How the hand-off goes, for the log line. */
+  readonly route: string
   /** Opens `file`, an absolute path main has checked, in the default browser: null once it is handed over, else why not in words. */
   openPage(file: string, via: BrowserVia): Promise<string | null>
 }

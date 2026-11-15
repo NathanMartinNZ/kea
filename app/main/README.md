@@ -63,13 +63,13 @@ granted is the sanitised clipboard write. The preload (`app/preload`) is the win
 Main accepts a message only from the main frame of one of Kea's own windows, and checks its payload before acting on
 it.
 
-- From the window: `kea:hello`, `kea:menuState`, `kea:openStream`, `kea:pickFolder`, `kea:reveal`,
+- From the window: `kea:hello`, `kea:menuState`, `kea:openStream`, `kea:pickFolder`, `kea:reveal`, `kea:openPage`,
   `kea:openSettingsFile`, `kea:openHomeItem`, `kea:mainCommand`, `kea:editRole`, `kea:openMenu`, `kea:quitChoice`,
   `kea:notificationState`, `kea:openNotificationSettings`, `kea:resources`, `kea:resourceReports`, `kea:handoff`,
   `kea:takeHandoff`, `kea:documents`, `kea:takeDocuments`, `kea:reviewAck`, `kea:reviewAnswer`, `kea:unsavedCount`,
   `kea:updateState`, `kea:checkUpdates`, `kea:restartToUpdate` and `kea:updateNoticeShown`.
 - To the window: `kea:rpc` and `kea:stream` (with their ports), `kea:streamError`, `kea:streamsReset`, `kea:coreAway`,
-  `kea:command`, `kea:history`, `kea:folder`, `kea:showSession`, `kea:quitSheet`, `kea:screenReader`, `kea:wake`,
+  `kea:command`, `kea:history`, `kea:folder`, `kea:pageOpened`, `kea:showSession`, `kea:quitSheet`, `kea:screenReader`, `kea:wake`,
   `kea:gpuReset`, `kea:lowMemory`, `kea:resources`, `kea:resourceReports`, `kea:notificationState`, `kea:handoffAsk`,
   `kea:giveDocuments`, `kea:handedDocuments`, `kea:review`, `kea:reviewDecided`, `kea:closeDone` and `kea:updateState`.
 
@@ -88,6 +88,7 @@ it.
 | `handoff.ts` | On Wayland a minimized window cannot be brought back, so Kea makes a new one in its place; the old window's composer drafts and unsaved files are handed to the new one (the files in memory only, the old window kept until the new one has them). A restart Kea makes itself carries the drafts the same way, through a file |
 | `external.ts`, `links.ts` | The one place a link leaves Kea for the system browser: `http`, `https` and `mailto` only |
 | `keaFile.ts` | `kea-file://`: serves an image only when its real path lies inside a working directory the window shows, it is a regular file, and it is no larger than `L.imageMaxBytes` |
+| `browserHandoffs.ts` | Main's hand-offs to the browser: each answered within `L.browserHandoffDeadlineMs` (one not started by then is dropped, one started is handed over, and nothing started is stopped), at most `L.browserHandoffsMax` at once, one page per window. Free of Electron |
 | `page.ts` | Open in Browser: a web page (`.html`, `.htm`, `.xhtml`) whose real path lies inside a working directory the asking window shows, a regular file without an execute bit, handed to the OS layer's `browser` (macOS: the app the system opens `https` addresses with; Linux: the desktop's app for the page's type) |
 | `resources.ts` | The resource report (each process's counters, collected on request), the footprint sampler (`kea-helper footprint`), and the hourly line in `<KEA_HOME>/logs/resources.ndjson` |
 | `watchdog.ts` | The memory watchdog: a soft and a hard limit per kind of process, from `constants/limits.toml`. Past a hard limit while the user is idle, it restarts core or ptyhost, reloads the window, or resets WebGL, once per episode and then not again until a cool-down has passed. A window with unsaved files is not reloaded: it is asked to save them (`kea:lowMemory`) |
@@ -136,6 +137,7 @@ is handed the Electron object it acts on, so the decisions are unit-tested in No
 | `installKind` | `resources/install-kind` | `resources/install-kind`; a tarball under the home folder is a `--user` install |
 | `updates` | Kea's updater where it can replace its own bundle, from the default home; otherwise the install command, with the reason | apt for a deb with Kea's apt source; otherwise the install command (`--no-repo` for an rpm or a deb without the source, `--user` for a home install) |
 | `packageWatch` | Not available | One `fs.watch` on `resources/` for a deb or rpm, settled before `app.asar` is compared |
+| `browser` | A checked page in the default browser: `open -a` with the app the system opens `https` addresses with | A checked page through Electron's `shell.openPath` (the desktop's app for its type) |
 | `report` | How Kea was installed and is updated, how terminals run and how their holders check their client, the window sandbox, the terminal renderer, the menu bar and Notification Center | How Kea was installed and is updated, how terminals detach, how strictly holders check their client, holder visibility, the window sandbox, the terminal renderer, the desktop and its services, idle and file watching |
 
 ## Test builds
@@ -143,7 +145,9 @@ is handed the Electron object it acts on, so the decisions are unit-tested in No
 `--kea-perf` is the switch the test and perf harnesses launch Kea with; a packaged build accepts it only when it was
 built with `--perf-probes`. Under it the window never takes keyboard focus, no dialog opens (the harness queues the
 folder a pick returns), and no link, folder or file is opened: each is logged or recorded instead.
-`--kea-perf-busy=<ms>:<everyMs>` stalls ptyhost on a schedule. A dev build run with `--kea-perf` also records
+`--kea-perf-busy=<ms>:<everyMs>` stalls ptyhost on a schedule. In a dev build, `--kea-perf-real-browser` beside it hands
+pages, links, the settings file and the home items to the system's handler for real (a test's stand-in handler); a
+packaged build ignores it. A dev build run with `--kea-perf` also records
 notifications instead of posting them and installs `globalThis.__keaTest` (`testHooks.ts`), through which
 `tests/support/app.ts` reads what was recorded and drives main; core and ptyhost then load
 `tests/support/app-child-hooks.cjs` through `NODE_OPTIONS`. Under those hooks `--kea-test-install-kind=<kind>`,

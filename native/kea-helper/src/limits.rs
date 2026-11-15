@@ -621,6 +621,12 @@ pub const VIEWER_UNSAVED_BYTES: u64 = 33554432;
 pub const VIEWER_HISTORY_MAX_BYTES: u64 = 4194304;
 /// what one undo step's change or stored selection range is counted as, beside the characters it holds (bytes)
 pub const VIEWER_HISTORY_ENTRY_BYTES: u64 = 64;
+/// how long main waits for a page or link to start opening in the browser, a queued launch included; one not started by then is dropped and said not to have answered, one started is handed over (ms)
+pub const BROWSER_HANDOFF_DEADLINE_MS: u64 = 8000;
+/// how long the window waits for main's answer to a page or link it asked to open; with none by then it says the browser did not answer (ms)
+pub const BROWSER_ANSWER_DEADLINE_MS: u64 = 12000;
+/// pages and links main is handing to the browser at once, from every window; one more is refused at once (hand-offs)
+pub const BROWSER_HANDOFFS_MAX: u64 = 8;
 /// a window asked to review its unsaved files says it has the request within this long; one that does not, with unsaved files, stops the quit or close (ms)
 pub const WINDOW_REVIEW_ACK_MS: u64 = 2000;
 /// NUL in the first bytes → binary (bytes)

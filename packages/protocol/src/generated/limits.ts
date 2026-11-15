@@ -622,6 +622,12 @@ export const L = {
   viewerHistoryMaxBytes: 4194304,
   /** what one undo step's change or stored selection range is counted as, beside the characters it holds (bytes) */
   viewerHistoryEntryBytes: 64,
+  /** how long main waits for a page or link to start opening in the browser, a queued launch included; one not started by then is dropped and said not to have answered, one started is handed over (ms) */
+  browserHandoffDeadlineMs: 8000,
+  /** how long the window waits for main's answer to a page or link it asked to open; with none by then it says the browser did not answer (ms) */
+  browserAnswerDeadlineMs: 12000,
+  /** pages and links main is handing to the browser at once, from every window; one more is refused at once (hand-offs) */
+  browserHandoffsMax: 8,
   /** a window asked to review its unsaved files says it has the request within this long; one that does not, with unsaved files, stops the quit or close (ms) */
   windowReviewAckMs: 2000,
   /** NUL in the first bytes → binary (bytes) */
@@ -1096,6 +1102,9 @@ export const LIMIT_META: Record<LimitName, { unit: string; why: string; whyLinux
   viewerUnsavedBytes: { unit: "bytes", why: "the text, last saved text and undo history of a window's unsaved files together; at this size further files open read-only" },
   viewerHistoryMaxBytes: { unit: "bytes", why: "one document's undo history; past this it is cleared and the notice says so" },
   viewerHistoryEntryBytes: { unit: "bytes", why: "what one undo step's change or stored selection range is counted as, beside the characters it holds" },
+  browserHandoffDeadlineMs: { unit: "ms", why: "how long main waits for a page or link to start opening in the browser, a queued launch included; one not started by then is dropped and said not to have answered, one started is handed over" },
+  browserAnswerDeadlineMs: { unit: "ms", why: "how long the window waits for main's answer to a page or link it asked to open; with none by then it says the browser did not answer" },
+  browserHandoffsMax: { unit: "hand-offs", why: "pages and links main is handing to the browser at once, from every window; one more is refused at once" },
   windowReviewAckMs: { unit: "ms", why: "a window asked to review its unsaved files says it has the request within this long; one that does not, with unsaved files, stops the quit or close" },
   binarySniffBytes: { unit: "bytes", why: "NUL in the first bytes → binary" },
   diffMaxBytes: { unit: "bytes", why: "either diff side larger → not rendered" },

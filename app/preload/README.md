@@ -12,7 +12,8 @@ registers a listener across the bridge. The page's side is `app/renderer/src/lib
 
 `window.kea` holds two values: `platform` (version, architecture, perf build) and `handedOver` (the composer drafts a
 window rebuilt in place of another on Wayland takes over). `pathForFile` gives a dropped file's path. Everything else
-asks main for something: `hello`, `requestStream`, `setMenuState`, `pickFolder`, `reveal`, `openSettingsFile`,
+asks main for something: `hello`, `requestStream`, `setMenuState`, `pickFolder`, `reveal`, `openPage` (answered with
+why not in words, or nothing once handed over), `openSettingsFile`,
 `askNotificationState`, `openNotificationSettings`, `openHomeItem`, `mainCommand`, `editRole`, `openMenu` (Linux),
 `quitChoice`, `askResourceReports`, `sendResources`, `handOver`, `giveDocuments` and `takeDocuments` (a rebuilt window's
 unsaved files), `reviewAck` and `answerReview` (the review of unsaved files) and `setUnsavedCount`. Main validates what

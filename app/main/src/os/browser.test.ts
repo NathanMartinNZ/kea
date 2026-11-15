@@ -7,7 +7,7 @@ import { linux } from './linux.ts'
 
 type Call = { kind: string; args: unknown[] }
 
-function via(o: { app?: () => Promise<{ path: string }>; run?: () => Promise<{ code: number | null; timedOut: boolean; stderr: string }>; openPath?: () => Promise<string> }): { via: BrowserVia; calls: Call[] } {
+function via(o: { app?: () => Promise<{ path: string }>; run?: () => Promise<{ code: number | null; timedOut: boolean; stderr: string; cancelled?: boolean }>; openPath?: () => Promise<string> }): { via: BrowserVia; calls: Call[] } {
   const calls: Call[] = []
   return {
     calls,
@@ -26,8 +26,11 @@ function via(o: { app?: () => Promise<{ path: string }>; run?: () => Promise<{ c
       },
       run: (file, args) => {
         calls.push({ kind: 'run', args: [file, [...args]] })
-        return (o.run ?? (() => Promise.resolve({ code: 0, timedOut: false, stderr: '' })))()
+        return (o.run ?? (() => Promise.resolve({ code: 0, timedOut: false, stderr: '' })))().then((r) => ({ cancelled: false, ...r }))
       },
+      queueSignal: new AbortController().signal,
+      called: () => undefined,
+      started: () => undefined,
     },
   }
 }

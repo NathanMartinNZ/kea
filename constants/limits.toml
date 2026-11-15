@@ -1577,6 +1577,21 @@ value = 64
 unit = "bytes"
 why = "what one undo step's change or stored selection range is counted as, beside the characters it holds"
 
+[browser_handoff_deadline_ms]
+value = 8000
+unit = "ms"
+why = "how long main waits for a page or link to start opening in the browser, a queued launch included; one not started by then is dropped and said not to have answered, one started is handed over"
+
+[browser_answer_deadline_ms]
+value = 12000
+unit = "ms"
+why = "how long the window waits for main's answer to a page or link it asked to open; with none by then it says the browser did not answer"
+
+[browser_handoffs_max]
+value = 8
+unit = "hand-offs"
+why = "pages and links main is handing to the browser at once, from every window; one more is refused at once"
+
 [window_review_ack_ms]
 value = 2000
 unit = "ms"

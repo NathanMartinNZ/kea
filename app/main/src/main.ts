@@ -18,6 +18,7 @@ import { installFrontGuard } from './frontGuard.ts'
 import { keaHome } from './home.ts'
 import { serveKeaFile, VisibleDirs } from './keaFile.ts'
 import { PAGE_REFUSALS, resolvePage } from './page.ts'
+import { BrowserHandoffs } from './browserHandoffs.ts'
 import { CoreAvailability, RpcPortHandout, shutdownChildren } from './lifecycle.ts'
 import { findMenuItem, menuTemplate, windowMenuState, windowMenuTree, type WindowMenuState } from './menu.ts'
 import { BackgroundTray, DockIcon, isQuitChoice, lastWindowAction, markQuitSheetSeen, MenuBarItemRemoval, QuitSheetAnswer, quitAction, quitSheetSeen, trayTemplate, trayTitle, trayTooltip, type QuitChoice } from './menuBar.ts'
@@ -71,6 +72,11 @@ const VERSION = app.getVersion()
 const PERF = process.argv.includes('--kea-perf') // tools/perf: exposes window.__keaPerf in the renderer
 // tools/perf on a display of its own (Linux's Xvfb), whose clipboard is the run's: the Edit roles run for real there
 const PERF_CLIPBOARD = PERF && process.argv.includes('--kea-perf-clipboard')
+// a dev build under the harness hands pages, links, the settings file and the home items to the system's handler for
+// real (a test's stand-in), instead of logging or recording them; a packaged build never does
+const PERF_REAL_BROWSER = DEV && PERF && process.argv.includes('--kea-perf-real-browser')
+/** Under the harness nothing is handed to the system (it would take the keyboard), unless the run asked for it. */
+const HOLD_OPENS = PERF && !PERF_REAL_BROWSER
 const DIST = __dirname // dist/app: main.cjs, preload.cjs, core.cjs, ptyhost.cjs, renderer/
 const RENDERER_DIR = path.join(DIST, 'renderer')
 const HELPER = app.isPackaged ? path.join(process.resourcesPath, 'kea-helper') : path.resolve(DIST, '..', '..', 'native', 'kea-helper', 'target', 'release', 'kea-helper')
@@ -331,38 +337,50 @@ ipcMain.on('kea:reveal', (e, p: unknown) => {
   else shell.showItemInFolder(ok)
 })
 
+// Main's hand-offs to the browser: each answered by its deadline, at most L.browserHandoffsMax at once, one page per
+// window (browserHandoffs.ts). A route that settles after its answer is logged.
+const handoffs = new BrowserHandoffs({
+  deadlineMs: L.browserHandoffDeadlineMs,
+  max: L.browserHandoffsMax,
+  onLate: (kind, message) => log.info('browser hand-off settled late', { kind, route: mainOs.browser.route, result: message ?? 'handed over' }),
+})
+
 // Open in Browser (viewer.openInBrowser): a web page inside a working directory this window shows (page.ts), in the
 // default browser; the answer carries why not in words, or null. Under --kea-perf no browser opens (it would take the
-// keyboard): the request is logged instead
+// keyboard): the request is logged instead, unless the run hands off for real
 ipcMain.on('kea:openPage', (e, req: unknown) => {
   const w = fromOurWindow(e)
   const { reqId, path: asked } = (typeof req === 'object' && req !== null ? req : {}) as { reqId?: unknown; path?: unknown }
   if (!w || !Number.isInteger(reqId)) return
   const dirs = keaFileDirs.of(w.webContents.id)
   const answer = (message: string | null) => {
+    log.info('browser hand-off', { kind: 'page', route: mainOs.browser.route, answer: message ?? 'handed over' })
     if (!w.isDestroyed()) w.webContents.send('kea:pageOpened', { reqId, message })
   }
-  void (async () => {
-    const r = await resolvePage(asked, dirs)
-    if (!r.ok) {
-      log.warn('page not opened', { why: r.why })
-      return answer(PAGE_REFUSALS[r.why])
-    }
-    if (PERF) {
-      log.info('page not opened (perf)', { path: r.real })
-      return answer(null)
-    }
-    const message = await mainOs.browser.openPage(r.real, { app, shell, run: runProcess })
-    if (message !== null) log.warn('page not opened', { why: 'browser' })
-    answer(message)
-  })()
+  handoffs.start(
+    w.webContents.id,
+    'page',
+    async (h) => {
+      const r = await resolvePage(asked, dirs)
+      if (!r.ok) {
+        log.warn('page not opened', { why: r.why })
+        return PAGE_REFUSALS[r.why]
+      }
+      if (HOLD_OPENS) {
+        log.info('page not opened (perf)', { path: r.real })
+        return null
+      }
+      return mainOs.browser.openPage(r.real, { app, shell, run: runProcess, queueSignal: h.queueSignal, called: h.called, started: h.started })
+    },
+    answer,
+  )
 })
 
 // the settings banner's "Open settings.json": this home's file, nothing else
 ipcMain.on('kea:openSettingsFile', (e) => {
   if (!fromOurWindow(e)) return
   const file = path.join(HOME, 'settings.json')
-  if (PERF) log.info('settings file not opened (perf)', { exists: fs.existsSync(file) })
+  if (HOLD_OPENS) log.info('settings file not opened (perf)', { exists: fs.existsSync(file) })
   else if (fs.existsSync(file)) void shell.openPath(file)
   else shell.showItemInFolder(HOME)
 })
@@ -375,7 +393,7 @@ ipcMain.on('kea:openHomeItem', (e, which: unknown) => {
   const name = typeof which === 'string' && Object.hasOwn(HOME_ITEMS, which) ? HOME_ITEMS[which] : undefined
   if (!name) return
   const item = path.join(HOME, name)
-  if (PERF) log.info('home item not opened (perf)', { item: name, exists: fs.existsSync(item) })
+  if (HOLD_OPENS) log.info('home item not opened (perf)', { item: name, exists: fs.existsSync(item) })
   else if (fs.existsSync(item)) void shell.openPath(item)
   else shell.showItemInFolder(HOME)
 })
@@ -536,6 +554,7 @@ function disconnect(connId: number): void {
   menuStates.delete(connId)
   connections.delete(connId)
   keaFileDirs.drop(connId)
+  handoffs.forget(connId) // its unstarted hand-offs are dropped; started ones answer no one
   rendererReports.cancelFrom(connId) // its renderer will never answer
   ready('core')?.post({ k: 'disconnect', connId })
   ready('ptyhost')?.post({ k: 'disconnect', connId })
@@ -766,7 +785,7 @@ const electronSurfaces: NativeSurfaces = {
 const recorder = DEV && PERF ? new RecordingSurfaces() : null
 // Where a link goes (external.ts). Under `--kea-perf` it is recorded, never opened: a browser would take the keyboard,
 // as the file manager would for a reveal.
-const openedLinks = PERF ? new RecordingOpener() : null
+const openedLinks = HOLD_OPENS ? new RecordingOpener() : null
 const browser: ExternalOpener = openedLinks ?? { open: (url) => void shell.openExternal(url) }
 /** A click activates Kea (reopening the window from the menu bar) on that session's Agent tab. */
 const notifier = new Notifier({ native: recorder ?? electronSurfaces, log, onClick: (sessionId) => openKea(sessionId ? { sessionId } : {}, 'notification') })
@@ -1318,6 +1337,7 @@ registerSingletonGauge('main.reportRequests', () => rendererReports.size + (chil
 registerSingletonGauge('main.menuBarItem', () => (background.tray ? 1 : 0))
 registerSingletonGauge('main.notifications', () => notifier.size)
 registerSingletonGauge('main.keaFileDirs', () => keaFileDirs.size)
+registerSingletonGauge('main.browserHandoffs', () => handoffs.gauge())
 registerSingletonGauge('main.watchdog', () => watchdog.counts())
 registerSingletonGauge('main.updates', () => updates.counts())
 registerSingletonGauge('main.packageWatch', () => (packageWatch ? 1 : 0))
@@ -1632,7 +1652,7 @@ void app.whenReady().then(() => {
       // what would have reached the system, and a click on a live notification
       notifications: () => ({ log: [...recorder!.log], live: notifier.liveTags(), badge: recorder!.badge, permissionDenied: notifier.permissionDenied }),
       clickNotification: (tag) => recorder!.click(tag),
-      opened: () => [...openedLinks!.log],
+      opened: () => [...(openedLinks?.log ?? [])],
       focus: (v) => {
         focusOverride = v
         sendFocus()
