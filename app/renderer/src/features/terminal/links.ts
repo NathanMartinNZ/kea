@@ -1,39 +1,11 @@
-// Link policy: `⌘`-click opens OSC 8 and detected links in the default browser only when their scheme is http, https or
-// mailto. Any other target is not opened: hovering shows the full target and `⌘`-click offers "Copy link". Main checks
-// the scheme again before opening.
-//
 // File references: `path`, `path:line`, `path:line:col` and `path(line,col)` printed in a session's terminal,
 // and `file:` targets, are links when core says they are files inside the session's worktree
 // (`editor.resolvePaths`); a `⌘`-click opens the editor at that position. This file is the pure part: finding the
 // references in a line, mapping them onto the terminal's cells, and remembering what core answered. The wiring to
-// xterm, core and the editor is `fileLinks.ts`.
+// xterm, core and the editor is `fileLinks.ts`. Web addresses follow the link policy (`lib/linkPolicy.ts`).
 
 import { L } from '@kea/protocol'
-
-export const OPENABLE_SCHEMES: readonly string[] = ['http:', 'https:', 'mailto:']
-
-export type LinkAction = { open: true; url: string } | { open: false; target: string; reason: 'scheme' | 'malformed' }
-
-// C0, DEL, C1 and the bidi controls that can make a target read as something else
-const CONTROL = /[\u0000-\u001f\u007f-\u009f‎‏‪-‮⁦-⁩]/
-
-export function linkAction(target: string): LinkAction {
-  if (CONTROL.test(target) || /\s/.test(target.trim()) || target.trim() !== target) return { open: false, target, reason: 'malformed' }
-  let u: URL
-  try {
-    u = new URL(target)
-  } catch {
-    return { open: false, target, reason: 'malformed' }
-  }
-  if (!OPENABLE_SCHEMES.includes(u.protocol)) return { open: false, target, reason: 'scheme' }
-  if (u.protocol !== 'mailto:' && !u.hostname) return { open: false, target, reason: 'malformed' }
-  return { open: true, url: u.href }
-}
-
-/** The target as hover text: the full string, control characters made visible, so nothing can hide in it. */
-export function linkHoverText(target: string): string {
-  return target.replace(new RegExp(CONTROL.source, 'g'), (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`)
-}
+import { CONTROL } from '../../lib/linkPolicy.ts'
 
 // ── file references ──────────────────────────────────────────────────────────────────────────────
 

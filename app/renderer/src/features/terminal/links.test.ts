@@ -1,6 +1,7 @@
 import { L } from '@kea/protocol'
 import { describe, expect, it } from 'vitest'
-import { detectFileRefs, fileLinks, fileRefText, isFileUrl, linkAction, LinkChecks, linkHoverText, logicalLine, refRange, type BufferLike, type ResolvePaths } from './links.ts'
+import { linkAction, linkHoverText } from '../../lib/linkPolicy.ts'
+import { detectFileRefs, fileLinks, fileRefText, isFileUrl, LinkChecks, logicalLine, refRange, type BufferLike, type ResolvePaths } from './links.ts'
 
 describe('link policy', () => {
   it('U-TERM-13 · http, https and mailto open; every other scheme (and file: until sessions exist) is not opened, so Copy link is offered', () => {

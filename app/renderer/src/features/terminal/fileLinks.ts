@@ -9,11 +9,12 @@
 
 import type { ILink, ILinkProvider, Terminal } from '@xterm/xterm'
 import type { Disposable } from '@kea/terminal'
+import { linkHoverText } from '../../lib/linkPolicy.ts'
 import { call } from '../../lib/rpc.ts'
 import { modClick } from '../commands/keys.ts'
 import { openInEditor } from '../editor/open.ts'
 import { sessions, terminalsList } from '../sessions/state.svelte.ts'
-import { fileLinks, fileRefText, isFileUrl, LinkChecks, linkHoverText, logicalLine, refRange } from './links.ts'
+import { fileLinks, fileRefText, isFileUrl, LinkChecks, logicalLine, refRange } from './links.ts'
 import { terminalUi } from './ui.svelte.ts'
 
 /** What core answered lately, for every terminal of the window (one cache: the key carries the session). */
