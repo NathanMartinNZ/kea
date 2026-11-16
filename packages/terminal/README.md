@@ -40,6 +40,13 @@ xterm.js has no public API, the tests read its internals, but only to verify sta
   SO and `ESC n` could be applied out of order. So all of it — designations, shifts, the DECSC/DECRC/1049 slots, DECSTR
   and RIS — is tracked in byte order by the same scanner that finds ground state. Feed it in the mirror's write
   callback, so it describes the same seq as the mirror.
+- **The parser's state never depends on how output is split.** xterm.js reads `ESC [` and what follows in one go when
+  they arrive in one write. Without the patch, a control byte straight after `ESC [` leaves it one state further on
+  than byte-by-byte reading, so a private prefix after it (`ESC [ SI ? 1 h`) is ignored in one write and applied when
+  split.
+  Both xterm.js packages are patched (`patches/`) to stay where byte-by-byte reading is. The scanner then ports only
+  the byte-by-byte table, and the mirror and the renderer, which receive the same bytes in different pieces, reach the
+  same state.
 - **Colour overrides are in the trailer.** A program's OSC 4/10/11/12 changes are re-applied after a restore, so colour
   queries answer the same before and after a rebuild.
 - **Tab stops are tracked per screen, as xterm.js keeps them.** HTS and TBC are hooked; a resize lays new stops from the

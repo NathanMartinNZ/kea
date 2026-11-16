@@ -6,7 +6,9 @@
 // sequence in progress, no synchronized-output (DEC 2026) block open. `VtScanner` runs the same state machine as
 // xterm.js — the transition table below is a port of `common/parser/EscapeSequenceParser.ts#VT500_TRANSITION_TABLE`
 // and the decoder of `common/input/TextDecoder.ts#Utf8ToUtf32` at the pinned commit — over the same bytes the mirror
-// parses, so the two agree on where every sequence ends.
+// parses, so the two agree on where every sequence ends. xterm.js reads `ESC [` and what follows in one go when they
+// arrive in one write; it is patched (`patches/`) to stay in CSI_ENTRY when it takes nothing after `ESC [`, so this
+// byte-by-byte table holds however the bytes are split into writes.
 //
 // Character sets (G0–G3 designations, GL shifts incl. SI/SO, and their DECSC/DECRC save slots) are tracked here
 // rather than by parser hooks, because SI/SO are C0 controls and xterm.js's public parser API cannot hook C0. Feed the

@@ -68,6 +68,7 @@ package's licence; Kea's changes in them are under Kea's MIT licence.
 |---|---|---|---|
 | `@parcel__watcher@2.6.0.patch` | [@parcel/watcher](https://github.com/parcel-bundler/watcher) 2.6.0 | MIT | © 2017-present Devon Govett |
 | `@xterm__xterm@6.1.0-beta.304.patch` | [@xterm/xterm](https://github.com/xtermjs/xterm.js) 6.1.0-beta.304 | MIT | © The xterm.js authors (see above); bundled code © Microsoft Corporation, MIT |
+| `@xterm__headless@6.1.0-beta.303.patch` | @xterm/headless 6.1.0-beta.303 | MIT | © The xterm.js authors (see above); bundled code © Microsoft Corporation, MIT |
 | `@xterm__addon-serialize@0.15.0-beta.301.patch` | @xterm/addon-serialize 0.15.0-beta.301 | MIT | © The xterm.js authors; bundled code © Microsoft Corporation, MIT |
 | `@xterm__addon-webgl@0.20.0-beta.300.patch` | @xterm/addon-webgl 0.20.0-beta.300 | MIT | © 2018 The xterm.js authors; bundled code © Microsoft Corporation, MIT |
 | `svelte@5.57.2.patch` | [svelte](https://github.com/sveltejs/svelte) 5.57.2 | MIT | © 2016-2025 Svelte Contributors |

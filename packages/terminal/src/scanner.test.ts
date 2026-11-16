@@ -134,6 +134,35 @@ describe('ground-state scanner', () => {
       { numRuns: 150 },
     )
   })
+
+  // xterm.js reads `ESC [` and what follows in one go when they arrive in one write; a control byte or DEL straight
+  // after `ESC [` must leave it where reading byte by byte does, or a private prefix after it is ignored
+  it('U-PTY-76 · a control byte between ESC [ and a private prefix is read the same in one write, in pieces and byte by byte', () => {
+    const input = [27, 91, 15, 63, 240, 159, 152, 128] // ESC [ SI ? 😀
+    for (const size of [input.length, 3, 1]) {
+      const t = xterm()
+      const s = new VtScanner()
+      for (let i = 0; i < input.length; i += size) {
+        const chunk = Uint8Array.from(input.slice(i, i + size))
+        writeSync(t, chunk)
+        s.feed(chunk)
+        const x = internals(t)
+        expect(s.parserIdle, `pieces of ${size}, after byte ${i + chunk.length}`).toBe(x.parserState === 0 && !x.utf8Pending)
+      }
+      expect(internals(t).parserState, `pieces of ${size}: ground at the end`).toBe(0)
+    }
+    for (const pieces of [['\x1b[\x0f?1h'], ['\x1b[', '\x0f?1h']]) {
+      const t = xterm()
+      for (const p of pieces) writeSync(t, bytes(p))
+      expect(t.modes.applicationCursorKeysMode, `application cursor keys from ${JSON.stringify(pieces)}`).toBe(true)
+    }
+    const t = xterm()
+    const s = new VtScanner()
+    const sync = bytes('\x1b[\x7f?2026h')
+    writeSync(t, sync)
+    s.feed(sync)
+    expect({ xterm: t.modes.synchronizedOutputMode, scanner: s.syncOpen }).toEqual({ xterm: true, scanner: true })
+  })
 })
 
 describe('character sets', () => {
