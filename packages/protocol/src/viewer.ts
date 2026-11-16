@@ -301,16 +301,23 @@ export type SaveResult = z.infer<typeof zSaveResult>
 /**
  * The kinds of file reference the viewer finds in a file's text, each resolved by its own rules:
  *   import      a JavaScript or TypeScript module specifier: relative, an alias of the file's tsconfig or jsconfig,
- *               from its `baseUrl`, or a root path; a bare package is none
+ *               from its `baseUrl`, a `#` import of its package, a package of its workspace, or a root path; any
+ *               other bare package is none
  *   style       a stylesheet's `@import`, `@use`, `@forward` or `url()`, with Sass's partials
  *   markup      an HTML `src` or `href`
  *   markdown    a Markdown link's target, already a path of the worktree (the preview's resolver gives it)
  *   json        a JSON string starting `./` or `../`
  *   extends     a tsconfig's or jsconfig's `extends`: relative, or a package's config under the worktree's `node_modules`
  *   reference   a tsconfig's `references[].path`: a config, or a folder holding `tsconfig.json`
+ *   python      a Python module of `import a.b` or `from .a import b`: relative by its dots, else from the file's
+ *               top package's folder, the worktree's root or its `src/`
+ *   rust        a Rust `mod name;`: beside a crate root or a `mod.rs`, else in the declaring file's own folder
+ *   include     a C, C++ or Objective-C `#include "…"` or `#import "…"`: from the file's folder, then the
+ *               worktree's root, `include/` and `src/`
+ *   ruby        a Ruby `require_relative`, from the file's folder, `.rb` added
  *   path        a path as a terminal prints it: relative to the file's folder or the worktree, absolute, `~/…`, `file:`
  */
-export const REF_FAMILIES = ['import', 'style', 'markup', 'markdown', 'json', 'extends', 'reference', 'path'] as const
+export const REF_FAMILIES = ['import', 'style', 'markup', 'markdown', 'json', 'extends', 'reference', 'python', 'rust', 'include', 'ruby', 'path'] as const
 export type RefFamily = (typeof REF_FAMILIES)[number]
 
 /** One file reference as written, and the position it names (1-based), if any. */

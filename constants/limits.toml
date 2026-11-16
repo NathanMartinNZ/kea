@@ -1657,6 +1657,21 @@ value = 64
 unit = "configs"
 why = "parsed configs core keeps for file references, by real path, modification time and size, least recently used out; a session's go when no window shows it"
 
+[viewer_workspace_listings_max]
+value = 64
+unit = "folders"
+why = "folders core lists to expand a workspace's package globs for one question about file references; a workspace cut here answers not checked for a package it did not find"
+
+[viewer_workspace_entries_max]
+value = 1024
+unit = "entries"
+why = "entries core reads from one folder's listing while expanding a workspace's package globs; a larger folder is cut, as a workspace cut by its listings is"
+
+[viewer_workspace_packages_max]
+value = 128
+unit = "packages"
+why = "package folders a workspace's globs give for one question, each package.json read at most once to match an import's package name; more cut the workspace"
+
 [window_review_ack_ms]
 value = 2000
 unit = "ms"

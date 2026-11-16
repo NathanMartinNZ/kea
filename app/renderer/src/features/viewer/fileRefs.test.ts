@@ -107,6 +107,39 @@ describe('file references in the viewer’s text', () => {
     expect(at("  'a': '../b.json5',", 'b.json5', { lang: 'json5', path: 'c.json5' })?.spec).toBe('../b.json5')
   })
 
+  it('U-FV-39 · Python, Rust, C and Ruby: a line’s import or from module, mod name;, #include "…" or #import "…" and require_relative; <…>, an inline mod, a comment, an interpolation and a cut statement are none', () => {
+    const py: RefScope = { lang: 'python', path: 'app/views.py' }
+    expect(at('from .models import User', 'models', py)).toEqual({ family: 'python', spec: '.models', text: '.models' })
+    expect(at('    from ..core.db import (', 'core', py)?.spec).toBe('..core.db')
+    expect(at('from . import utils', '.', py)?.spec).toBe('.')
+    expect(list('import os.path as p, app.models, sys  # stdlib', py)).toEqual([
+      ['python', 'os.path'],
+      ['python', 'app.models'],
+      ['python', 'sys'],
+    ])
+    expect(list('import a; import b', py), 'only the statement at the line’s start').toEqual([['python', 'a']])
+    expect(list('# from app import models', py)).toEqual([])
+    expect(list('x = "from app import models"', py)).toEqual([])
+    const rs: RefScope = { lang: 'rust', path: 'src/lib.rs' }
+    expect(at('pub(crate) mod parser;', 'parser', rs)).toEqual({ family: 'rust', spec: 'parser', text: 'parser' })
+    expect(at('#[cfg(test)] mod tests;', 'tests', rs)?.spec).toBe('tests')
+    expect(at('mod r#type;', 'type', rs)?.spec).toBe('type')
+    expect(list('mod inline { fn f() {} }', rs)).toEqual([])
+    const c: RefScope = { lang: 'cpp', path: 'src/main.cpp' }
+    expect(at('#include "util/strings.h"', 'util', c)).toEqual({ family: 'include', spec: 'util/strings.h', text: 'util/strings.h' })
+    expect(at('#  include "a.h" // why', 'a.h', { lang: 'c', path: 'a.c' })?.spec).toBe('a.h')
+    expect(at('#import "AppDelegate.h"', 'App', { lang: 'objective-c', path: 'main.m' })?.spec).toBe('AppDelegate.h')
+    expect(list('#include <vector>', c)).toEqual([])
+    const rb: RefScope = { lang: 'ruby', path: 'lib/app.rb' }
+    expect(at("require_relative '../config/boot'", 'config', rb)).toEqual({ family: 'ruby', spec: '../config/boot', text: '../config/boot' })
+    expect(at('require_relative("helpers")', 'helpers', rb)?.spec).toBe('helpers')
+    expect(list('require_relative "#{dir}/x"', rb).filter(([f]) => f === 'ruby')).toEqual([])
+    // a statement at the line's start is not known in a slice cut there
+    expect(refsIn({ text: 'mod parser;', cutStart: true, cutEnd: false }, rs)).toEqual([])
+    // none in another language
+    expect(list('#include "a.h"', ts)).toEqual([])
+  })
+
   it('U-FV-39 · paths: in code a path needs a folder or a position, never name(line,col): console.log, this.doc and foo.bar(1, 2) are none, README.md:3 in a comment is one; in prose a bare name.ext is one', () => {
     expect(list('console.log(this.doc, foo.bar(1, 2))', ts)).toEqual([])
     expect(at('// see README.md:3 for more', 'README', ts)).toEqual({ family: 'path', spec: 'README.md', text: 'README.md:3', line: 3 })

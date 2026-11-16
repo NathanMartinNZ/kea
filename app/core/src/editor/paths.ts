@@ -60,6 +60,8 @@ export function absoluteOf(cwd: string, candidate: string, home: string): string
 export interface PathFs {
   realpath(p: string): Promise<string>
   stat(p: string): Promise<{ isFile(): boolean }>
+  /** A folder's entries, read one at a time (the viewer's workspace globs); without it no folder is listed. */
+  opendir?(p: string): Promise<AsyncIterable<{ name: string; isDirectory(): boolean }>>
 }
 
 export interface PathChecksOptions {

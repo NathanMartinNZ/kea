@@ -107,8 +107,11 @@ export class ConfigReader {
     this.parsed.clear()
   }
 
-  /** The JSON at `abs` (in `{ json }`), or null when it is missing, outside the worktree, not a regular file, too large or broken. */
-  read(r: ReaderContext, abs: string): Promise<{ json: unknown } | null | NotChecked> {
+  /**
+   * The JSON at `abs` (in `{ json }`), or null when it is missing, outside the worktree, not a regular file, too large or
+   * broken. `parse` reads a file of another form (a path is always read by the same one); null is broken.
+   */
+  read(r: ReaderContext, abs: string, parse: (text: string) => unknown = parseConfig): Promise<{ json: unknown } | null | NotChecked> {
     return r.req.check(abs, async () => {
       const real = await r.req.fs.realpath(abs)
       if (!within(r.root, real) || real === r.root) return null
@@ -125,7 +128,7 @@ export class ConfigReader {
           this.parsed.set(key, hit)
           return { json: hit.json }
         }
-        const json = parseConfig(new TextDecoder().decode(await readUpTo(fh, stat.size)))
+        const json = parse(new TextDecoder().decode(await readUpTo(fh, stat.size)))
         if (json === null) return null
         this.parsed.delete(key)
         this.parsed.set(key, { session: r.session, mtimeMs: stat.mtimeMs, size: stat.size, json })

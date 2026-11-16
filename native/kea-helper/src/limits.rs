@@ -653,6 +653,12 @@ pub const VIEWER_ALIAS_FILE_MAX_BYTES: u64 = 262144;
 pub const VIEWER_ALIAS_EXTENDS_MAX: u64 = 16;
 /// parsed configs core keeps for file references, by real path, modification time and size, least recently used out; a session's go when no window shows it (configs)
 pub const VIEWER_ALIAS_CACHE_MAX: u64 = 64;
+/// folders core lists to expand a workspace's package globs for one question about file references; a workspace cut here answers not checked for a package it did not find (folders)
+pub const VIEWER_WORKSPACE_LISTINGS_MAX: u64 = 64;
+/// entries core reads from one folder's listing while expanding a workspace's package globs; a larger folder is cut, as a workspace cut by its listings is (entries)
+pub const VIEWER_WORKSPACE_ENTRIES_MAX: u64 = 1024;
+/// package folders a workspace's globs give for one question, each package.json read at most once to match an import's package name; more cut the workspace (packages)
+pub const VIEWER_WORKSPACE_PACKAGES_MAX: u64 = 128;
 /// a window asked to review its unsaved files says it has the request within this long; one that does not, with unsaved files, stops the quit or close (ms)
 pub const WINDOW_REVIEW_ACK_MS: u64 = 2000;
 /// NUL in the first bytes → binary (bytes)

@@ -654,6 +654,12 @@ export const L = {
   viewerAliasExtendsMax: 16,
   /** parsed configs core keeps for file references, by real path, modification time and size, least recently used out; a session's go when no window shows it (configs) */
   viewerAliasCacheMax: 64,
+  /** folders core lists to expand a workspace's package globs for one question about file references; a workspace cut here answers not checked for a package it did not find (folders) */
+  viewerWorkspaceListingsMax: 64,
+  /** entries core reads from one folder's listing while expanding a workspace's package globs; a larger folder is cut, as a workspace cut by its listings is (entries) */
+  viewerWorkspaceEntriesMax: 1024,
+  /** package folders a workspace's globs give for one question, each package.json read at most once to match an import's package name; more cut the workspace (packages) */
+  viewerWorkspacePackagesMax: 128,
   /** a window asked to review its unsaved files says it has the request within this long; one that does not, with unsaved files, stops the quit or close (ms) */
   windowReviewAckMs: 2000,
   /** NUL in the first bytes → binary (bytes) */
@@ -1144,6 +1150,9 @@ export const LIMIT_META: Record<LimitName, { unit: string; why: string; whyLinux
   viewerAliasFileMaxBytes: { unit: "bytes", why: "the largest tsconfig.json, jsconfig.json or package.json core reads to find a file reference's aliases or a folder's entry; a larger one is skipped" },
   viewerAliasExtendsMax: { unit: "configs", why: "configs core reads for one file's aliases, its extends chains and a solution file's references together; a loop ends here" },
   viewerAliasCacheMax: { unit: "configs", why: "parsed configs core keeps for file references, by real path, modification time and size, least recently used out; a session's go when no window shows it" },
+  viewerWorkspaceListingsMax: { unit: "folders", why: "folders core lists to expand a workspace's package globs for one question about file references; a workspace cut here answers not checked for a package it did not find" },
+  viewerWorkspaceEntriesMax: { unit: "entries", why: "entries core reads from one folder's listing while expanding a workspace's package globs; a larger folder is cut, as a workspace cut by its listings is" },
+  viewerWorkspacePackagesMax: { unit: "packages", why: "package folders a workspace's globs give for one question, each package.json read at most once to match an import's package name; more cut the workspace" },
   windowReviewAckMs: { unit: "ms", why: "a window asked to review its unsaved files says it has the request within this long; one that does not, with unsaved files, stops the quit or close" },
   binarySniffBytes: { unit: "bytes", why: "NUL in the first bytes → binary" },
   diffMaxBytes: { unit: "bytes", why: "either diff side larger → not rendered" },

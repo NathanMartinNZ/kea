@@ -9,16 +9,18 @@ import { noopLogger } from '@kea/kit'
 import { L, type FileRef, type RefAnswer } from '@kea/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { PathChecks, type PathFs } from '../editor/paths.ts'
-import { ConfigReader } from './aliases.ts'
-import { keepStep, probeImport, resolveRefs, stepsFor, type RefContext, type Step } from './fileRefs.ts'
+import { Aliases, ConfigReader } from './aliases.ts'
+import { keepStep, manifestSteps, packageSteps, probeImport, resolveRefs, stepsFor, subpathTargets, type RefContext, type Step } from './fileRefs.ts'
 
 const W = '/w'
 const ctx = (o: Partial<RefContext> = {}): RefContext => ({ root: W, from: `${W}/src/app.ts`, home: '/home/u', project: null, aliases: null, ...o })
-/** The steps of a reference as worktree paths (a package.json read as `dir/`), kept and in order. */
+/** A step as a worktree path (a package.json read as `dir/`, a workspace's package as `workspace:name/sub`). */
+const shown = (s: Step, root = W): string => (s.kind === 'file' ? path.relative(root, s.abs) : s.kind === 'workspace' ? `workspace:${s.name}${s.sub}` : `${path.relative(root, s.dir)}/`)
+/** The steps of a reference, kept and in order. */
 const steps = (ref: Pick<FileRef, 'family' | 'spec'>, c: RefContext = ctx()): string[] =>
   stepsFor(ref, c)
     .filter((s) => keepStep(s, ref, c.root))
-    .map((s: Step) => (s.kind === 'file' ? path.relative(c.root, s.abs) : `${path.relative(c.root, s.dir)}/`))
+    .map((s) => shown(s, c.root))
 
 const dirs: string[] = []
 afterEach(() => {
@@ -42,7 +44,7 @@ function resolve(checks: PathChecks, cwd: string, from: string, refs: FileRef[])
 }
 
 describe('file references in core', () => {
-  it('U-FV-40 · imports in TypeScript’s order: .js → .ts, .tsx, .d.ts, .js; .mjs → .mts; an unknown extension; extensionless with its package.json and index; nothing in node_modules or out of the worktree; a bare package or #import gives none', () => {
+  it('U-FV-40 · imports in TypeScript’s order: .js → .ts, .tsx, .d.ts, .js; .mjs → .mts; an unknown extension; extensionless with its package.json and index; nothing in node_modules or out of the worktree; a bare package other than the workspace’s, or a #import with no package, gives none', () => {
     expect(steps({ family: 'import', spec: './util.js' })).toEqual(['src/util.ts', 'src/util.tsx', 'src/util.d.ts', 'src/util.js'])
     expect(steps({ family: 'import', spec: '../lib/m.mjs' })).toEqual(['lib/m.mts', 'lib/m.d.mts', 'lib/m.mjs'])
     expect(steps({ family: 'import', spec: './C.jsx' })).toEqual(['src/C.tsx', 'src/C.jsx'])
@@ -53,10 +55,12 @@ describe('file references in core', () => {
     expect(util).toEqual(['src/util', ...ext.map((e) => `src/util${e}`), 'src/util/', ...ext.map((e) => `src/util/index${e}`)])
     expect(2 * util.length, 'two targets of an alias fit the cap').toBeLessThanOrEqual(L.viewerLinkCandidatesMax)
     expect(steps({ family: 'import', spec: './data.json' })[0]).toBe('src/data.json')
-    // never out of the worktree, never in node_modules (an alias such as "*" included), never a package or #import
+    // never out of the worktree, never in node_modules (an alias such as "*" included), never a package; a #import
+    // needs the file's package
     expect(steps({ family: 'import', spec: '../../../etc/x' })).toEqual([])
     expect(steps({ family: 'import', spec: './node_modules/x/y' })).toEqual([])
-    expect(steps({ family: 'import', spec: 'react' })).toEqual([])
+    expect(steps({ family: 'import', spec: 'react' }), 'a bare package: its workspace’s package alone').toEqual(['workspace:react'])
+    expect(steps({ family: 'import', spec: '$lib/x' })).toEqual([])
     expect(steps({ family: 'import', spec: '#internal/x' })).toEqual([])
     expect(steps({ family: 'import', spec: '~/lib/x' }), 'not the home folder').toEqual([])
     // a folder's manifest gives its types, typings and main, each tried as a file is
@@ -125,6 +129,154 @@ describe('file references in core', () => {
     expect(await ask('react')).toBeNull()
     // the position comes back with the file; answers are in order
     expect(await resolve(checks, root, 'src/app.ts', [{ family: 'path', spec: 'thing/index.ts', line: 3, col: 2 }, { family: 'path', spec: 'nope.ts' }])).toEqual([{ path: 'src/thing/index.ts', line: 3, col: 2 }, null])
+    expect(checks.counts).toEqual({ inFlight: 0, waiting: 0, hung: 0 })
+    checks.dispose()
+  })
+
+  it('U-FV-40 · a #import after the config’s paths: the nearest package.json’s imports, the exact key else the pattern with the longest part before its *, each target in the order written and tried as an import; a package name, a target not starting ./, a .. or node_modules segment, or a key with two * gives none', () => {
+    const pkg = { config: null, packageDir: W, svelteKit: false }
+    const page = ctx({ from: `${W}/src/routes/+page.svelte`, project: pkg })
+    // the worktree's own package.json is read
+    expect(stepsFor({ family: 'import', spec: '#lib/x' }, page)).toEqual([{ kind: 'manifest', dir: W, field: 'imports', spec: '#lib/x' }])
+    expect(steps({ family: 'import', spec: '#lib/x' }, page)).toEqual(['/'])
+    // a config's paths first, as TypeScript tries them, then the package's imports
+    const aliased = ctx({ project: pkg, aliases: new Aliases([{ pattern: '#a/*', targets: ['./alt/*'], base: W }], null) })
+    const viaPaths = steps({ family: 'import', spec: '#a/x' }, aliased)
+    expect([viaPaths[0], viaPaths.at(-1)]).toEqual(['alt/x', '/'])
+    const imports = {
+      '#lib/*': './src/lib/*',
+      '#lib/special/*': './special/*',
+      '#lib/special/*.js': './special-js/*.js',
+      '#exact': './src/exact.ts',
+      '#cond': { types: './types/c.d.ts', node: { import: './node/c.mjs' }, browser: null, default: './src/c.ts' },
+      '#list': ['./a.ts', 'some-package', './b.ts'],
+      '#dep': 'some-package',
+      '#up/*': '../outside/*',
+      '#nm/*': './node_modules/*',
+      '#two/*/*': './x/*/*',
+      '#star/*': './s/*/*.ts',
+    }
+    const t = (spec: string): string[] => subpathTargets(W, imports, spec).map((a) => path.relative(W, a))
+    expect(t('#lib/components/Seo.svelte')).toEqual(['src/lib/components/Seo.svelte'])
+    expect(t('#lib/special/a'), 'the longest part before *').toEqual(['special/a'])
+    expect(t('#lib/special/a.js'), 'of two with that part, the longer key').toEqual(['special-js/a.js'])
+    expect(t('#lib/'), 'a * stands for one character at least').toEqual([])
+    expect(t('#exact')).toEqual(['src/exact.ts'])
+    expect(t('#cond'), 'every condition in the order written; null is none').toEqual(['types/c.d.ts', 'node/c.mjs', 'src/c.ts'])
+    expect(t('#list')).toEqual(['a.ts', 'b.ts'])
+    expect(t('#dep'), 'a package name').toEqual([])
+    expect(t('#up/x'), 'a target not starting ./').toEqual([])
+    expect(t('#lib/../x'), 'a .. in the matched part').toEqual([])
+    expect(t('#nm/x'), 'a node_modules segment').toEqual([])
+    expect(t('#two/a/b')).toEqual([])
+    expect(t('#star/q'), 'every * of the target').toEqual(['s/q/q.ts'])
+    expect(t('#none')).toEqual([])
+    expect(subpathTargets(W, ['./x'], '#x')).toEqual([])
+    expect(subpathTargets(W, undefined, '#x')).toEqual([])
+    // each target is tried as an import is: TypeScript's sources for a .js
+    const util = manifestSteps({ kind: 'manifest', dir: W, field: 'imports', spec: '#lib/util.js' }, { imports })
+    expect(util.map((s) => shown(s))).toEqual(['src/lib/util.ts', 'src/lib/util.tsx', 'src/lib/util.d.ts', 'src/lib/util.js'])
+  })
+
+  it('U-FV-40 · Python by its dots or from the top package’s parent, the worktree and src/; Rust beside a crate root or in the declaring file’s folder; C includes from the file’s folder, the worktree, include/ and src/; Ruby with .rb added', () => {
+    const py = ctx({ from: `${W}/app/api/views.py` })
+    expect(steps({ family: 'python', spec: '.models' }, py)).toEqual(['app/api/models.py', 'app/api/models/__init__.py'])
+    expect(steps({ family: 'python', spec: '..core.db' }, py)).toEqual(['app/core/db.py', 'app/core/db/__init__.py'])
+    expect(steps({ family: 'python', spec: '.' }, py)).toEqual(['app/api/__init__.py'])
+    expect(steps({ family: 'python', spec: '..' }, py)).toEqual(['app/__init__.py'])
+    const base = ctx({ from: `${W}/app/api/views.py`, pythonBase: W })
+    expect(steps({ family: 'python', spec: 'app.models' }, base)).toEqual(['app/models.py', 'app/models/__init__.py', 'src/app/models.py', 'src/app/models/__init__.py'])
+    const nested = ctx({ from: `${W}/svc/pkg/x.py`, pythonBase: `${W}/svc` })
+    expect(steps({ family: 'python', spec: 'pkg.util' }, nested)).toEqual(['svc/pkg/util.py', 'svc/pkg/util/__init__.py', 'pkg/util.py', 'pkg/util/__init__.py', 'src/pkg/util.py', 'src/pkg/util/__init__.py'])
+    expect(steps({ family: 'python', spec: '.....x' }, py), 'dots past the worktree').toEqual([])
+    const rs = (from: string, name = 'parser') => steps({ family: 'rust', spec: name }, ctx({ from: `${W}/${from}` }))
+    expect(rs('src/lib.rs')).toEqual(['src/parser.rs', 'src/parser/mod.rs'])
+    expect(rs('src/net/mod.rs')).toEqual(['src/net/parser.rs', 'src/net/parser/mod.rs'])
+    expect(rs('src/net.rs')).toEqual(['src/net/parser.rs', 'src/net/parser/mod.rs'])
+    expect(rs('src/bin/tool.rs')).toEqual(['src/bin/parser.rs', 'src/bin/parser/mod.rs', 'src/bin/tool/parser.rs', 'src/bin/tool/parser/mod.rs'])
+    expect(rs('src/lib.rs', '../x')).toEqual([])
+    const c = ctx({ from: `${W}/src/net/socket.c` })
+    expect(steps({ family: 'include', spec: 'socket.h' }, c)).toEqual(['src/net/socket.h', 'socket.h', 'include/socket.h', 'src/socket.h'])
+    // from the worktree's root it climbs out and is dropped; include/ and src/ both give util/str.h
+    expect(steps({ family: 'include', spec: '../util/str.h' }, c)).toEqual(['src/util/str.h', 'util/str.h', 'util/str.h'])
+    const rb = ctx({ from: `${W}/lib/app.rb` })
+    expect(steps({ family: 'ruby', spec: '../config/boot' }, rb)).toEqual(['config/boot.rb', 'config/boot'])
+    expect(steps({ family: 'ruby', spec: 'helpers.rb' }, rb)).toEqual(['lib/helpers.rb'])
+  })
+
+  it('U-FV-40 · a workspace package’s files: its exports by the subpath (a string, a list or conditions alone are its .), each tried as an import; without exports its types, typings, main and index, or the subpath in its folder', () => {
+    const P = `${W}/packages/ui`
+    const rel = (s: Step[]) => s.map((x) => shown(x))
+    const exports = { '.': './src/index.ts', './button': { types: './dist/button.d.ts', default: './src/button.ts' }, './icons/*': './src/icons/*.svelte' }
+    expect(rel(packageSteps(P, { exports }, ''))[0]).toBe('packages/ui/src/index.ts')
+    // each condition's target in turn, each probed as an import (the exact file first)
+    const button = rel(packageSteps(P, { exports }, '/button'))
+    expect(button[0]).toBe('packages/ui/dist/button.d.ts')
+    expect(button.indexOf('packages/ui/src/button.ts')).toBeGreaterThan(0)
+    expect(rel(packageSteps(P, { exports }, '/icons/close'))[0]).toBe('packages/ui/src/icons/close.svelte')
+    expect(rel(packageSteps(P, { exports: './src/main.js' }, ''))).toEqual(['packages/ui/src/main.ts', 'packages/ui/src/main.tsx', 'packages/ui/src/main.d.ts', 'packages/ui/src/main.js'])
+    expect(rel(packageSteps(P, { exports: { import: './esm.js', require: './cjs.cjs' } }, ''))).toEqual([
+      'packages/ui/esm.ts',
+      'packages/ui/esm.tsx',
+      'packages/ui/esm.d.ts',
+      'packages/ui/esm.js',
+      'packages/ui/cjs.cts',
+      'packages/ui/cjs.d.cts',
+      'packages/ui/cjs.cjs',
+    ])
+    expect(rel(packageSteps(P, { exports: { '.': './src/index.ts' } }, '/internal')), 'not exported').toEqual([])
+    const plain = rel(packageSteps(P, { main: './lib/main.js' }, ''))
+    expect(plain.slice(0, 4)).toEqual(['packages/ui/lib/main.ts', 'packages/ui/lib/main.tsx', 'packages/ui/lib/main.d.ts', 'packages/ui/lib/main.js'])
+    expect(plain.at(-1)).toBe('packages/ui/index.json')
+    expect(rel(packageSteps(P, {}, '/src/util')).slice(0, 2)).toEqual(['packages/ui/src/util', 'packages/ui/src/util.ts'])
+  })
+
+  it('U-FV-40 · Python, Rust, C and Ruby on a worktree: absolute modules from above the top package found by its __init__.py chain, relative ones by their dots; mod, #include and require_relative reach their files', async () => {
+    const root = tree({
+      'svc/app/__init__.py': '',
+      'svc/app/api/__init__.py': '',
+      'svc/app/api/views.py': 'x',
+      'svc/app/models.py': 'x',
+      'svc/app/core/__init__.py': '',
+      'svc/script.py': 'x',
+      'svc/helpers.py': 'x',
+      'src/lib.rs': 'x',
+      'src/net.rs': 'x',
+      'src/net/socket/mod.rs': 'x',
+      'src/parser.rs': 'x',
+      'include/kea.h': 'x',
+      'native/main.c': 'x',
+      'lib/app.rb': 'x',
+      'config/boot.rb': 'x',
+    })
+    const checks = new PathChecks()
+    const ask = async (from: string, family: FileRef['family'], spec: string) => (await resolve(checks, root, from, [{ family, spec }]))[0]
+    expect(await ask('svc/app/api/views.py', 'python', 'app.models'), 'from svc/, above the top package').toEqual({ path: 'svc/app/models.py' })
+    expect(await ask('svc/app/api/views.py', 'python', '..models')).toEqual({ path: 'svc/app/models.py' })
+    expect(await ask('svc/app/api/views.py', 'python', '..core')).toEqual({ path: 'svc/app/core/__init__.py' })
+    expect(await ask('svc/script.py', 'python', 'helpers'), 'outside a package: the file’s own folder').toEqual({ path: 'svc/helpers.py' })
+    expect(await ask('svc/app/api/views.py', 'python', 'requests')).toBeNull()
+    expect(await ask('src/lib.rs', 'rust', 'parser')).toEqual({ path: 'src/parser.rs' })
+    expect(await ask('src/net.rs', 'rust', 'socket')).toEqual({ path: 'src/net/socket/mod.rs' })
+    expect(await ask('native/main.c', 'include', 'kea.h')).toEqual({ path: 'include/kea.h' })
+    expect(await ask('lib/app.rb', 'ruby', '../config/boot')).toEqual({ path: 'config/boot.rb' })
+    expect(checks.counts).toEqual({ inFlight: 0, waiting: 0, hung: 0 })
+    checks.dispose()
+  })
+
+  it('U-FV-40 · a #import on a worktree: the package.json at its root maps #lib/* to a Svelte component and an extensionless module; one that matches no file, an unknown key and a file whose nearest package.json has no imports answer no file', async () => {
+    const root = tree({
+      'package.json': JSON.stringify({ imports: { '#lib/*': './src/lib/*' } }),
+      'src/routes/+page.svelte': 'x',
+      'src/lib/components/Seo.svelte': 'x',
+      'src/lib/util.ts': 'x',
+      'nested/package.json': JSON.stringify({ name: 'nested' }),
+      'nested/a.ts': 'x',
+    })
+    const checks = new PathChecks()
+    const refs: FileRef[] = ['#lib/components/Seo.svelte', '#lib/util', '#lib/nothing', '#nope/x'].map((spec) => ({ family: 'import', spec }))
+    expect(await resolve(checks, root, 'src/routes/+page.svelte', refs)).toEqual([{ path: 'src/lib/components/Seo.svelte' }, { path: 'src/lib/util.ts' }, null, null])
+    expect(await resolve(checks, root, 'nested/a.ts', [{ family: 'import', spec: '#lib/util' }])).toEqual([null])
     expect(checks.counts).toEqual({ inFlight: 0, waiting: 0, hung: 0 })
     checks.dispose()
   })

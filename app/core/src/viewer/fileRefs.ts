@@ -6,13 +6,23 @@
 //   import      TypeScript's order: `.js` → `.ts`, `.tsx`, `.d.ts`, `.js` (and the `.jsx`, `.mjs`, `.cjs` forms);
 //               otherwise the exact file, then each extension added, then a folder's package.json (`types`,
 //               `typings`, `main`) and its `index`; an alias of the file's config (aliases.ts), then its `baseUrl`; a
-//               root path from the nearest package; never a bare package, a `#` import or anything in `node_modules`
+//               `#` import then by the nearest package.json's `imports`, a bare one by the package of the file's
+//               workspace with its name (workspace.ts: `exports`, else `types`, `typings`, `main` and `index`); a root
+//               path from the nearest package; never another bare package or anything in `node_modules`
 //   style       the exact file, then Sass's partials
 //   markup      the exact file; a root path from the nearest package, its `public/` and `static/`, then the worktree
 //   markdown    the worktree path the window's preview resolver gave
 //   json        the exact file
 //   extends     the exact file, then with `.json`; a package's config under `node_modules`
 //   reference   the exact file, then the folder's `tsconfig.json`
+//   python      `name.py`, then `name/__init__.py`: a relative module from the folder its dots name (one dot the
+//               file's own), else from the folder above the file's top package (the highest of an unbroken chain of
+//               folders holding `__init__.py`; the file's own folder outside a package), the worktree's root and `src/`
+//   rust        `name.rs`, then `name/mod.rs`: beside a crate root (`lib.rs`, `main.rs`, `build.rs`) or a `mod.rs`,
+//               else in the declaring file's own folder (`a.rs` → `a/name.rs`); a file in `bin/`, `tests/`,
+//               `examples/` or `benches/` tries beside it, then its own folder
+//   include     from the file's folder, then the worktree's root, its `include/` and its `src/`
+//   ruby        from the file's folder, `.rb` added unless it is there, then as written
 //   path        from the file's folder, then the worktree's root; absolute, `~/` and `file:` as written
 //
 // Every candidate outside the worktree is dropped before it is asked about, and at most L.viewerLinkCandidatesMax are
@@ -24,9 +34,18 @@ import { isWorktreePath, L, type FileRef, type RefAnswer } from '@kea/protocol'
 import type { Logger } from '@kea/kit'
 import { absoluteOf, NOT_CHECKED, within, type NotChecked, type PathRequest } from '../editor/paths.ts'
 import { aliasesFor, extendsTargets, findProject, type Aliases, type ConfigReader, type Project } from './aliases.ts'
+import { findWorkspace, packageNamed, packageOf, type Workspace } from './workspace.ts'
 
-/** One thing to try: a file, or a folder's package.json, which gives more files (`manifestSteps`). */
-export type Step = { kind: 'file'; abs: string } | { kind: 'manifest'; dir: string; field: 'module' | 'tsconfig' }
+/**
+ * One thing to try: a file; a folder's package.json, which gives more files (`manifestSteps`): a module folder's
+ * entry, a config package's `tsconfig`, or what a package's `imports` maps the `#` import `spec` to; or the package
+ * of the file's workspace named `name`, whose files for the subpath `sub` follow (`packageSteps`).
+ */
+export type Step =
+  | { kind: 'file'; abs: string }
+  | { kind: 'manifest'; dir: string; field: 'module' | 'tsconfig' }
+  | { kind: 'manifest'; dir: string; field: 'imports'; spec: string }
+  | { kind: 'workspace'; name: string; sub: string }
 
 /** What the steps of a reference are made from. */
 export interface RefContext {
@@ -38,6 +57,8 @@ export interface RefContext {
   /** The nearest package and its config, for root paths and aliases; null when the reference does not need them. */
   project: Project | null
   aliases: Aliases | null
+  /** The folder above the file's top Python package (`pythonBase`), for a Python module that is not relative; null otherwise. */
+  pythonBase?: string | null
 }
 
 /** The extensions TypeScript adds to a specifier without one it owns, in its order. */
@@ -86,19 +107,77 @@ export function rootBases(c: RefContext): string[] {
 
 /** Whether the steps of `ref` need the nearest package and config (`RefContext.project`, `.aliases`). */
 export function needsProject(ref: Pick<FileRef, 'family' | 'spec'>): boolean {
-  if (ref.family === 'import') return !isRelative(ref.spec) && !ref.spec.startsWith('#')
+  if (ref.family === 'import') return !isRelative(ref.spec)
   if (ref.family === 'style' || ref.family === 'markup') return bare(ref.spec).startsWith('/')
   return false
 }
 
 function importSteps(spec: string, c: RefContext): Step[] {
-  if (spec.startsWith('#')) return []
   if (isRelative(spec)) return probeImport(path.resolve(dirOf(c), spec))
   if (spec.startsWith('/')) return rootBases(c).flatMap((b) => probeImport(path.join(b, spec)))
   const out: Step[] = []
   if (c.aliases) {
     for (const target of c.aliases.match(spec)) out.push(...probeImport(target))
     if (c.aliases.baseUrl) out.push(...probeImport(path.join(c.aliases.baseUrl, spec)))
+  }
+  // after the config's `paths` and `baseUrl`, as TypeScript tries them: a `#` import by the nearest package's
+  // `imports`; a bare one by the workspace's package of that name, where TypeScript would look in `node_modules`
+  const pkg = c.project?.packageDir ?? null
+  if (spec.startsWith('#')) {
+    if (pkg !== null) out.push({ kind: 'manifest', dir: pkg, field: 'imports', spec })
+    return out
+  }
+  const named = packageOf(spec)
+  if (named) out.push({ kind: 'workspace', ...named })
+  return out
+}
+
+/** A target or a matched part with a `.`, `..` or `node_modules` segment, which Node refuses. */
+const BAD_SEGMENT = /(?:^|\/)(?:\.\.?|node_modules)(?:\/|$)/i
+
+/**
+ * The files `spec` maps to by `imports` or `exports` (a `#` import, or a package's subpath `.` or `./x`), a
+ * package.json's field in `dir`, as Node matches its keys (absolute, in order, not checked): the exact key, else of the keys with one `*` that match (the `*` one character at
+ * least) the one with the longest part before it, then the longer key. A target is a path starting `./`, every `*`
+ * given the matched part; a list's targets and a conditions object's, every condition in the order written (the first
+ * that is a file wins, so none is chosen), are each followed; `null`, a package name and a target out of `dir` give
+ * none. At most L.viewerLinkCandidatesMax are given, as no more can be tried.
+ */
+export function subpathTargets(dir: string, field: unknown, spec: string): string[] {
+  if (typeof field !== 'object' || field === null || Array.isArray(field)) return []
+  const map = field as Record<string, unknown>
+  let key: string | null = Object.hasOwn(map, spec) && !spec.includes('*') ? spec : null
+  let star = ''
+  if (key === null) {
+    for (const k of Object.keys(map)) {
+      const at = k.indexOf('*')
+      if (at < 0 || k.indexOf('*', at + 1) >= 0 || spec.length < k.length) continue
+      const before = k.slice(0, at)
+      const after = k.slice(at + 1)
+      if (!spec.startsWith(before) || !spec.endsWith(after)) continue
+      const bestAt = key === null ? -1 : key.indexOf('*')
+      if (key === null || at > bestAt || (at === bestAt && k.length > key.length)) {
+        key = k
+        star = spec.slice(at, spec.length - after.length)
+      }
+    }
+  }
+  if (key === null) return []
+  const isPattern = key !== spec
+  if (isPattern && BAD_SEGMENT.test(star)) return []
+  const out: string[] = []
+  // depth first in the order written, without recursion: the file is at most L.viewerAliasFileMaxBytes
+  const stack: unknown[] = [map[key]]
+  while (stack.length > 0 && out.length < L.viewerLinkCandidatesMax) {
+    const t = stack.pop()
+    if (typeof t === 'string') {
+      if (!t.startsWith('./') || t.includes('\0') || BAD_SEGMENT.test(t.slice(2))) continue
+      const abs = path.resolve(dir, isPattern ? t.replaceAll('*', star) : t)
+      if (within(dir, abs) && abs !== dir) out.push(abs)
+      continue
+    }
+    const next = Array.isArray(t) ? t : typeof t === 'object' && t !== null ? Object.values(t) : []
+    for (let i = next.length - 1; i >= 0; i--) stack.push(next[i])
   }
   return out
 }
@@ -136,6 +215,52 @@ function pathSteps(spec: string, c: RefContext): Step[] {
   return [file(path.resolve(dirOf(c), spec)), file(path.resolve(c.root, spec))]
 }
 
+/** A Python module (`.a.b`, `..`, `a.b`): `b.py`, then `b/__init__.py` (a package alone: its `__init__.py`). */
+function pythonSteps(spec: string, c: RefContext): Step[] {
+  const dots = (/^\.*/.exec(spec) as RegExpExecArray)[0].length
+  const parts = spec.slice(dots).split('.').filter((p) => p !== '')
+  const moduleIn = (dir: string): Step[] => {
+    if (parts.length === 0) return [file(path.join(dir, '__init__.py'))]
+    const p = path.join(dir, ...parts)
+    return [file(`${p}.py`), file(path.join(p, '__init__.py'))]
+  }
+  if (dots > 0) {
+    let dir = dirOf(c)
+    for (let i = 1; i < dots; i++) dir = path.dirname(dir)
+    return moduleIn(dir)
+  }
+  if (parts.length === 0) return []
+  return [...new Set([c.pythonBase ?? dirOf(c), c.root, path.join(c.root, 'src')])].flatMap(moduleIn)
+}
+
+const RUST_ROOTS = new Set(['lib.rs', 'main.rs', 'build.rs', 'mod.rs'])
+const RUST_TARGETS = new Set(['bin', 'tests', 'examples', 'benches'])
+
+/** A Rust `mod name;`: `name.rs`, then `name/mod.rs`, beside a crate root or `mod.rs`, else in the file's own folder. */
+function rustSteps(name: string, c: RefContext): Step[] {
+  if (!/^[A-Za-z_]\w*$/.test(name)) return []
+  const dir = dirOf(c)
+  const own = path.basename(c.from)
+  const nested = path.join(dir, own.replace(/\.rs$/i, ''))
+  const at = (d: string): Step[] => [file(path.join(d, `${name}.rs`)), file(path.join(d, name, 'mod.rs'))]
+  if (RUST_ROOTS.has(own)) return at(dir)
+  // a target's own crate root (`src/bin/tool.rs`, `tests/api.rs`) declares its modules beside it
+  if (RUST_TARGETS.has(path.basename(dir))) return [...at(dir), ...at(nested)]
+  return at(nested)
+}
+
+function includeSteps(spec: string, c: RefContext): Step[] {
+  if (spec.includes('\0')) return []
+  if (path.isAbsolute(spec)) return [file(spec)]
+  return [...new Set([dirOf(c), c.root, path.join(c.root, 'include'), path.join(c.root, 'src')])].map((b) => file(path.resolve(b, spec)))
+}
+
+function rubySteps(spec: string, c: RefContext): Step[] {
+  if (spec.includes('\0')) return []
+  const abs = path.resolve(dirOf(c), spec)
+  return abs.toLowerCase().endsWith('.rb') ? [file(abs)] : [file(`${abs}.rb`), file(abs)]
+}
+
 /** The steps of one reference, in order, before they are kept (`keepStep`) and capped. */
 export function stepsFor(ref: Pick<FileRef, 'family' | 'spec'>, c: RefContext): Step[] {
   const spec = ref.spec
@@ -156,15 +281,62 @@ export function stepsFor(ref: Pick<FileRef, 'family' | 'spec'>, c: RefContext): 
       const abs = path.resolve(dirOf(c), spec)
       return abs.toLowerCase().endsWith('.json') ? [file(abs)] : [file(abs), file(path.join(abs, 'tsconfig.json'))]
     }
+    case 'python':
+      return pythonSteps(spec, c)
+    case 'rust':
+      return rustSteps(spec, c)
+    case 'include':
+      return includeSteps(spec, c)
+    case 'ruby':
+      return rubySteps(spec, c)
     case 'path':
       return pathSteps(spec, c)
   }
 }
 
-/** A package.json's fields as the steps after it: for a module folder its `types`, `typings` and `main`; for a config package its `tsconfig`. */
+/**
+ * The files of a workspace's package in `dir` for the subpath `sub` (`''` or `/x`), each tried as an import is: by its
+ * `exports` (a string, a list or conditions alone are its `.`); without them `.` is its `types`, `typings`, `main`,
+ * then its `index`, and `/x` is that path in its folder.
+ */
+export function packageSteps(dir: string, manifest: Record<string, unknown>, sub: string): Step[] {
+  const exp = manifest.exports
+  if (exp !== undefined && exp !== null) {
+    const isMap = typeof exp === 'object' && !Array.isArray(exp) && Object.keys(exp).some((k) => k.startsWith('.'))
+    return subpathTargets(dir, isMap ? exp : { '.': exp }, sub === '' ? '.' : `.${sub}`).flatMap((abs) => probeImport(abs))
+  }
+  if (sub !== '') return probeImport(path.join(dir, sub))
+  return [...manifestSteps({ kind: 'manifest', dir, field: 'module' }, manifest), ...TS_EXTENSIONS.map((e) => file(path.join(dir, `index${e}`)))]
+}
+
+/** Whether a reference needs the folder above the file's top Python package: a module that is not relative. */
+export const needsPythonBase = (ref: Pick<FileRef, 'family' | 'spec'>): boolean => ref.family === 'python' && !ref.spec.startsWith('.')
+
+/**
+ * The folder above the top of the unbroken chain of folders holding `__init__.py` from the file `fromAbs` up, inside
+ * the worktree `base` (the file's own folder when it holds none): where its package's absolute imports start. One check
+ * per folder; `NOT_CHECKED` when one could not be checked.
+ */
+export async function pythonBase(fromAbs: string, base: string, req: PathRequest): Promise<string | NotChecked> {
+  let top: string | null = null
+  for (let dir = path.dirname(fromAbs); within(base, dir); dir = path.dirname(dir)) {
+    const has = await req.check(dir, () => req.fs.stat(path.join(dir, '__init__.py')).then((s) => s.isFile(), () => false), true)
+    if (has === NOT_CHECKED) return NOT_CHECKED
+    if (!has) break
+    top = dir
+    if (dir === base) break
+  }
+  return top === null ? path.dirname(fromAbs) : path.dirname(top)
+}
+
+/**
+ * A package.json's fields as the steps after it: for a module folder its `types`, `typings` and `main`; for a config
+ * package its `tsconfig`; for a `#` import what its `imports` maps it to, each tried as an import is.
+ */
 export function manifestSteps(step: Extract<Step, { kind: 'manifest' }>, manifest: unknown): Step[] {
   if (typeof manifest !== 'object' || manifest === null) return []
   const m = manifest as Record<string, unknown>
+  if (step.field === 'imports') return subpathTargets(step.dir, m.imports, step.spec).flatMap((abs) => probeImport(abs))
   const fields = step.field === 'module' ? ['types', 'typings', 'main'] : ['tsconfig']
   const out: Step[] = []
   for (const f of fields) {
@@ -176,9 +348,14 @@ export function manifestSteps(step: Extract<Step, { kind: 'manifest' }>, manifes
   return out
 }
 
-/** A step is tried only inside the worktree (never the worktree itself), and an import's never in `node_modules`. */
+/**
+ * A step is tried only inside the worktree (never the worktree itself), and an import's never in `node_modules`. A
+ * package's `imports` is its package.json's, so the worktree's own is read.
+ */
 export function keepStep(step: Step, ref: Pick<FileRef, 'family'>, root: string): boolean {
-  const abs = step.kind === 'file' ? step.abs : step.dir
+  // a workspace's package is looked for inside the worktree, and its files are kept by this as they come
+  if (step.kind === 'workspace') return true
+  const abs = step.kind === 'file' ? step.abs : step.field === 'imports' ? path.join(step.dir, 'package.json') : step.dir
   if (!within(root, abs) || abs === root) return false
   return ref.family !== 'import' || !path.relative(root, abs).split(path.sep).includes('node_modules')
 }
@@ -235,6 +412,10 @@ export async function resolveRefs(o: ResolveOptions): Promise<RefAnswer[]> {
         const a = await aliasesFor(p, o.configs, reader, base)
         return a === NOT_CHECKED ? NOT_CHECKED : { project: p, aliases: a }
       })())
+    let python: Promise<string | NotChecked> | null = null
+    const pythonOnce = () => (python ??= pythonBase(fromAbs, base, req))
+    let workspace: Promise<Workspace | null | NotChecked> | null = null
+    const workspaceOnce = () => (workspace ??= findWorkspace(fromAbs, base, req, o.configs, reader))
     const one = async (ref: FileRef): Promise<RefAnswer> => {
       let ctx: RefContext = { root: base, from: fromAbs, home: o.home, project: null, aliases: null }
       if (needsProject(ref)) {
@@ -242,12 +423,17 @@ export async function resolveRefs(o: ResolveOptions): Promise<RefAnswer[]> {
         if (p === NOT_CHECKED) return 'unknown'
         ctx = { ...ctx, ...p }
       }
+      if (needsPythonBase(ref)) {
+        const b = await pythonOnce()
+        if (b === NOT_CHECKED) return 'unknown'
+        ctx = { ...ctx, pythonBase: b }
+      }
       const steps = stepsFor(ref, ctx).filter((s) => keepStep(s, ref, base))
       const seen = new Set<string>() // bounded: this reference's steps, at most L.viewerLinkCandidatesMax tried
       let tried = 0
       for (let i = 0; i < steps.length; i++) {
         const step = steps[i] as Step
-        const key = `${step.kind}\0${step.kind === 'file' ? step.abs : step.dir}`
+        const key = step.kind === 'file' ? `file\0${step.abs}` : step.kind === 'workspace' ? `workspace\0${step.name}` : `${step.field}\0${step.dir}`
         if (seen.has(key)) continue
         seen.add(key)
         if (tried >= L.viewerLinkCandidatesMax) {
@@ -259,6 +445,16 @@ export async function resolveRefs(o: ResolveOptions): Promise<RefAnswer[]> {
           const m = await o.configs.read(reader, path.join(step.dir, 'package.json'))
           if (m === NOT_CHECKED) return 'unknown'
           if (m !== null) steps.splice(i + 1, 0, ...manifestSteps(step, m.json).filter((s) => keepStep(s, ref, base)))
+          continue
+        }
+        if (step.kind === 'workspace') {
+          // one step for the walk, the globs and the package.json reads, each capped on its own (workspace.ts)
+          const ws = await workspaceOnce()
+          if (ws === NOT_CHECKED) return 'unknown'
+          if (ws === null) continue
+          const pkg = await packageNamed(ws, step.name, o.configs, reader)
+          if (pkg === NOT_CHECKED) return 'unknown'
+          if (pkg !== null) steps.splice(i + 1, 0, ...packageSteps(pkg.dir, pkg.manifest, step.sub).filter((s) => keepStep(s, ref, base)))
           continue
         }
         const abs = step.abs

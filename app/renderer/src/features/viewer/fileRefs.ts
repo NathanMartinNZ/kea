@@ -10,6 +10,10 @@
 //              the preview resolves them (`markdown.ts`); `#L10` and `#L10-L20` name a line
 //   json       json, jsonc, json5: a string starting `./` or `../`; in a `tsconfig*.json` or `jsconfig*.json` also
 //              `extends` and `references[].path`
+//   python     python: the module of a line's `import a.b, c as d` or `from .a import b` (`.` alone included)
+//   rust       rust: the name of a line's `mod name;`, its attributes and `pub(…)` allowed before it
+//   include    c, cpp, objective-c, objective-cpp: a line's `#include "…"` or `#import "…"`, never `<…>`
+//   ruby       ruby: the string of `require_relative '…'`
 //   paths      every language: a path as a terminal prints it (`features/terminal/links.ts`), with `:line[:col]`. In
 //              code a path needs a `/` or a position and is never the `(line,col)` form, so `console.log` and
 //              `foo.bar(1, 2)` are none; in prose (Markdown, plain text) a bare `name.ext` is one too
@@ -46,6 +50,7 @@ const COMPONENT = new Set(['svelte', 'vue', 'astro'])
 const STYLE = new Set(['css', 'scss', 'sass', 'less'])
 const MARKDOWN = new Set(['markdown', 'mdx'])
 const JSON_LANGS = new Set(['json', 'jsonc', 'json5'])
+const C_LANGS = new Set(['c', 'cpp', 'objective-c', 'objective-cpp'])
 const HAS_SCHEME = /^[a-zA-Z][a-zA-Z0-9+.-]*:/
 const CONFIG_NAME = /^[tj]sconfig[^/]*\.json$/i
 
@@ -62,6 +67,13 @@ const CONFIG_EXTENDS = /"extends"\s*:\s*"([^"\\\n]+)"/dg
 const CONFIG_EXTENDS_LIST = /"extends"\s*:\s*\[([^\]\n]*)\]/dg
 const CONFIG_PATH = /"path"\s*:\s*"([^"\\\n]+)"/dg
 const LIST_STRING = /"([^"\\\n]+)"/dg
+const PY_DOTTED = '[A-Za-z_]\\w*(?:\\.[A-Za-z_]\\w*)*'
+const PY_FROM = new RegExp(`^[ \\t]*from[ \\t]+(\\.+(?:${PY_DOTTED})?|${PY_DOTTED})[ \\t]+import\\b`, 'd')
+const PY_IMPORT = /^[ \t]*import[ \t]+/
+const PY_ITEM = new RegExp(`^[ \\t]*(${PY_DOTTED})(?:[ \\t]+as[ \\t]+[A-Za-z_]\\w*)?[ \\t]*$`, 'd')
+const RUST_MOD = /^[ \t]*(?:#!?\[[^\]\n]*\][ \t]*)*(?:pub(?:[ \t]*\([^)\n]*\))?[ \t]+)?mod[ \t]+(?:r#)?([A-Za-z_]\w*)[ \t]*;/d
+const C_INCLUDE = /^[ \t]*#[ \t]*(?:include|import)[ \t]*"([^"\n]+)"/d
+const RUBY_REQUIRE = /\brequire_relative[ \t]*\(?[ \t]*(['"])((?:(?!\1)[^\\\n])+)\1/dg
 
 const groupAt = (m: RegExpExecArray, g: number): [number, number] => (m.indices?.[g] ?? [m.index, m.index]) as [number, number]
 
@@ -229,6 +241,55 @@ function jsonRefs(text: string, scope: RefScope): FoundRef[] {
   return out
 }
 
+/** A Python line's modules: `from <module> import …`, or each module of `import a.b, c as d` (up to a `;` or a comment). */
+function pythonRefs(text: string): FoundRef[] {
+  const from = PY_FROM.exec(text)
+  if (from) {
+    const [a, b] = groupAt(from, 1)
+    const r = found('python', a, b, text, from[1] as string)
+    return r ? [r] : []
+  }
+  const imp = PY_IMPORT.exec(text)
+  if (!imp) return []
+  const out: FoundRef[] = []
+  const start = imp[0].length
+  const end = text.slice(start).search(/[;#]/)
+  const clause = end < 0 ? text.slice(start) : text.slice(start, start + end)
+  let at = start
+  for (const part of clause.split(',')) {
+    const m = PY_ITEM.exec(part)
+    if (m) {
+      const [a, b] = groupAt(m, 1)
+      const r = found('python', at + a, at + b, text, m[1] as string)
+      if (r) out.push(r)
+    }
+    at += part.length + 1
+  }
+  return out
+}
+
+/** The reference of a one-reference statement: `re`'s group 1. */
+function single(family: RefFamily, re: RegExp, text: string): FoundRef[] {
+  const m = re.exec(text)
+  if (!m) return []
+  const [a, b] = groupAt(m, 1)
+  const r = found(family, a, b, text, m[1] as string)
+  return r ? [r] : []
+}
+
+function rubyRefs(text: string): FoundRef[] {
+  const out: FoundRef[] = []
+  for (const m of text.matchAll(RUBY_REQUIRE)) {
+    const spec = m[2] as string
+    // a double-quoted string with an interpolation names no one file
+    if (m[1] === '"' && spec.includes('#{')) continue
+    const [a, b] = groupAt(m, 2)
+    const r = found('ruby', a, b, text, spec)
+    if (r) out.push(r)
+  }
+  return out
+}
+
 function paths(text: string, prose: boolean): FoundRef[] {
   const out: FoundRef[] = []
   for (const p of detectFileRefs(text, L.viewerLinkScanChars)) {
@@ -259,6 +320,11 @@ export function refsIn(slice: LineSlice, scope: RefScope): FoundRef[] {
   if (lang !== null && STYLE.has(lang)) own.push(...styles(text))
   if (lang !== null && MARKDOWN.has(lang)) own.push(...markdownRefs(text, scope, slice.cutStart, claimed))
   if (lang !== null && JSON_LANGS.has(lang)) own.push(...jsonRefs(text, scope))
+  // these are statements at the line's start, which a slice that was cut there does not hold
+  if (!slice.cutStart && lang === 'python') own.push(...pythonRefs(text))
+  if (!slice.cutStart && lang === 'rust') own.push(...single('rust', RUST_MOD, text))
+  if (!slice.cutStart && lang !== null && C_LANGS.has(lang)) own.push(...single('include', C_INCLUDE, text))
+  if (lang === 'ruby') own.push(...rubyRefs(text))
   const kept: FoundRef[] = []
   for (const r of own.sort((a, b) => a.from - b.from)) if (!kept.some((k) => overlaps(k, r))) kept.push(r)
   for (const r of paths(text, prose)) if (!kept.some((k) => overlaps(k, r)) && !claimed.some((c) => overlaps(c, r))) kept.push(r)
