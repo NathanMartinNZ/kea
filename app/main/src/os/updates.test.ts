@@ -1,7 +1,8 @@
 // How each install is updated, on both systems: the macOS updater where it can replace the bundle, install.sh with the
 // reason otherwise; on Linux the system's updates for a deb with Kea's apt source, install.sh for everything else
 // (an rpm while its repository is not published), read from temp roots; os-release's ids; the install kind with
-// `--user`; the package watch settling after a rename; the report's update line.
+// `--user`; the package watch settling after a rename (events by hand; the real watch on Linux); the update line.
+import { EventEmitter } from 'node:events'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -10,11 +11,16 @@ import { isAvailable, L } from '@kea/protocol'
 import { LINUX_REPO_FILES } from '@kea/protocol/os/linux'
 import { updateChannelLine } from '../platformLines.ts'
 import { darwin, macUpdateHow } from './darwin.ts'
-import type { UpdateHowInput } from './index.ts'
+import { mainOs, type UpdateHowInput } from './index.ts'
 import { linux, linuxUpdateHow, osReleaseIds, packageFamily, readLinuxInstallKind } from './linux.ts'
 
 const REPO = 'NathanMartinNZ/kea'
 const SH = 'curl -fsSL https://github.com/NathanMartinNZ/kea/releases/latest/download/install.sh | sh'
+/** The package watch, as main calls it (a system without one has none). */
+const packageWatch = linux.packageWatch as { watch: (dir: string, settled: () => void, failed: (e: unknown) => void) => () => void }
+const onLinux = mainOs.system === 'linux'
+/** How long a real file event may take to arrive on a loaded machine. */
+const EVENT_WAIT_MS = 10_000
 const input = (o: Partial<UpdateHowInput>): UpdateHowInput => ({ kind: null, repository: REPO, defaultHome: true, resourcesDir: '/x/resources', ...o })
 
 let dirs: string[] = []
@@ -22,6 +28,7 @@ afterEach(() => {
   for (const d of dirs) fs.rmSync(d, { recursive: true, force: true })
   dirs = []
   vi.useRealTimers()
+  vi.restoreAllMocks()
 })
 function tmp(): string {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'kea-os-updates-'))
@@ -109,28 +116,67 @@ describe('how a Linux install is updated', () => {
     expect(readLinuxInstallKind(tmp(), home)).toBeNull()
   })
 
-  it('U-DST-36 · the package watch settles once after a package manager’s renames in resources/, and its end stops it', async () => {
+  it('U-DST-36 · the package watch settles once after a package manager’s renames in resources/, and its end stops it', () => {
+    // the watch's events are delivered by hand: when, or whether, a system reports a change is not this test's concern
+    const watchers: { report: (event: string, file: string) => void; watcher: EventEmitter & { close: () => void } }[] = []
+    const watch = vi.spyOn(fs, 'watch').mockImplementation(((_dir: string, _options: unknown, report: (event: string, file: string) => void) => {
+      const watcher = Object.assign(new EventEmitter(), { close: vi.fn() })
+      watchers.push({ report, watcher })
+      return watcher
+    }) as unknown as typeof fs.watch)
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const settled = vi.fn()
+    const failed = vi.fn()
+    const end = packageWatch.watch('/x/resources', settled, failed)
+    expect(watch).toHaveBeenCalledWith('/x/resources', expect.anything(), expect.any(Function))
+    const first = watchers[0]!
+    first.report('rename', 'app.asar.dpkg-new')
+    vi.advanceTimersByTime(L.packageSettleMs - 1)
+    first.report('rename', 'app.asar') // a later change pushes the settle back
+    vi.advanceTimersByTime(L.packageSettleMs - 1)
+    expect(settled).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(1)
+    expect(settled).toHaveBeenCalledTimes(1)
+    first.report('rename', 'app.asar')
+    end()
+    expect(first.watcher.close).toHaveBeenCalledTimes(1)
+    vi.advanceTimersByTime(60_000)
+    expect(settled).toHaveBeenCalledTimes(1)
+    expect(failed).not.toHaveBeenCalled()
+    // an error from the watch ends it, pending settle included, and is reported once
+    const endSecond = packageWatch.watch('/x/resources', settled, failed)
+    const second = watchers[1]!
+    second.report('rename', 'app.asar')
+    second.watcher.emit('error', new Error('watch failed'))
+    expect(second.watcher.close).toHaveBeenCalledTimes(1)
+    vi.advanceTimersByTime(60_000)
+    expect(failed).toHaveBeenCalledTimes(1)
+    expect(settled).toHaveBeenCalledTimes(1)
+    endSecond()
+    watch.mockRestore() // the next watch is the system's
+    // a folder that cannot be watched is reported once, at once
+    const missing = vi.fn()
+    packageWatch.watch(path.join(tmp(), 'nope'), settled, missing)
+    expect(missing).toHaveBeenCalledTimes(1)
+  })
+
+  // inotify's watch is in place when fs.watch returns and reports nothing from before it, so a replace made straight
+  // after is the one heard; macOS has no package watch
+  it.runIf(onLinux)('U-DST-51 · on Linux the package watch hears a package manager writing a file in resources/ and renaming it over app.asar', async () => {
     const dir = tmp()
     fs.writeFileSync(path.join(dir, 'app.asar'), 'old')
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     const settled = vi.fn()
     const failed = vi.fn()
-    const end = (linux.packageWatch as { watch: (d: string, s: () => void, f: (e: unknown) => void) => () => void }).watch(dir, settled, failed)
+    const end = packageWatch.watch(dir, settled, failed)
     fs.writeFileSync(path.join(dir, 'app.asar.dpkg-new'), 'new')
     fs.renameSync(path.join(dir, 'app.asar.dpkg-new'), path.join(dir, 'app.asar'))
-    // the change has arrived once its settle timer is set; it settles after L.packageSettleMs with no further change
-    await vi.waitFor(() => expect(vi.getTimerCount()).toBeGreaterThan(0))
-    expect(settled).not.toHaveBeenCalled()
+    // the change has arrived once its settle timer is set
+    await vi.waitFor(() => expect(vi.getTimerCount()).toBeGreaterThan(0), { timeout: EVENT_WAIT_MS })
     vi.advanceTimersByTime(L.packageSettleMs)
     expect(settled).toHaveBeenCalledTimes(1)
     end()
-    fs.writeFileSync(path.join(dir, 'app.asar'), 'newer')
-    vi.advanceTimersByTime(60_000)
-    expect(settled).toHaveBeenCalledTimes(1)
     expect(failed).not.toHaveBeenCalled()
-    const missing = vi.fn()
-    ;(linux.packageWatch as { watch: (d: string, s: () => void, f: (e: unknown) => void) => () => void }).watch(path.join(dir, 'nope'), settled, missing)
-    expect(missing).toHaveBeenCalledTimes(1)
   })
 
   it('U-DST-37 · the report’s update line says who updates this Kea', () => {
