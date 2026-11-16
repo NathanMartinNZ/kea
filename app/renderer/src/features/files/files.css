@@ -244,11 +244,6 @@
   font-weight: bold;
 }
 
-/* a folder with changes below it: the strongest child's colour at --opacity-folder-tint */
-.ft-dir[class*='git-'] .ft-name {
-  opacity: var(--opacity-folder-tint);
-}
-
 /* ── the tree's file operations ── */
 
 /* the name field (New File…, New Folder…, Rename…) over its row's place; the row under it is not drawn */
