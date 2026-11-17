@@ -2088,3 +2088,8 @@ why = "a usage reading no session has refreshed for this long is hidden: use out
 value = 65536
 unit = "bytes"
 why = "status line stdin above this is drained and dropped; a payload is about 1.5 KB"
+
+[venv_config_max_bytes]
+value = 4096
+unit = "bytes"
+why = "how much of a virtual env's pyvenv.cfg is read for its prompt name; the file is a few short lines"

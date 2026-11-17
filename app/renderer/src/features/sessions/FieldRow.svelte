@@ -5,7 +5,7 @@
 
   let { field, value, onChange }: { field: Field; value: unknown; onChange(v: unknown): void } = $props()
 
-  const shown = $derived(field.kind === 'list' ? ((value as string[] | undefined) ?? []).join('\n') : field.kind === 'toggle' ? !!value : ((value as string | undefined) ?? ''))
+  const shown = $derived(field.kind === 'list' ? ((value as string[] | undefined) ?? []).join('\n') : field.kind === 'toggle' ? ((value as boolean | undefined) ?? field.defaultOn === true) : ((value as string | undefined) ?? ''))
   let text = $state(untrack(() => shown))
   // the field follows the stored value whenever that changes
   const stored = $derived(JSON.stringify(value))
@@ -26,11 +26,13 @@
     <input
       type="checkbox"
       role="switch"
-      checked={!!value}
+      checked={!!shown}
       onchange={(e) => {
-        onChange(e.currentTarget.checked ? true : undefined)
+        // a switch on by default stores false when turned off, and nothing when turned back on
+        const on = e.currentTarget.checked
+        onChange(on === (field.kind === 'toggle' && field.defaultOn === true) ? undefined : on)
         // the switch shows the stored value; it changes when core's store does
-        e.currentTarget.checked = !!value
+        e.currentTarget.checked = !!shown
       }}
     />
     {#if field.help}

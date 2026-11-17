@@ -1,10 +1,10 @@
 // Project Settings as data: the fields `ProjectSettingsForm.svelte` shows and the change each new value makes.
 
-import { SERVICES_MODES, type ProjectSettings } from '@kea/protocol'
+import { DEFAULT_PYTHON_ENV_FOLDER, SERVICES_MODES, type ProjectSettings } from '@kea/protocol'
 
 export type Field =
   | { key: keyof ProjectSettings; label: string; help?: string; kind: 'text'; placeholder?: string }
-  | { key: keyof ProjectSettings; label: string; help?: string; kind: 'toggle' }
+  | { key: keyof ProjectSettings; label: string; help?: string; kind: 'toggle'; /** On when unset; turning it off stores false. */ defaultOn?: boolean }
   | { key: keyof ProjectSettings; label: string; help?: string; kind: 'list'; placeholder?: string }
   | { key: keyof ProjectSettings; label: string; help?: string; kind: 'select'; options: readonly { value: string; label: string }[] }
 
@@ -20,6 +20,8 @@ export const PROJECT_FIELDS: readonly Field[] = [
   { key: 'rebuildableDirs', label: 'Rebuildable folders', help: 'Build folders that can be removed and rebuilt, one pattern per line.', kind: 'list' },
   { key: 'runCommand', label: 'Run command', help: 'The dev server; else ./start.sh.', kind: 'text' },
   { key: 'autoStartServer', label: 'Start the dev server with each session', kind: 'toggle' },
+  { key: 'activatePythonEnv', label: 'Activate the Python virtual env in new terminals', help: 'New terminals and the dev server start with the session folder’s virtual env active, when it has one. Agents, setup and terminals already open are left as they are.', kind: 'toggle', defaultOn: true },
+  { key: 'pythonEnvFolder', label: 'Python virtual env folder', help: 'Relative to the session’s folder, or absolute.', kind: 'text', placeholder: DEFAULT_PYTHON_ENV_FOLDER },
   // Never forced; a slow status suggests it once (the file panel's hint)
   { key: 'useFsmonitor', label: 'Use git fsmonitor for this repo', help: 'Speeds up git status in a large repository: sets core.fsmonitor and core.untrackedCache in each worktree’s own config. Not used on a network volume.', kind: 'toggle' },
 ]

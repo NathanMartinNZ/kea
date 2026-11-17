@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { OBSOLETE_SESSION_ENV_VARS, SESSION_ENV_VARS, scrubSessionEnv } from './env.ts'
+import { OBSOLETE_SESSION_ENV_VARS, SESSION_ENV_VARS, SHELL_INIT_ENV_VARS, scrubSessionEnv } from './env.ts'
 
 /** The session variables, written out by hand: a variable added to env.ts must be added here too. */
 const LISTED = [
@@ -17,11 +17,15 @@ const LISTED = [
   'KEA_TEARDOWN_REASON',
 ]
 
+/** What the shell startup files are given, written out by hand for the same reason. */
+const SHELL_INIT = ['KEA_VENV', 'KEA_VENV_PROMPT', 'KEA_ZDOTDIR', 'KEA_BASH_ENV', 'KEA_SHELL_INIT']
+
 describe('scrubSessionEnv', () => {
-  it('U-FAIL-8 · removes every session variable Kea sets and the obsolete KEA_SOCK/KEA_SPOOL, in place, empty ones too, and names what it removed; everything else stays', () => {
+  it('U-FAIL-8 · removes every session variable Kea sets, the shell startup files\' variables and the obsolete KEA_SOCK/KEA_SPOOL, in place, empty ones too, and names what it removed; everything else stays', () => {
     expect([...SESSION_ENV_VARS].sort()).toEqual([...LISTED].sort())
+    expect([...SHELL_INIT_ENV_VARS].sort()).toEqual([...SHELL_INIT].sort())
     expect([...OBSOLETE_SESSION_ENV_VARS].sort()).toEqual(['KEA_SOCK', 'KEA_SPOOL'])
-    const session = Object.fromEntries([...LISTED, 'KEA_SOCK', 'KEA_SPOOL'].map((k, i) => [k, i === 0 ? '' : `v${i}`]))
+    const session = Object.fromEntries([...LISTED, ...SHELL_INIT, 'KEA_SOCK', 'KEA_SPOOL'].map((k, i) => [k, i === 0 ? '' : `v${i}`]))
     const keep = { PATH: '/usr/bin:/bin', HOME: '/Users/someone', SHELL: '/bin/zsh', KEA_TEST_APP_RUN: 'abc', KEA_SESSION: 'not a session variable', kea_session_id: 'case matters' }
     const env: Record<string, string | undefined> = { ...keep, ...session }
     const removed = scrubSessionEnv(env)

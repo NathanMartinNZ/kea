@@ -74,7 +74,8 @@ import type { PortBlocks } from '../server/ports.ts'
 import type { SettingsFile } from '../settings/settings.ts'
 import type { ReconcilePlan } from '../terminal/reconcile.ts'
 import type { Env } from '../terminal/shellEnv.ts'
-import { shellTabArgv, userShell } from '../terminal/spawn.ts'
+import { shellTabCommand, userShell } from '../terminal/spawn.ts'
+import { findVenv, type Venv } from '../terminal/venv.ts'
 import type { TerminalExit, Terminals } from '../terminal/terminals.ts'
 import { backupsExcludable, backupTargets, excludeFromBackup } from '../worktrees/backup.ts'
 import { copyEntries, planCopies, WORKTREE_INCLUDE } from '../worktrees/copy.ts'
@@ -967,9 +968,10 @@ export class Sessions {
     // commands, through the seam; the shell pseudo-agent otherwise)
     const session: AgentLaunchSession = { id, agent: r.agent, cwd: r.cwd, isolation: r.isolation, agentSessionId: how === 'restart' ? null : r.agent_session_id, launch: this.launchConfig(r), requestedAgent: this.launchExtras(r).requestedAgent }
     const cmd = (await this.o.agentCommand?.(session, how)) ?? null
-    const argv = cmd?.argv ?? shellTabArgv(shell)
-    const command = { argv, ...(cmd?.throughLoginShell ? { throughLoginShell: true } : {}) }
-    const { ptyId } = await this.o.terminals.launch({ sessionId: id, kind: 'agent', command, cwd: r.cwd, cols: g.cols, rows: g.rows, env: { ...env, ...cmd?.env }, ...(cmd?.unsetEnv?.length ? { unsetEnv: cmd.unsetEnv } : {}) })
+    // an agent is never given the session's virtual env (it learns of it from the project's notes); the plain shell is
+    const command = cmd ? { argv: cmd.argv, ...(cmd.throughLoginShell ? { throughLoginShell: true } : {}) } : shellTabCommand(shell)
+    const venv = cmd ? null : await this.venvOf(r)
+    const { ptyId } = await this.o.terminals.launch({ sessionId: id, kind: 'agent', command, cwd: r.cwd, cols: g.cols, rows: g.rows, env: { ...env, ...cmd?.env }, ...(cmd?.unsetEnv?.length ? { unsetEnv: cmd.unsetEnv } : {}), ...(venv ? { venv } : {}) })
     this.log.info('agent launched', { sessionId: id, ptyId, how, agent: r.agent })
     // the new agent takes the session's one Agent tab: the ended agent PTYs it replaces go, files and all
     for (const x of ended) await this.o.terminals.forgetRecord(x.ptyId, { files: true })
@@ -1093,8 +1095,9 @@ export class Sessions {
       if (!fs.existsSync(r.cwd)) throw new RpcError('wrong_state', 'the worktree is missing (Recreate from branch)')
       const env = await this.ptyEnv(r, { kind: 'shell' })
       const shell = userShell(await this.o.env())
+      const venv = await this.venvOf(r)
       const g = grid ?? this.grid
-      return this.o.terminals.launch({ sessionId: id, kind: 'shell', command: { argv: shellTabArgv(shell) }, cwd: r.cwd, cols: g.cols, rows: g.rows, env })
+      return this.o.terminals.launch({ sessionId: id, kind: 'shell', command: shellTabCommand(shell), cwd: r.cwd, cols: g.cols, rows: g.rows, env, ...(venv ? { venv } : {}) })
     })
   }
 
@@ -2225,6 +2228,20 @@ export class Sessions {
   /** The session environment for the session's dev-server PTY (`PORT` set). */
   serverEnv(id: string): Promise<Env> {
     return this.ptyEnv(this.row(id), { kind: 'server' })
+  }
+
+  /** The Python virtual env the session's new shell tabs and dev server start with, or null. */
+  venv(id: string): Promise<Venv | null> {
+    return this.venvOf(this.row(id))
+  }
+
+  private async venvOf(r: Row): Promise<Venv | null> {
+    try {
+      return await findVenv(r.cwd, this.project(r.project_id).settings)
+    } catch (e) {
+      this.log.warn('virtual env not looked for', { sessionId: r.id, error: String(e) })
+      return null
+    }
   }
 
   /** The session environment for a PTY of `r`. */

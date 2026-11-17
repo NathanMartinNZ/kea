@@ -49,7 +49,9 @@ import { procsProbe, type ProcessProbe } from './procs.ts'
 import { planReconcile, recordFromHolder, SHELLS_SESSION, startedAtMs, type ReconcilePlan } from './reconcile.ts'
 import { MemoryRecords, type TerminalRecord, type TerminalRecords } from './records.ts'
 import { terminalEnv, type Env, type ShellEnvSource } from './shellEnv.ts'
+import { ensureShellInit, shellInitDir } from './shellInit.ts'
 import { shellTabArgv, spawnSpec, userShell, type Command } from './spawn.ts'
+import type { Venv } from './venv.ts'
 
 export { SHELLS_SESSION } from './reconcile.ts'
 
@@ -151,6 +153,8 @@ export interface LaunchRequest {
   unsetEnv?: readonly string[]
   /** The tab's title for PTYs whose program sets none (`Setup`, `Teardown`: kind `script`). */
   title?: string
+  /** The session's Python virtual env, activated in the PTY (a session's shell tabs and dev server). */
+  venv?: Venv | null
   /**
    * The id the PTY gets (kit's `ptyId()`), for a caller that must write something of its own about the PTY before
    * its record exists (a teardown's mark). Default: a new one.
@@ -365,11 +369,20 @@ export class Terminals {
    * knows it after restarting. Once the spawn has returned the PTY lives, so a ptyhost that goes before it has listed
    * the PTY does not fail the launch: the next ptyhost is asked (`listedAfterSpawn`, U-PTY-74).
    */
+  /** Kea's shell startup files under KEA_HOME, written again if one has gone; null without a home or when unwritable. */
+  private shellInit(): string | null {
+    if (!this.opts.home) return null
+    const dir = shellInitDir(this.opts.home)
+    if (ensureShellInit(dir)) return dir
+    this.opts.log.warn('shell startup files not written: the virtual env reaches the terminal as variables only', { dir })
+    return null
+  }
+
   async launch(req: LaunchRequest): Promise<{ ptyId: string }> {
     if (this.stoppingAll) throw new RpcError('unavailable', 'Kea is quitting and stopping every terminal')
     const env = { ...terminalEnv(await this.opts.env(), this.opts.version), ...req.env }
     for (const k of req.unsetEnv ?? []) delete env[k]
-    const spec = spawnSpec(req.command, env, req.cwd)
+    const spec = spawnSpec(req.command, env, req.cwd, req.venv ? { venv: req.venv, initDir: this.shellInit() } : null)
     const ptyId = req.ptyId ?? newPtyId()
     if (this.records.get(ptyId) || this.spawning.has(ptyId)) throw new RpcError('refused', `a terminal ${ptyId} exists already`)
     const rec: TerminalRecord = {

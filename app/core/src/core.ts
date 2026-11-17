@@ -53,6 +53,7 @@ import type { ReconcilePlan } from './terminal/reconcile.ts'
 import { FileRecords } from './terminal/records.ts'
 import type { Env, ShellEnvSource } from './terminal/shellEnv.ts'
 import { Terminals } from './terminal/terminals.ts'
+import { shellInitDir, writeShellInit } from './terminal/shellInit.ts'
 import { StatusEngine } from './status/engine.ts'
 import { NotificationPolicy } from './status/policy.ts'
 import { findGit, type GitProbePaths } from './worktrees/git.ts'
@@ -293,6 +294,12 @@ export function createCore(o: CoreOptions): Core {
   let backupsRef: BackupExclusions | null = null
   const folderMade = (): void => void backupsRef?.look()
   const records = new RoutedRecords(FileRecords.open(home, log), new DbRecords(db), log)
+  // the shell startup files that activate a session's virtual env, rewritten where this build's text differs
+  try {
+    writeShellInit(shellInitDir(home))
+  } catch (e) {
+    log.warn('shell startup files not written', { error: String(e) })
+  }
   const terminals: Terminals = new Terminals({
     version: o.version,
     log,

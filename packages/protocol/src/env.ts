@@ -17,13 +17,19 @@ export const SESSION_ENV_VARS = [
   'KEA_TEARDOWN_REASON',
 ] as const
 
+/**
+ * What Kea gives a shell that activates a session's virtual env in its startup files (core's `terminal/shellInit.ts`).
+ * The startup files unset them; they are removed with the session variables in case a shell never ran those files.
+ */
+export const SHELL_INIT_ENV_VARS = ['KEA_VENV', 'KEA_VENV_PROMPT', 'KEA_ZDOTDIR', 'KEA_BASH_ENV', 'KEA_SHELL_INIT'] as const
+
 /** Earlier designs exported these; they are still removed so an old session cannot leak them. */
 export const OBSOLETE_SESSION_ENV_VARS = ['KEA_SOCK', 'KEA_SPOOL'] as const
 
 /** Remove every session variable from `env` in place; returns the names that were present. */
 export function scrubSessionEnv(env: Record<string, string | undefined>): string[] {
   const removed: string[] = []
-  for (const k of [...SESSION_ENV_VARS, ...OBSOLETE_SESSION_ENV_VARS]) {
+  for (const k of [...SESSION_ENV_VARS, ...SHELL_INIT_ENV_VARS, ...OBSOLETE_SESSION_ENV_VARS]) {
     if (k in env) {
       delete env[k]
       removed.push(k)

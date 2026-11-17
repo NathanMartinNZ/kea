@@ -93,7 +93,7 @@ describe('what Run runs', () => {
 
     // the setting wins over any start.sh: the user's text is one argv element of `$SHELL -l -c`, never spliced
     const cmd = `pnpm dev --port "$PORT"; echo 'done'`
-    expect(resolveRun({ runCommand: `  ${cmd}  ` }, s, '/opt/homebrew/bin/fish')).toEqual({ source: 'runCommand', command: { argv: ['/opt/homebrew/bin/fish', '-l', '-c', cmd] }, label: cmd })
+    expect(resolveRun({ runCommand: `  ${cmd}  ` }, s, '/opt/homebrew/bin/fish')).toEqual({ source: 'runCommand', command: { argv: ['/opt/homebrew/bin/fish', '-l', '-c', cmd], shell: { kind: 'script', shell: '/opt/homebrew/bin/fish', script: cmd } }, label: cmd })
     expect(runSource({ runCommand: cmd }, null)).toBe('runCommand')
     // a blank setting is no setting
     expect(resolveRun({ runCommand: '   ' }, s, '/bin/zsh')?.source).toBe('startScript')

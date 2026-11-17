@@ -817,3 +817,5 @@ pub const USAGE_DANGER_RATIO: f64 = 0.95;
 pub const USAGE_STALE_MS: u64 = 21600000;
 /// status line stdin above this is drained and dropped; a payload is about 1.5 KB (bytes)
 pub const STATUSLINE_STDIN_MAX_BYTES: u64 = 65536;
+/// how much of a virtual env's pyvenv.cfg is read for its prompt name; the file is a few short lines (bytes)
+pub const VENV_CONFIG_MAX_BYTES: u64 = 4096;

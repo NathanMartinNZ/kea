@@ -818,6 +818,8 @@ export const L = {
   usageStaleMs: 21600000,
   /** status line stdin above this is drained and dropped; a payload is about 1.5 KB (bytes) */
   statuslineStdinMaxBytes: 65536,
+  /** how much of a virtual env's pyvenv.cfg is read for its prompt name; the file is a few short lines (bytes) */
+  venvConfigMaxBytes: 4096,
 } as const
 
 export type LimitName = keyof typeof L
@@ -1232,4 +1234,5 @@ export const LIMIT_META: Record<LimitName, { unit: string; why: string; whyLinux
   usageDangerRatio: { unit: "ratio", why: "a usage limit's window this full shows in the danger colour" },
   usageStaleMs: { unit: "ms", why: "a usage reading no session has refreshed for this long is hidden: use outside Kea (the web app, another machine) may have moved it" },
   statuslineStdinMaxBytes: { unit: "bytes", why: "status line stdin above this is drained and dropped; a payload is about 1.5 KB" },
+  venvConfigMaxBytes: { unit: "bytes", why: "how much of a virtual env's pyvenv.cfg is read for its prompt name; the file is a few short lines" },
 }

@@ -10,7 +10,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { L, type ProjectSettings, type ServerSource } from '@kea/protocol'
-import type { Command } from '../terminal/spawn.ts'
+import { loginScriptCommand, type Command } from '../terminal/spawn.ts'
 
 /** The convention's file name. */
 export const START_SCRIPT = 'start.sh'
@@ -71,7 +71,7 @@ export function inspectStartScript(cwd: string): StartScript | null {
 /** The command for a session, or null when there is nothing to run. `shell`: the user's (`$SHELL`). */
 export function resolveRun(settings: Pick<ProjectSettings, 'runCommand'>, script: StartScript | null, shell: string): RunTarget | null {
   const configured = settings.runCommand?.trim()
-  if (configured) return { source: 'runCommand', command: { argv: [shell, '-l', '-c', configured] }, label: configured }
+  if (configured) return { source: 'runCommand', command: loginScriptCommand(shell, configured), label: configured }
   if (!script) return null
   if (script.executable) return { source: 'startScript', command: { argv: [`./${START_SCRIPT}`] }, label: START_SCRIPT }
   const argv = script.shebang ? [...script.shebang, START_SCRIPT] : [FALLBACK_INTERPRETER, START_SCRIPT]

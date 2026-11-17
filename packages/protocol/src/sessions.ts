@@ -43,6 +43,9 @@ export const DEFAULT_FILES_TO_COPY: readonly string[] = ['.env', '.env.*', '/CLA
 /** The default rebuildable folders: directories that match one of these and are git-ignored. */
 export const DEFAULT_REBUILDABLE_DIRS: readonly string[] = ['node_modules', '.next', '.turbo', '.parcel-cache', 'dist', 'build', 'out', 'target', '.venv', 'coverage']
 
+/** The folder in a session's working directory whose virtual env new terminals activate, unless the project names another. */
+export const DEFAULT_PYTHON_ENV_FOLDER = '.venv'
+
 /** A project's settings, kept as JSON. Every field is optional: an absent one takes its default where it is used. */
 export const zProjectSettings = z.object({
   /** Override the detected default branch. */
@@ -68,6 +71,10 @@ export const zProjectSettings = z.object({
   autoStartServer: z.boolean().optional(),
   /** Turn on git's fsmonitor (`core.fsmonitor`, `core.untrackedCache`) in each session's worktree config. */
   useFsmonitor: z.boolean().optional(),
+  /** New terminals of a session start with its Python virtual env active; default on. */
+  activatePythonEnv: z.boolean().optional(),
+  /** That virtual env's folder, relative to the session's working directory or absolute; default DEFAULT_PYTHON_ENV_FOLDER. */
+  pythonEnvFolder: z.string().min(1).optional(),
   /**
    * The choices of the project's last start; `isolation` is also the composer's Worktree toggle default.
    * `byAgent`: the choices of the last start with each agent, which the composer takes when the agent is changed, for

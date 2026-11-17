@@ -67,7 +67,7 @@ export interface ServersOptions {
   db: KeaDb
   log: Logger
   terminals: ServerTerminals
-  sessions: Pick<Sessions, 'store' | 'refresh' | 'serverEnv'>
+  sessions: Pick<Sessions, 'store' | 'refresh' | 'serverEnv' | 'venv'>
   projects: Pick<Projects, 'get' | 'updateSettings' | 'store'>
   visible: VisibleSet
   watch: WatchService
@@ -612,8 +612,9 @@ export class Servers {
     try {
       // the worktree root, the session environment with PORT, and colours on
       const env = { ...(await this.o.sessions.serverEnv(id)), FORCE_COLOR: '1' }
+      const venv = await this.o.sessions.venv(id)
       const g = grid ?? { cols: L.ptyDefaultCols, rows: L.ptyDefaultRows }
-      ptyId = (await this.o.terminals.launch({ sessionId: id, kind: 'server', command: target.command, cwd: v.cwd, cols: g.cols, rows: g.rows, env })).ptyId
+      ptyId = (await this.o.terminals.launch({ sessionId: id, kind: 'server', command: target.command, cwd: v.cwd, cols: g.cols, rows: g.rows, env, ...(venv ? { venv } : {}) })).ptyId
     } catch (err) {
       // no holder was started: nothing ran, and the caller is told why
       const stop = e.stopping
