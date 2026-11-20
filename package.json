@@ -30,7 +30,6 @@
     "test:integration": "vitest run --project integration --passWithNoTests",
     "test:rust": "node tools/cargo.ts test --manifest-path native/kea-helper/Cargo.toml",
     "test:e2e": "tests/node_modules/.bin/playwright test -c tests/e2e/playwright.config.ts --pass-with-no-tests",
-    "test:trace": "node tools/trace/src/main.ts",
     "test:contract": "vitest run --project contract",
     "test:contract:capture": "KEA_CONTRACT_CAPTURE=1 vitest run --project contract -t K-CL-",
     "test:contract:capture:cmd": "KEA_CONTRACT_CAPTURE_CM=1 vitest run --project contract -t K-CM-",

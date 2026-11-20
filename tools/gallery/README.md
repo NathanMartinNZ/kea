@@ -19,7 +19,7 @@ it is held against. A set that failed to run is named at the top of the page.
 ## How it works
 
 - A set is a `src/*.gallery.ts` file run by Playwright (`playwright.config.ts`, one worker). The files are not
-  `*.spec.ts` or `*.test.ts`, so `pnpm test:e2e`, Vitest and `pnpm test:trace` do not see them.
+  `*.spec.ts` or `*.test.ts`, so `pnpm test:e2e` and Vitest do not see them.
 - Each set launches Kea through the e2e fixtures (`tests/e2e/fixtures.ts`, so `KeaRun.launch`): unfocused, on a
   temporary `KEA_HOME`, with `tools/fake-agent` as the agent and repo-factory repositories as projects. No real agent
   CLI, editor, browser or file manager window is ever started, the window never takes the keyboard, and clipboard

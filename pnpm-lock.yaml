@@ -325,12 +325,6 @@ importers:
 
   tools/scrubber: {}
 
-  tools/trace:
-    dependencies:
-      smol-toml:
-        specifier: 1.9.0
-        version: 1.9.0
-
 packages:
 
   '@codemirror/autocomplete@6.20.4':

@@ -2,11 +2,7 @@
 // Target < 5 min. Runs every step (stopping at nothing), then prints a table and exits 1 if any step failed.
 //
 //   codegen --check      R-LIM-1: generated files equal codegen output
-//   constants owners     every constants/limits.toml entry has an owner in the private specification (tools/trace)
-//   private references   no file of the repository refers to the private specification (tools/trace --check-source);
-//                        these two read .plan/ and are skipped where it is absent, unless KEA_REQUIRE_PLAN=1
-//                        (tools/trace/src/presence.ts)
-//   lint                 U-LINT-1 boundaries · DS-2 tokens · U-AGT-11 agent strings
+//   lint                 U-LINT-1 boundaries · DS-2 tokens · U-AGT-11 agent strings · U-PLT-1 OS names
 //   typecheck            tsc --noEmit over the workspace, then svelte-check over the renderer and packages/ui
 //   unit                 the unit project in full (DS-* and the U-ST-7 replays included)
 //   rust                 cargo test for native/kea-helper (incl. proptest)
@@ -27,7 +23,6 @@ import { fileURLToPath } from 'node:url'
 import { systemOf, type System } from '../packages/protocol/src/platform.ts'
 import { resolveCargo } from './cargo.ts'
 import { packOs } from './pack/src/os/index.ts'
-import { NO_PLAN, skipsWithoutPlan } from './trace/src/presence.ts'
 import { namePattern, TIER_A, type TierAProject } from './verify-tier-a.ts'
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)))
@@ -62,14 +57,6 @@ const system = systemOf(process.platform) // os-ok: the gate runs this system's 
 
 const steps: Step[] = [
   { name: 'codegen --check', run: () => ({ code: exec(node, ['tools/codegen/src/main.ts', '--check']) }) },
-  {
-    name: 'constants owners',
-    run: () => (skipsWithoutPlan(root) ? { code: -1, note: NO_PLAN } : { code: exec(node, ['tools/trace/src/main.ts', '--check-owners']) }),
-  },
-  {
-    name: 'private references',
-    run: () => (skipsWithoutPlan(root) ? { code: -1, note: NO_PLAN } : { code: exec(node, ['tools/trace/src/main.ts', '--check-source']) }),
-  },
   { name: 'lint', run: () => ({ code: exec(node, ['tools/lint/src/main.ts']) }) },
   {
     name: 'typecheck',

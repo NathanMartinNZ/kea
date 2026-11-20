@@ -16,11 +16,6 @@ function repoRoot(): string {
 }
 
 const root = repoRoot()
-// The private specification (.plan/) is not in a public clone: the comparison with it skips there, unless
-// KEA_REQUIRE_PLAN=1. This is the check of tools/trace/src/presence.ts, repeated because a package's tests cannot
-// import from tools/.
-const NO_PLAN = '.plan/ (the private specification) is not in this checkout'
-const noPlan = !existsSync(join(root, '.plan')) && process.env.KEA_REQUIRE_PLAN !== '1'
 type Leaf = { $value: string }
 type Tokens = {
   color: Record<string, Leaf>
@@ -191,7 +186,7 @@ describe('design tokens', () => {
     expect(failures, `below the terminal contrast minimum`).toEqual([])
   })
 
-  it('DS-3 · the syntax theme covers every syntax class with its named colour, each ≥ 4.5 : 1 on surface-0', ({ skip }) => {
+  it('DS-3 · the syntax theme covers every syntax class, each ≥ 4.5 : 1 on surface-0, with no italics and no accent orange', () => {
     const surface0 = tokens.color['surface-0']!.$value
     expect(theme.colors['editor.background']).toBe(surface0)
 
@@ -202,53 +197,35 @@ describe('design tokens', () => {
       .map((t) => `${t.name} ${t.fg}: ${t.ratio.toFixed(2)} : 1`)
     expect(low, 'syntax colours below 4.5 : 1 on surface-0').toEqual([])
 
-    // every row of the private specification's syntax-theme table maps to theme scopes in the colour it names
-    skip(noPlan, NO_PLAN)
-    const design = readFileSync(join(root, '.plan/plan/05-design-system.md'), 'utf8')
-    const section = design.slice(design.indexOf('**Syntax theme "Kea Dark"**'), design.indexOf('The accent orange is never used for syntax'))
-    const rows = [...section.matchAll(/^\| ([^|]+?) \| ([^|]+?) \|$/gm)].map((m) => [m[1]!.trim(), m[2]!.trim()] as const).filter(([k]) => k !== 'Token' && !/^-+$/.test(k))
-    // the TextMate scopes each design row stands for (DS-3: every class maps to a token)
-    const SCOPES: Record<string, string[]> = {
-      'Text, variables, parameters': ['variable', 'variable.parameter'],
-      Comments: ['comment'],
-      'Keywords, storage, control flow': ['keyword', 'storage', 'keyword.control'],
-      Strings: ['string'],
-      'Escapes, regex, constants in strings': ['constant.character.escape', 'string.regexp'],
-      'Numbers, booleans, language constants': ['constant.numeric', 'constant.language'],
-      'Function and method names': ['entity.name.function', 'support.function'],
-      'Types, classes, interfaces': ['entity.name.type', 'entity.name.class'],
-      'Properties, object keys': ['variable.other.property', 'meta.object-literal.key'],
-      'Tags (HTML / JSX)': ['entity.name.tag'],
-      Attributes: ['entity.other.attribute-name'],
-      'Operators, punctuation': ['keyword.operator', 'punctuation'],
-      'Markdown headings': ['markup.heading'],
-      Links: ['markup.underline.link'],
-      Invalid: ['invalid'],
-    }
-    const term = tokens.terminal['kea-dark']!
-    const colourOf = (named: string): string => {
-      const n = named.replace(/,.*$/, '').replace(/`/g, '').trim()
-      if (n === 'terminal foreground') return term.foreground!.$value
-      if (n.startsWith('--')) return tokens.color[n.slice(2)]!.$value
-      const key = n.replace(/ (\w)/g, (_, c: string) => c.toUpperCase()) // "bright blue" → brightBlue
-      return term[key]!.$value
-    }
-    expect(rows.length).toBe(Object.keys(SCOPES).length)
-    const problems: string[] = []
-    for (const [cls, named] of rows) {
-      const scopes = SCOPES[cls]
-      if (!scopes) {
-        problems.push(`syntax class "${cls}" has no scope mapping in DS-3`)
-        continue
-      }
-      const want = colourOf(named).toUpperCase()
-      for (const scope of scopes) {
-        const entry = theme.tokenColors.find((t) => t.scope.includes(scope))
-        if (!entry) problems.push(`${cls}: scope ${scope} missing from the theme`)
-        else if (entry.settings.foreground.toUpperCase() !== want) problems.push(`${cls}: ${scope} is ${entry.settings.foreground}, design says ${named} (${want})`)
-      }
-    }
-    expect(problems).toEqual([])
+    // every required TextMate scope is mapped in the generated syntax theme
+    const REQUIRED_SCOPES = [
+      'variable',
+      'variable.parameter',
+      'comment',
+      'keyword',
+      'storage',
+      'keyword.control',
+      'string',
+      'constant.character.escape',
+      'string.regexp',
+      'constant.numeric',
+      'constant.language',
+      'entity.name.function',
+      'support.function',
+      'entity.name.type',
+      'entity.name.class',
+      'variable.other.property',
+      'meta.object-literal.key',
+      'entity.name.tag',
+      'entity.other.attribute-name',
+      'keyword.operator',
+      'punctuation',
+      'markup.heading',
+      'markup.underline.link',
+      'invalid',
+    ]
+    const missing = REQUIRED_SCOPES.filter((scope) => !theme.tokenColors.some((t) => t.scope.includes(scope)))
+    expect(missing, 'required TextMate scopes missing from syntax-theme.json').toEqual([])
 
     // no italics; bold only for Markdown headings; the accent orange never used for syntax
     for (const t of theme.tokenColors) {

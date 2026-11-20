@@ -1,0 +1,70 @@
+{
+  "terminalStack": {
+    "commit": "c58ea3637f3968e0e6e79cd92cf9aace7ef89ee2",
+    "packages": {
+      "@xterm/xterm": "6.1.0-beta.304",
+      "@xterm/headless": "6.1.0-beta.303",
+      "@xterm/addon-webgl": "0.20.0-beta.300",
+      "@xterm/addon-serialize": "0.15.0-beta.301",
+      "@xterm/addon-fit": "0.12.0-beta.301",
+      "@xterm/addon-search": "0.17.0-beta.301",
+      "@xterm/addon-web-links": "0.13.0-beta.301",
+      "@xterm/addon-unicode11": "0.10.0-beta.301"
+    }
+  },
+  "patches": [
+    {
+      "package": "@parcel/watcher",
+      "version": "2.6.0",
+      "file": "patches/@parcel__watcher@2.6.0.patch",
+      "reason": "Linux inotify backend walks newly created or moved directories, rejects subscribe immediately on inotify_init1 EMFILE instead of hanging, reports IN_Q_OVERFLOW as a rescan error, fixes subscribe/unsubscribe shared-backend races across all backends, and reports paths created and deleted within one debounce batch as deletions.",
+      "dropWhen": "Upstream fixes inotify nested-directory walks, EMFILE rejection, shared-backend subscribe/unsubscribe races, and create-then-delete event coalescing."
+    },
+    {
+      "package": "@xterm/addon-serialize",
+      "version": "0.15.0-beta.301",
+      "file": "patches/@xterm__addon-serialize@0.15.0-beta.301.patch",
+      "reason": "Re-apply surviving bold or dim after SGR 22, fix empty-start wrapped rows, zero-count cursor moves, lone zero-width cells, background-coloured blank rows and the first scrolling line feed, and avoid per-cell allocations during string serialization.",
+      "dropWhen": "Upstream emits SGR 22 before re-applying surviving attributes, fixes those row/cell edge cases, and serializes without per-cell allocation."
+    },
+    {
+      "package": "@xterm/addon-webgl",
+      "version": "0.20.0-beta.300",
+      "file": "patches/@xterm__addon-webgl@0.20.0-beta.300.patch",
+      "issues": [
+        "https://github.com/xtermjs/xterm.js/issues/6074",
+        "https://github.com/xtermjs/xterm.js/pull/6187"
+      ],
+      "reason": "Cap texture-atlas page merges at 4096x4096, release page canvases on merge and eviction, make clearTexture() evict pages, release removed texture units across all WebGL contexts, and replay existing atlas pages to listeners on activation.",
+      "dropWhen": "Upstream caps atlas merges, evicts pages on clear, releases removed textures across contexts, and notifies listeners of all joined atlas pages."
+    },
+    {
+      "package": "@xterm/headless",
+      "version": "6.1.0-beta.303",
+      "file": "patches/@xterm__headless@6.1.0-beta.303.patch",
+      "reason": "Keep the EscapeSequenceParser CSI fast path in CSI_ENTRY when nothing is consumed after ESC [, matching byte-by-byte parsing and Kea's ground-state scanner regardless of write boundaries.",
+      "dropWhen": "Upstream keeps the CSI fast path in CSI_ENTRY when nothing is consumed after ESC [."
+    },
+    {
+      "package": "@xterm/xterm",
+      "version": "6.1.0-beta.304",
+      "file": "patches/@xterm__xterm@6.1.0-beta.304.patch",
+      "reason": "Clone the last mousemove event in Linkifier without retaining its DOM event path across terminal pane moves, and keep the EscapeSequenceParser CSI fast path in CSI_ENTRY when nothing is consumed after ESC [.",
+      "dropWhen": "Upstream stops retaining dispatched MouseEvent paths in Linkifier and keeps the CSI fast path in CSI_ENTRY when nothing is consumed after ESC [."
+    },
+    {
+      "package": "electron-updater",
+      "version": "6.8.9",
+      "file": "patches/electron-updater@6.8.9.patch",
+      "reason": "Avoid spawning sysctl/uname subprocesses in MacUpdater by reading process.arch directly, and drop the persistent x-user-staging-id header and .updaterId file.",
+      "dropWhen": "Upstream detects architecture without spawning subprocesses and sends no staging identifier unless opted in."
+    },
+    {
+      "package": "svelte",
+      "version": "5.57.2",
+      "file": "patches/svelte@5.57.2.patch",
+      "reason": "Clear the closed-over current_target reference after event propagation finishes so V8's cached event descriptor array does not retain closed DOM subtrees.",
+      "dropWhen": "Upstream clears current_target after event propagation finishes."
+    }
+  ]
+}

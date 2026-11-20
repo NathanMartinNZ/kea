@@ -1,46 +1,34 @@
 // The terminal stack's version pins and the upstream patch set, a static check: nothing is launched. Every `@xterm/*`
 // package the renderer, ptyhost and packages/terminal use is installed once, at its pinned version, built from the one
 // pinned upstream commit (each package numbers its betas apart, so the `commit` field of its package.json is the real
-// pin). Every open upstream bug whose workaround is a patch has its file in patches/, registered and applied, and no
-// other patch is there. The pins and the upstream register come from the private specification (`.plan/`): without it
-// the test skips, and KEA_REQUIRE_PLAN=1 makes that a failure.
+// pin). Every patch declared in patches/manifest.json exists in patches/, is registered and applied, and no undeclared
+// patch is present.
 
 import fs from 'node:fs'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { repoRoot } from '../../tools/perf/src/launch.ts'
-import { NO_PLAN, skipsWithoutPlan } from '../../tools/trace/src/presence.ts'
 
-// the pins and the upstream register are read from the specification, which a public clone does not have
-const noPlan = skipsWithoutPlan(repoRoot)
 const read = (rel: string) => fs.readFileSync(path.join(repoRoot, rel), 'utf8')
-const cells = (line: string) => line.split('|').slice(1, -1).map((c) => c.trim())
 
-/** `@xterm/*` name → version, from the specification's stack table. */
-function pins(): Map<string, string> {
-  const rows = read('.plan/plan/03-architecture.md').split('\n').filter((l) => l.startsWith('| Terminal renderer') || l.startsWith('| Terminal mirror'))
-  const out = new Map<string, string>()
-  for (const row of rows) {
-    const [, choice, pin] = cells(row) as [string, string, string]
-    // "`@xterm/xterm` 6.1.0-beta.304, `@xterm/addon-webgl` 0.20.0-beta.300, `-fit` 0.12.0-beta.301, …"
-    for (const m of pin.matchAll(/`(@xterm\/[\w-]+|-[\w-]+)` (\d+\.\d+\.\d+-beta\.\d+)/g)) out.set((m[1] as string).startsWith('-') ? `@xterm/addon${m[1]}` : (m[1] as string), m[2] as string)
-    // "`@xterm/headless` + `@xterm/addon-serialize` …" with "6.1.0-beta.303 / 0.15.0-beta.301"
-    const names = [...choice.matchAll(/`(@xterm\/[\w-]+)`/g)].map((m) => m[1] as string)
-    const versions = pin.split(' / ').map((v) => v.trim())
-    if (names.length && names.length === versions.length && versions.every((v) => /^\d+\.\d+\.\d+-beta\.\d+$/.test(v))) names.forEach((n, i) => out.set(n, versions[i] as string))
+interface PatchManifest {
+  terminalStack: {
+    commit: string
+    packages: Record<string, string>
   }
-  return out
+  patches: {
+    package: string
+    version: string
+    file: string
+    issues?: string[]
+    reason: string
+    dropWhen: string
+  }[]
 }
 
-/** The upstream commit the terminal stack is built from, the full hash (from the specification's version-pin row). */
-function pinnedCommit(): string {
-  const row = read('.plan/specs/13-resources.md')
-    .split('\n')
-    .find((l) => l.startsWith('| MEM-16 |'))
-  const m = row ? /`([0-9a-f]{40})`/.exec(row) : null
-  if (!m) throw new Error('the private specification\'s version-pin row names no 40-character upstream commit')
-  return m[1] as string
+function readManifest(): PatchManifest {
+  return JSON.parse(read('patches/manifest.json')) as PatchManifest
 }
 
 /** The packages that use the terminal stack. */
@@ -64,26 +52,28 @@ function patchedDependencies(): Map<string, string> {
 }
 
 describe('terminal stack pins (static)', () => {
-  it('L-MEM-14 · every @xterm package resolves to the pinned build, built from the upstream commit the private specification pins; every patch its upstream register lists is in patches/, registered and applied, and no other', ({ skip }) => {
-    skip(noPlan, NO_PLAN)
-    const pinned = pins()
-    expect([...pinned.keys()].sort(), 'the private specification\'s stack table names the terminal stack').toEqual(
+  it('L-MEM-14 · every @xterm package resolves to the pinned build and commit in patches/manifest.json; every declared patch is in patches/, registered and applied, and no other', () => {
+    const manifest = readManifest()
+    const pinned = new Map(Object.entries(manifest.terminalStack.packages))
+    const pinnedCommit = manifest.terminalStack.commit
+    expect(pinnedCommit, 'patches/manifest.json terminalStack.commit is a 40-character commit hash').toMatch(/^[0-9a-f]{40}$/)
+    expect([...pinned.keys()].sort(), 'patches/manifest.json names the terminal stack').toEqual(
       expect.arrayContaining(['@xterm/xterm', '@xterm/headless', '@xterm/addon-webgl', '@xterm/addon-serialize']),
     )
     const installed = new Map<string, { version: string; dir: string }>()
     for (const user of USERS) {
-      const pkg = JSON.parse(read(`${user}/package.json`)) as { dependencies?: Record<string, string> }
+      const pkg = JSON.parse(read(`${user}/package.json`)) as { dependencies?: Record<string, string>; devDependencies?: Record<string, string> }
       const req = createRequire(path.join(repoRoot, user, 'package.json'))
-      for (const [name, range] of Object.entries(pkg.dependencies ?? {})) {
+      for (const [name, range] of [...Object.entries(pkg.dependencies ?? {}), ...Object.entries(pkg.devDependencies ?? {})]) {
         if (!name.startsWith('@xterm/')) continue
-        expect(range, `${user}: ${name} pinned exactly as the specification's stack table says`).toBe(pinned.get(name))
-        const manifest = req.resolve(`${name}/package.json`)
-        const { version, commit } = JSON.parse(fs.readFileSync(manifest, 'utf8')) as { version: string; commit?: string }
+        expect(range, `${user}: ${name} pinned as patches/manifest.json says`).toBe(pinned.get(name))
+        const manifestPath = req.resolve(`${name}/package.json`)
+        const { version, commit } = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as { version: string; commit?: string }
         expect(version, `${user}: ${name} as installed`).toBe(pinned.get(name))
-        expect(commit, `${user}: ${name} built from the specification's pinned upstream commit`).toBe(pinnedCommit())
+        expect(commit, `${user}: ${name} built from the pinned upstream commit`).toBe(pinnedCommit)
         const seen = installed.get(name)
-        if (seen) expect(path.dirname(manifest), `${name}: one copy for every user`).toBe(seen.dir)
-        installed.set(name, { version, dir: path.dirname(manifest) })
+        if (seen) expect(path.dirname(manifestPath), `${name}: one copy for every user`).toBe(seen.dir)
+        installed.set(name, { version, dir: path.dirname(manifestPath) })
       }
     }
     // one installed version of each package in the whole store (no second copy pulled in by something else)
@@ -93,45 +83,50 @@ describe('terminal stack pins (static)', () => {
       expect([...versions], `${name}: versions in node_modules/.pnpm`).toEqual([installed.get(name)?.version])
     }
 
-    // the upstream register (.plan/plan/09-upstream.md): open rows whose patch column names `patches/`
-    const register = read('.plan/plan/09-upstream.md')
-      .split('\n')
-      .filter((l) => /^\| UP-\d+ \|/.test(l))
-      .map(cells)
-      .map(([id, component, , , , status, patch]) => ({ id: id as string, component: /`([^`]+)`/.exec(component as string)?.[1] ?? (component as string), status: status as string, patch: patch as string }))
-    const wanted = register.filter((r) => r.patch.includes('`patches/`') && !/^fixed/i.test(r.status))
     const registered = patchedDependencies()
     // a patched package outside the terminal stack: the copy the process that uses it runs (`svelte`: the renderer's;
     // `@parcel/watcher`: core's; `electron-updater`: main's)
     const users = ['app/renderer', 'app/core', 'app/main'].map((u) => createRequire(path.join(repoRoot, u, 'package.json')))
-    for (const r of wanted) {
-      if (installed.has(r.component)) continue
+    for (const r of manifest.patches) {
+      if (installed.has(r.package)) continue
       for (const req of users) {
         try {
-          const manifest = req.resolve(`${r.component}/package.json`)
-          installed.set(r.component, { version: (JSON.parse(fs.readFileSync(manifest, 'utf8')) as { version: string }).version, dir: path.dirname(manifest) })
+          const manifestPath = req.resolve(`${r.package}/package.json`)
+          installed.set(r.package, { version: (JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as { version: string }).version, dir: path.dirname(manifestPath) })
           break
         } catch {
           // not this process's: the next, else reported below
         }
       }
     }
+
     const files = fs.existsSync(path.join(repoRoot, 'patches')) ? fs.readdirSync(path.join(repoRoot, 'patches')).filter((f) => f.endsWith('.patch')) : []
     const problems: string[] = []
-    for (const r of wanted) {
-      const v = installed.get(r.component)?.version
+    const declaredKeys = new Set<string>()
+    for (const r of manifest.patches) {
+      if (!r.reason.trim()) problems.push(`${r.package}: missing reason in patches/manifest.json`)
+      if (!r.dropWhen.trim()) problems.push(`${r.package}: missing dropWhen in patches/manifest.json`)
+      const v = installed.get(r.package)?.version
       if (!v) {
-        problems.push(`${r.id}: ${r.component} is not installed`)
+        problems.push(`${r.package}: not installed`)
         continue
       }
-      const file = `patches/${r.component.replace('/', '__')}@${v}.patch`
-      if (!files.includes(path.basename(file))) problems.push(`${r.id}: no ${file}`)
-      if (registered.get(`${r.component}@${v}`) !== file) problems.push(`${r.id}: ${r.component}@${v} is not in patchedDependencies as ${file}`)
+      if (v !== r.version) problems.push(`${r.package}: installed version is ${v}, patches/manifest.json says ${r.version}`)
+      const expectedFile = `patches/${r.package.replace('/', '__')}@${v}.patch`
+      if (r.file !== expectedFile) problems.push(`${r.package}: patches/manifest.json file is ${r.file}, expected ${expectedFile}`)
+      if (!files.includes(path.basename(expectedFile))) problems.push(`${r.package}: missing ${expectedFile}`)
+      const key = `${r.package}@${v}`
+      declaredKeys.add(key)
+      if (registered.get(key) !== expectedFile) problems.push(`${key}: not in patchedDependencies as ${expectedFile}`)
       // pnpm installs a patched package under a store directory carrying the patch hash
-      else if (!installed.get(r.component)?.dir.includes('patch_hash=')) problems.push(`${r.id}: the installed ${r.component} is not the patched build`)
+      else if (!installed.get(r.package)?.dir.includes('patch_hash=')) problems.push(`${r.package}: installed package is not the patched build`)
     }
-    // no patch without an open row: a fixed row's patch must go
-    for (const f of files) if (!wanted.some((r) => f.startsWith(`${r.component.replace('/', '__')}@`))) problems.push(`patches/${f}: no open row of the private specification's upstream register asks for it`)
-    expect(problems, 'the upstream patch set (the private specification\'s upstream register and the "Upstream patches" row of its stack table)').toEqual([])
+    for (const f of files) {
+      if (!manifest.patches.some((r) => path.basename(r.file) === f)) problems.push(`patches/${f}: not listed in patches/manifest.json`)
+    }
+    for (const key of registered.keys()) {
+      if (!declaredKeys.has(key)) problems.push(`patchedDependencies[${key}]: not listed in patches/manifest.json`)
+    }
+    expect(problems, 'the upstream patch set in patches/manifest.json and pnpm-workspace.yaml').toEqual([])
   })
 })

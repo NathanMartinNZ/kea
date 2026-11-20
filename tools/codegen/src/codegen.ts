@@ -23,7 +23,7 @@ export function parseLimits(text: string): Record<string, LimitEntry> {
     const extra = Object.keys(rest)
     if (extra.length > 0) throw new Error(`limits.toml: ${name} has unknown field ${extra.join(', ')}`)
     if (typeof value !== 'number' || !Number.isFinite(value)) throw new Error(`limits.toml: ${name}.value must be a number`)
-    if (typeof unit !== 'string' || typeof why !== 'string') throw new Error(`limits.toml: ${name} needs unit and why`)
+    if (typeof unit !== 'string' || unit.trim() === '' || typeof why !== 'string' || why.trim() === '') throw new Error(`limits.toml: ${name} needs non-empty unit and why`)
     const entry: LimitEntry = { value, unit, why }
     for (const [system, v] of [['linux', linux], ['darwin', darwin]] as const) {
       if (v === undefined) continue

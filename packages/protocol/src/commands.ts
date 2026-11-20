@@ -1,8 +1,7 @@
 // The command table: every user action's id, title, category, default bindings and the contextual surfaces that
 // list it. It is data shared by the renderer's command registry (which binds handlers to ids,
 // `app/renderer/src/features/commands`) and main's menu bar, so it lives here: the menu crosses the main ⇄ renderer
-// boundary. Where the private specification is in the checkout, `commands.test.ts` compares the rows with its command
-// table, row for row and in order.
+// boundary.
 //
 // Bindings are written in the table's notation (`⌘⇧]`, `⌥⌘J`, `F6`; its Linux column `Ctrl+Shift+]`);
 // `parseShortcut` turns one into a chord and `toAccelerator` into an Electron accelerator. `systemKeys` gives a

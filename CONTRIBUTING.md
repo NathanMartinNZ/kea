@@ -123,11 +123,6 @@ test whose function name does not give its ID.
 Test IDs are stable: an ID is never renumbered or reused. For a new test, use the prefix of the tests around it and
 the next free number.
 
-The maintainer keeps a design specification outside this repository and records there what each test covers and
-which requirement each constant serves. You do not need it to contribute. A few things read it and are skipped
-without it: `pnpm test:trace`, the "constants owners" and "private references" steps of `pnpm verify`, and the few
-tests that compare code with a table in the specification.
-
 ## Licence
 
 By contributing, you agree that your contribution is released under the project's [MIT licence](LICENSE).

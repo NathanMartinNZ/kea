@@ -81,7 +81,6 @@ export function isOsScanned(path: string): boolean {
   if (/(?:^|\/)(?:node_modules|dist|out|target|test-results|generated|fixtures)\//.test(path)) return false
   if (/(?:^|\/)os\//.test(path)) return false // the OS layer and its tests
   if (path.startsWith('tools/lint/')) return false // this rule's own lists and test inputs
-  if (path.startsWith('.plan/')) return false
   return true
 }
 

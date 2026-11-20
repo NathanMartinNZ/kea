@@ -1,7 +1,6 @@
 // Tier A as data: the tests `pnpm verify` runs before every push, per Vitest project. The unit project runs in full;
 // the rest are selected by test-ID name pattern, so a test joins Tier A by carrying its ID. A pattern that finds no
 // tests passes (`--passWithNoTests`).
-import { parseRefs } from './trace/src/refs.ts'
 
 export type TierAProject = 'integration' | 'contract' | 'chaos' | 'memory'
 
@@ -46,14 +45,43 @@ export const TIER_A_UNIT = ['U-ST-7']
 
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
+type ExpandedEntry = { kind: 'id'; id: string } | { kind: 'wildcard'; prefix: string }
+
+const PREFIX_RE = '[A-Z][A-Z0-9]*(?:-[A-Z]+)*-'
+
+/** Expand a test-ID spec (`L-TERM-1`, `I-HLD-*`, `I-PTY-1…6`, `C-KILL-1/2/3`) into concrete IDs or wildcard prefixes. */
+function expandEntry(entry: string): ExpandedEntry[] {
+  const s = entry.trim()
+  const wild = new RegExp(`^(${PREFIX_RE})\\*$`).exec(s)
+  if (wild) return [{ kind: 'wildcard', prefix: wild[1]! }]
+  const range = new RegExp(`^(${PREFIX_RE})(\\d+)(?:…|\\.\\.\\.|–)(?:(${PREFIX_RE}))?(\\d+)$`).exec(s)
+  if (range) {
+    const prefix = range[1]!
+    const from = Number(range[2])
+    const to = Number(range[4])
+    if ((range[3] !== undefined && range[3] !== prefix) || to < from || to - from > 500) {
+      throw new Error(`verify-tier-a: cannot use "${entry}" as a test ID`)
+    }
+    const out: ExpandedEntry[] = []
+    for (let n = from; n <= to; n++) out.push({ kind: 'id', id: `${prefix}${n}` })
+    return out
+  }
+  const slash = new RegExp(`^(${PREFIX_RE})(\\d+[a-z]?)((?:/\\d+[a-z]?)+)$`).exec(s)
+  if (slash) {
+    const nums = [slash[2]!, ...slash[3]!.split('/').filter(Boolean)]
+    return nums.map((n) => ({ kind: 'id', id: `${slash[1]}${n}` }))
+  }
+  if (new RegExp(`^${PREFIX_RE}\\d+[a-z]?$`).test(s)) return [{ kind: 'id', id: s }]
+  throw new Error(`verify-tier-a: cannot use "${entry}" as a test ID`)
+}
+
 /** A Vitest `--testNamePattern` matching any listed ID at the start of a test (or after a describe prefix). */
 export function namePattern(entries: string[]): string {
   const alts: string[] = []
   for (const e of entries) {
-    for (const r of parseRefs(e)) {
+    for (const r of expandEntry(e)) {
       if (r.kind === 'id') alts.push(escape(r.id))
-      else if (r.kind === 'wildcard') alts.push(`${escape(r.prefix)}\\d+[a-z]?`)
-      else throw new Error(`verify-tier-a: cannot use "${e}" as a test ID`)
+      else alts.push(`${escape(r.prefix)}\\d+[a-z]?`)
     }
   }
   return `(?:^|\\s)(?:${alts.join('|')})(?![\\w-])`
@@ -61,5 +89,5 @@ export function namePattern(entries: string[]): string {
 
 /** The concrete IDs (wildcards stay as `I-HLD-*`). */
 export function tierAIds(project: TierAProject): string[] {
-  return TIER_A[project].flatMap((e) => parseRefs(e).map((r) => (r.kind === 'id' ? r.id : r.kind === 'wildcard' ? `${r.prefix}*` : e)))
+  return TIER_A[project].flatMap((e) => expandEntry(e).map((r) => (r.kind === 'id' ? r.id : `${r.prefix}*`)))
 }

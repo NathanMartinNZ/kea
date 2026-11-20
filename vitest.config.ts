@@ -20,7 +20,7 @@ export default defineConfig({
         plugins: [svelte({ configFile: 'svelte.config.js' })],
         test: {
           name: 'unit',
-          include: ['{app,packages,tools}/*/src/**/*.test.ts'],
+          include: ['{app,packages,tools}/*/src/**/*.test.ts', 'tools/*.test.ts'],
           environment: 'node',
           testTimeout: 20_000,
         },

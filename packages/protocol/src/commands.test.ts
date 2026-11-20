@@ -1,115 +1,12 @@
-import fs from 'node:fs'
-import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { bindings, CATEGORIES, chordText, commandTitle, COMMANDS, KEY_SCOPES, MAIN_COMMANDS, menuSections, NATIVE_ROLES, parseChord, parseShortcut, SURFACES, surfaceMenu, systemKeys, systemTitle, toAccelerator, zMenuState, type CommandDef, type Surface } from './commands.ts'
+import { bindings, CATEGORIES, chordText, commandTitle, COMMANDS, KEY_SCOPES, MAIN_COMMANDS, menuSections, NATIVE_ROLES, parseChord, parseShortcut, SURFACES, surfaceMenu, systemKeys, systemTitle, toAccelerator, zMenuState } from './commands.ts'
 
 import { darwin } from './os/darwin.ts'
 import { linux } from './os/linux.ts'
 
-const SPEC = path.resolve(import.meta.dirname, '../../../.plan/specs/10-commands.md')
-// The private specification (.plan/) is not in a public clone: the comparison with it skips there, unless
-// KEA_REQUIRE_PLAN=1.
-// This is the check of tools/trace/src/presence.ts, repeated because a package's tests cannot import from tools/.
-const NO_PLAN = '.plan/ (the private specification) is not in this checkout'
-const noPlan = !fs.existsSync(path.resolve(import.meta.dirname, '../../../.plan')) && process.env.KEA_REQUIRE_PLAN !== '1'
-
-type Row = Omit<CommandDef, 'keyArgs' | 'titles'>
-
-const unquote = (s: string) => s.replace(/`/g, '').trim()
-
-/** Markdown code spans, including the double-backtick form that holds a backtick (`` ⌃` ``). */
-const codeSpans = (s: string) => [...s.matchAll(/``\s?(.+?)\s?``|`([^`]+)`/g)].map((m) => (m[1] ?? m[2]) as string)
-
-/** The private specification's command table, expanded to one entry per command id. */
-function specCommands(): Row[] {
-  const lines = fs.readFileSync(SPEC, 'utf8').split('\n')
-  const start = lines.findIndex((l) => l.startsWith('| Category | Command id |'))
-  expect(start).toBeGreaterThan(0)
-  const out: Row[] = []
-  for (const line of lines.slice(start + 2)) {
-    if (!line.startsWith('|')) break
-    const [category, idCell, titleCell, keyCell, linuxCell, alsoCell] = line.split('|').slice(1, -1).map((c) => c.trim()) as [string, string, string, string, string, string]
-    // ids: `terminal.fontBigger` / `Smaller` / `Reset`, `terminal.nextTab` / `previousTab`
-    const tokens = codeSpans(idCell)
-    const first = tokens[0] as string
-    const prefix = first.slice(0, first.indexOf('.') + 1)
-    const ids = tokens.map((t, i) => (i === 0 || t.includes('.') ? t : /^[A-Z]/.test(t) ? first.replace(/[A-Z][a-z]*$/, t) : prefix + t))
-    // titles: "Next / Previous Tab" → "Next Tab", "Previous Tab"
-    const title = unquote(titleCell)
-    let titles = [title]
-    if (ids.length > 1) {
-      const parts = title.split(' / ')
-      expect(parts).toHaveLength(ids.length)
-      const last = parts.at(-1) as string
-      const tail = last.includes(' ') ? last.slice(last.indexOf(' ')) : ''
-      titles = parts.map((p, i) => (i < parts.length - 1 ? p + tail : p))
-    }
-    // shortcut: keys with an optional scope, or a gesture in parentheses
-    let keys: string[] = []
-    let keyScope: string | undefined
-    let gesture: string | undefined
-    // `⌘1`…`⌘9` → ⌘1, ⌘2, … ⌘9
-    const spanKeys = (cell: string): string[] => {
-      const ks = codeSpans(cell)
-      if (!cell.includes('`…`')) return ks
-      const [a, b] = ks.map((k) => Number(k.slice(-1)))
-      return Array.from({ length: (b as number) - (a as number) + 1 }, (_, i) => `${ks[0]?.slice(0, -1)}${(a as number) + i}`)
-    }
-    if (keyCell.startsWith('(')) gesture = unquote(keyCell.slice(1, -1))
-    else if (keyCell) {
-      const scope = /\(([^)]*)\)\s*$/.exec(keyCell)
-      if (scope) keyScope = scope[1]
-      keys = spanKeys(keyCell)
-    }
-    // the Linux column: its keys, one group per id of the row (`a` / `b`), and a title of its own
-    const linuxTitle = /titled "([^"]+)"/.exec(linuxCell)?.[1]
-    const linuxCellKeys = linuxCell.replace(/;\s*titled "[^"]+"/, '')
-    const linuxKeys = ids.length > 1 && linuxCellKeys ? linuxCellKeys.split(' / ').map(spanKeys) : ids.map(() => spanKeys(linuxCellKeys))
-    // also in: surfaces (with a qualifier), the menu group (`group new`) and other controls
-    const surfaces: Surface[] = []
-    let surfaceNote: string | undefined
-    let menuGroup: string | undefined
-    const other: string[] = []
-    for (const part of alsoCell ? alsoCell.split(/[,;]\s*/) : []) {
-      const group = /^group ([a-z]+)$/.exec(part.trim())
-      if (group) {
-        menuGroup = group[1]
-        continue
-      }
-      const m = /^`([^`]+)`(?:\s*\(([^)]*)\))?$/.exec(part.trim())
-      if (m && (SURFACES as readonly string[]).includes(m[1] as string)) {
-        surfaces.push(m[1] as Surface)
-        if (m[2]) surfaceNote = m[2]
-      } else other.push(unquote(part))
-    }
-    ids.forEach((id, i) => {
-      const own = ids.length > 1 && keys.length === ids.length ? [keys[i] as string] : keys
-      const linux = linuxKeys[i] ?? []
-      out.push({
-        id,
-        title: titles[i] as string,
-        ...(linuxTitle ? { linuxTitle } : {}),
-        category: category as Row['category'],
-        ...(own.length ? { keys: own } : {}),
-        ...(linux.length ? { linuxKeys: linux } : {}),
-        ...(keyScope ? { keyScope: keyScope as Row['keyScope'] } : {}),
-        ...(gesture ? { gesture } : {}),
-        ...(surfaces.length ? { surfaces } : {}),
-        ...(surfaceNote ? { surfaceNote } : {}),
-        ...(menuGroup ? { menuGroup } : {}),
-        ...(other.length ? { other: other.join(', ') } : {}),
-      })
-    })
-  }
-  return out
-}
-
 describe('command table', () => {
-  it('U-KB-2 · the table matches the private specification row for row: ids, titles, categories, bindings (both columns), surfaces', ({ skip }) => {
-    skip(noPlan, NO_PLAN)
-    const fromCode = COMMANDS.map(({ keyArgs: _, titles: __, ...c }) => ({ ...c, ...(c.keys ? { keys: [...c.keys] } : {}), ...(c.surfaces ? { surfaces: [...c.surfaces] } : {}) }))
-    expect(fromCode).toEqual(specCommands())
-    // a row's titles by state are its one title in the specification read apart: `Run / Stop Dev Server` → Run Dev
+  it('U-KB-2 · state-dependent titles split cleanly from the base title', () => {
+    // a row's titles by state are its one title read apart: `Run / Stop Dev Server` → Run Dev
     // Server, Stop Dev Server, or two whole titles as they are (`Show Agent Beside Terminals / Show Agent as a Tab`); a
     // title with a note on it is shown without the note: `Open in… (each detected editor)` → Open in…
     for (const c of COMMANDS) {
@@ -140,7 +37,7 @@ describe('command table', () => {
     }
   })
 
-  it('U-KB-2 · the bindings in the private specification parse into chords and Electron accelerators', () => {
+  it('U-KB-2 · command bindings parse into chords and Electron accelerators', () => {
     expect(chordText(parseShortcut('⌘⇧]')!)).toBe('cmd+shift+]')
     expect(chordText(parseShortcut('⇧⌘R')!)).toBe('cmd+shift+r')
     expect(chordText(parseShortcut('⌥⌘Q')!)).toBe('cmd+alt+q')
