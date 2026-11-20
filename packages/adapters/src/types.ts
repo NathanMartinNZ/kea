@@ -171,16 +171,18 @@ export interface SessionSignals {
 }
 
 /**
- * What an adapter reports of its account's usage limits (`account.usage`), from a status line it adds to the agent's
- * launch when its setting is on. Core keeps one reading per account and drops them all when the setting goes off.
+ * What an adapter reports of its account's usage limits (`account.usage`), from a status line or session feed. Core
+ * keeps one reading per account and drops them all when the setting goes off.
  */
 export interface UsageSource {
   /** Whether the agent's settings turn the reports on (core ignores reports while they are off). */
   enabled(settings: Pick<AgentSettingsLike, string>): boolean
   /** The account a report belongs to in the agent's environment: its config folder, so two logins are two readings. */
   account(env: Readonly<Env>): string
-  /** A status line payload, projected by kea-helper's `statusline` → `account.usage`, or nothing. */
-  map(payload: Record<string, unknown>): AgentEvent[]
+  /** A projected status-line or feed payload → `account.usage`, or nothing. `now` is the envelope's wall time (ms). */
+  map(payload: Record<string, unknown>, now?: number): AgentEvent[]
+  /** True when session hook or feed envelopes also carry usage readings (forwarded by `applyHook`). */
+  fromHooks?: boolean
 }
 
 /** `AgentAdapter.trustGated`: false (no trust question holds anything back), or whose answer the trust is. */

@@ -1,10 +1,10 @@
 # packages/adapters
 
-The only place in Kea that knows anything about a particular coding agent. Each agent CLI Kea runs (Claude Code and
-Command Code today) has an adapter here: how to find and check the CLI, the argv and environment that start or resume
-a conversation, the hooks or mod that report what the agent is doing, how those reports become Kea's status events,
-and what its transcript says. Core uses adapters only through the registry, so nothing outside this package names an
-agent's flags, paths or payload fields.
+The only place in Kea that knows anything about a particular coding agent. Each agent CLI Kea runs (Claude Code,
+Command Code and Antigravity CLI today) has an adapter here: how to find and check the CLI, the argv and environment
+that start or resume a conversation, the hooks, mod or status-line feed that report what the agent is doing, how those
+reports become Kea's status events, and what its transcript says. Core uses adapters only through the registry, so
+nothing outside this package names an agent's flags, paths or payload fields.
 
 ## What an adapter provides
 
@@ -19,12 +19,15 @@ agent's flags, paths or payload fields.
   `execve` (never through a shell), the complete environment, the environment keys removed, and the working
   directory. `launchFiles()` names files a launch needs on disk, which core writes into a folder of Kea's own.
 - **Trust:** `trustGated` says whether the agent holds its events back until the user trusts the folder, and whether
-  that answer is kept per repository (Claude Code) or asked at every launch (Command Code).
-- **Signals:** `signals()` gives the per-session state that turns a hook or mod payload into events, and reads the
-  agent's own status file where it has one. `watchTranscript()` and `reconcile()` read the transcript: live, for what
-  hooks cannot give, and after a restart, to recover the session's status, title and cost.
+  that answer is kept per repository (Claude Code), asked at every launch (Command Code), or not held back because the
+  feed fires before the trust prompt (Antigravity CLI).
+- **Signals:** `signals()` gives the per-session state that turns a hook, mod or status-line feed payload into events,
+  and reads the agent's own status file where it has one. `watchTranscript()` and `reconcile()` read the transcript:
+  live, for what hooks cannot give, and after a restart, to recover the session's status, title and cost.
 - **Usage:** `usage`, for an agent that can report its account's usage limits: whether its setting turns the reports
-  on, which account (config folder) a report belongs to, and the payload → `account.usage` mapping.
+  on, which account (config folder) a report belongs to, the payload → `account.usage` mapping (self-describing
+  `UsageWindow` entries with labels and priority), and `fromHooks` when the session-event envelope also carries usage
+  readings.
 - **Housekeeping:** `identify()` recognises an argv the adapter started, `helperPaths()` names the `kea-helper` a
   running command calls, `watchRoots()` and `ownsTranscript()` keep file watching and transcript reads inside the
   agent's own config folder, and `fileMention()` says how to mention a file at the agent's prompt.
@@ -40,9 +43,12 @@ only when it lies in the agent's own config folder, and a file is read only when
   an agent CLI is installed under (the test harnesses hide or shadow each, so a test never runs a real CLI).
 - `src/kit/`: code every adapter shares. `jsonl.ts` reads transcripts incrementally and never whole; `heuristics.ts`
   derives status from terminal activity, the fallback under every agent's own reports; `env.ts` finds the CLI and
-  edits the environment; `projection.ts` mirrors `kea-helper`'s payload projection so tests see what core receives;
-  `version.ts` compares versions; `mention.ts` builds a file mention.
-- `src/claude/` and `src/commandcode/`: one folder per agent, with the same parts:
+  edits the environment; `projection.ts` mirrors `kea-helper`'s payload projection (`keep`, `count`, `countWhere`,
+  `keepMap`, `summarise` and single- or multi-rule `critical`) so tests see what core receives; `shell.ts` quotes and
+  splits POSIX single-quoted command words for status-line commands; `usage.ts` defines the shared `usageLimits`
+  setting toggle, percentage clamping and window sorting; `version.ts` compares versions; `mention.ts` builds a file
+  mention.
+- `src/claude/`, `src/commandcode/` and `src/antigravity/`: one folder per agent, with the same parts:
 
   | File | What |
   |---|---|
@@ -50,26 +56,37 @@ only when it lies in the agent's own config folder, and a file is read only when
   | `detect.ts` | Detection and the composer's options |
   | `launch.ts` | The argv and environment for a new conversation and for a resume |
   | `mapping.ts` | Payload → events, one row per event, and the per-session signal state |
-  | `transcript.ts` | The transcript watcher (Claude Code) and reconcile |
+  | `transcript.ts` | The transcript watcher (Claude Code and Antigravity CLI) and reconcile |
   | `settings.ts` | The agent's own settings (`agents.<id>.*`) |
-  | `mention.ts` | How a file is mentioned at this agent's prompt |
+  | `mention.ts` | How a file is mentioned at this agent's prompt (or `kit/mention.ts` when generic) |
   | `adapter.ts` | The adapter, assembled from the parts above |
 
   Claude Code reports through hooks injected with `--settings`, and its status file (`payloads.ts` holds the hook
   payload schemas the fixture tests check). With its usage meter turned on, the same `--settings` also carries a
-  status line (`statusline.ts`): Claude runs its command through a shell, so it is the one shell string Kea builds,
-  every word single-quoted, and it runs `kea-helper statusline`. None is added when the user's own Claude settings
-  define a status line, which Kea's would replace. `config.ts` finds Claude's config folder. Command Code reports through a session mod, `commandcode/kea-mod.ts`:
-  Command Code loads that file itself, in its own process, so it imports nothing from Kea and only Node's own
-  modules. The build copies it beside core, and core writes it into a folder under `KEA_HOME` that the launch names.
-  `commandcode/mod-harness.ts` drives the mod the way Command Code does, for tests only.
+  status line (`statusline.ts`): Claude runs its command through a shell, so each word is single-quoted with
+  `kit/shell.ts`, and it runs `kea-helper statusline`. None is added when the user's own Claude settings define a
+  status line, which Kea's would replace. `config.ts` finds Claude's config folder.
+
+  Command Code reports through a session mod, `commandcode/kea-mod.ts`: Command Code loads that file itself, in its own
+  process, so it imports nothing from Kea and only Node's own modules. The build copies it beside core, and core writes
+  it into a folder under `KEA_HOME` that the launch names. `commandcode/mod-harness.ts` drives the mod the way Command
+  Code does, for tests only.
+
+  Antigravity CLI reports through a session-only `statusLine` injected with `--settings`, stacked under the built-in
+  status line (`stack_with_default: true`) and running `kea-helper feed` (single-quoted with `kit/shell.ts`, printing
+  nothing). Each snapshot carries the session's state, model, mode, title, context window, cost, running subagents and
+  quota buckets, which `mapping.ts` diffs into session status events and self-describing `UsageWindow` readings
+  (`usage.fromHooks: true`). When the user's own `~/.gemini/antigravity-cli/settings.json` defines an active
+  `statusLine`, Kea omits its own and marks the spawn silent so the session falls back to transcript and terminal
+  signals. `transcript.ts` tails the append-only step-record transcript under
+  `<configDir>/brain/<id>/.system_generated/logs/transcript.jsonl` and reconciles the tail after a restart.
 
 ## Adding an agent
 
 1. Make a folder `src/<id>/` with the parts above. Put every agent-specific string in its `contract.ts`.
 2. Add the adapter to `ADAPTERS` in `src/registry.ts`. Core, the composer, the Settings window and the test
    harnesses pick it up from there.
-3. Add a `contract.test.ts` beside it, like the two existing ones: it checks that the adapter's code uses no
+3. Add a `contract.test.ts` beside it, like the existing ones: it checks that the adapter's code uses no
    agent string that `contract.ts` does not declare.
 4. Record fixtures for its hooks or events and its transcripts under `fixtures/` (scrubbed, see
    [CONTRIBUTING.md](../../CONTRIBUTING.md#tests)), and add contract tests for them in `tests/contract/`.
@@ -91,5 +108,5 @@ pnpm exec vitest run --project unit packages/adapters
 ```
 
 The contract tests in `tests/contract/` check the adapters against recorded fixtures (`fixtures/hooks/`,
-`fixtures/transcripts/`, `fixtures/status/`, `fixtures/cli/`) and against the installed CLIs' own help text, cached
-per version. No unit test runs a real agent CLI.
+`fixtures/statusline/`, `fixtures/transcripts/`, `fixtures/status/`, `fixtures/cli/`) and against the installed CLIs'
+own help text, cached per version. No unit test runs a real agent CLI.

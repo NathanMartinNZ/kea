@@ -13,6 +13,8 @@ describe('verify-tier-a and verify summary', () => {
     expect(re.test('C-KILL-10 · longer number')).toBe(false)
     expect(() => namePattern(['not a test id'])).toThrow(/cannot use/)
     expect(tierAIds('contract')).toContain('K-CL-6')
+    expect(tierAIds('contract')).toContain('K-AG-5')
+    expect(tierAIds('contract')).toContain('K-FX-10')
     expect(tierAIds('integration')).toContain('I-HLD-*')
     for (const entries of Object.values(TIER_A)) expect(() => new RegExp(namePattern(entries))).not.toThrow()
   })

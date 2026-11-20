@@ -182,11 +182,11 @@ describe('the agent service', () => {
     expect(identifyAgent(registry, ['/opt/test-agent', '--id', 'x'])).toBe('testagent')
   })
 
-  it('U-AGT-51 · the agents row says whether a plain right-click opens Kea’s terminal menu in the agent’s tab: Claude Code’s, which has nothing on that button; Command Code’s, an adapter that does not say and the shell keep it for the program', async () => {
+  it('U-AGT-51 · the agents row says whether a plain right-click opens Kea’s terminal menu in the agent’s tab: Claude Code’s and Antigravity CLI’s, which have nothing on that button; Command Code’s, an adapter that does not say and the shell keep it for the program', async () => {
     const registry = new AdapterRegistry([...ADAPTERS, testAdapter])
     const { svc } = setup({ registry })
     await svc.detect('testagent')
-    expect(['claude', 'commandcode', 'testagent', 'shell'].map((id) => svc.store.get(id)?.rightButtonMenu)).toEqual([true, false, false, false])
+    expect(['claude', 'commandcode', 'antigravity', 'testagent', 'shell'].map((id) => svc.store.get(id)?.rightButtonMenu)).toEqual([true, false, true, false, false])
   })
 
   it('U-AGT-42 · an adapter’s launch files are written into a folder of Kea’s own under KEA_HOME (named by their content, private, rewritten when they are not as given, earlier ones that no running agent was started with removed) and the launch names it; when they cannot be written the agent still starts, without them', async () => {
@@ -377,9 +377,14 @@ describe('the agent service', () => {
       const modes = await rowModes(off.svc, a.id)
       expect(modes.length, a.id).toBeGreaterThan(0)
       expect(modes.filter((m) => m.dangerous), a.id).toEqual([])
-      for (const mode of dangerous.get(a.id)!) expect(await launchArgv(off.svc, a.id, mode), `${a.id} ${mode}`).not.toContain('--permission-mode')
+      for (const mode of dangerous.get(a.id)!) {
+        const argv = await launchArgv(off.svc, a.id, mode)
+        expect(argv, `${a.id} ${mode}`).not.toContain('--permission-mode')
+        expect(argv, `${a.id} ${mode}`).not.toContain('--dangerously-skip-permissions')
+      }
       // a mode that is not dangerous is passed as chosen
-      expect(await launchArgv(off.svc, a.id, 'plan'), a.id).toEqual(expect.arrayContaining(['--permission-mode', 'plan']))
+      const planArgv = await launchArgv(off.svc, a.id, 'plan')
+      expect(planArgv.includes('--mode=plan') || (planArgv.includes('--permission-mode') && planArgv[planArgv.indexOf('--permission-mode') + 1] === 'plan'), a.id).toBe(true)
     }
 
     // enabled for one agent: that agent's dangerous modes are back, marked dangerous; the other agents' are still absent
@@ -391,7 +396,8 @@ describe('the agent service', () => {
       }
       const mode = dangerous.get(one.id)![0]!
       const argv = await launchArgv(on.svc, one.id, mode)
-      expect(argv[argv.indexOf('--permission-mode') + 1], one.id).toBe(mode)
+      if (one.id === 'antigravity') expect(argv, one.id).toContain('--dangerously-skip-permissions')
+      else expect(argv[argv.indexOf('--permission-mode') + 1], one.id).toBe(mode)
     }
   })
 
@@ -425,7 +431,15 @@ describe('the agent service', () => {
     const line = (payload: Record<string, unknown>, o: Partial<Envelope> = {}): Envelope => ({ keaSessionId: id, adapter: 'claude', mono: 1, receivedAt: T, payload, statusline: true, ...o })
     svc.envelope(line({ session_id: '11111111-2222-4333-8444-555555555555' }))
     svc.envelope(line(after))
-    const report = { agent: 'claude', account: '/cfg/claude', windows: [{ id: 'session', usedPct: 25, resetsAt: 1_794_426_600_000 }, { id: 'week', usedPct: 67, resetsAt: 1_794_618_000_000 }], at: T }
+    const report = {
+      agent: 'claude',
+      account: '/cfg/claude',
+      windows: [
+        { id: 'session', shortLabel: '5h', tipLabel: 'Session limit', spokenLabel: 'session', priority: 0, usedPct: 25, resetsAt: 1_794_426_600_000 },
+        { id: 'week', shortLabel: '7d', tipLabel: 'Weekly', spokenLabel: 'weekly', priority: 1, usedPct: 67, resetsAt: 1_794_618_000_000 },
+      ],
+      at: T,
+    }
     expect(usage.reports).toEqual([report])
     expect(inputs, 'no session input: the usage moves no status').toEqual([])
     // another adapter's, an unknown session's, a malformed or oversize one: nothing
@@ -447,6 +461,157 @@ describe('the agent service', () => {
     const n = usage.reports.length
     svc.envelope(line(after))
     expect(usage.reports).toHaveLength(n)
+  })
+
+  it('U-ST-26 · an adapter with usage.fromHooks updates both session status and status.usage from a single hook envelope, refreshes usage on pure-quota envelopes where signals.hook returns [], respects usageLimits toggle without stopping session status, and never calls usage.map on regular hooks when fromHooks is absent', async () => {
+    const claudeBase = ADAPTERS.find((a) => a.id === 'claude')!
+    let claudeUsageMapCalls = 0
+    const claudeSpy: AgentAdapter = {
+      ...claudeBase,
+      usage: {
+        ...claudeBase.usage!,
+        map: (payload, now) => {
+          claudeUsageMapCalls++
+          return claudeBase.usage!.map(payload, now)
+        },
+      },
+    }
+    const feedAdapter: AgentAdapter = {
+      ...testAdapter,
+      id: 'feedagent',
+      displayName: 'Feed Agent',
+      settings: {
+        id: 'feedagent',
+        displayName: 'Feed Agent',
+        defaults: { model: 'tiny' },
+        keys: claudeBase.settings.keys,
+      },
+      usage: {
+        enabled: (s) => s.usageLimits !== false,
+        account: (env) => env.HOME ?? '/cfg/feedagent',
+        fromHooks: true,
+        map: (payload, now = 0) => {
+          const rem = typeof payload.remaining === 'number' ? payload.remaining : null
+          const resetIn = typeof payload.resetIn === 'number' ? payload.resetIn : null
+          if (rem === null || resetIn === null) return []
+          return [
+            {
+              t: 'account.usage',
+              windows: [
+                {
+                  id: 'primary',
+                  shortLabel: '5h',
+                  tipLabel: 'Primary 5-hour',
+                  spokenLabel: 'primary 5-hour',
+                  priority: 0,
+                  usedPct: Math.round((1 - rem) * 100),
+                  resetsAt: now + resetIn * 1000,
+                },
+              ],
+            },
+          ]
+        },
+      },
+    }
+    const usage = { reports: [] as unknown[], cleared: [] as string[] }
+    const registry = new AdapterRegistry([claudeSpy, ...ADAPTERS.filter((a) => a.id !== 'claude'), feedAdapter])
+    const { svc, sessions, inputs, settings } = setup({
+      registry,
+      usage,
+      settings: { agents: { feedagent: { usageLimits: true, env: { HOME: '/cfg/feed' } } } },
+    })
+    await svc.start()
+
+    const id = '01FROMHOOKS00000000000000A'
+    sessions.set(id, view(id, { agent: 'feedagent', lifecycle: 'live' }))
+    const T = 1_795_000_000_000
+
+    // (1) Single hook envelope updates BOTH session status AND status.usage (passing env.receivedAt as `now`)
+    svc.envelope({
+      keaSessionId: id,
+      adapter: 'feedagent',
+      id: '00000000000000a1',
+      mono: 1,
+      receivedAt: T,
+      payload: { kind: 'start', remaining: 0.75, resetIn: 3600 },
+    })
+    expect(inputs.filter((i) => i.sessionId === id).map((i) => i.events.map((e: AgentEvent) => e.t))).toEqual([['turn.started']])
+    expect(usage.reports).toEqual([
+      {
+        agent: 'feedagent',
+        account: '/cfg/feed',
+        windows: [
+          {
+            id: 'primary',
+            shortLabel: '5h',
+            tipLabel: 'Primary 5-hour',
+            spokenLabel: 'primary 5-hour',
+            priority: 0,
+            usedPct: 25,
+            resetsAt: T + 3_600_000,
+          },
+        ],
+        at: T,
+      },
+    ])
+
+    // (2) Pure-quota envelope (signals.hook returns [] after l.hooked is true) STILL refreshes status.usage
+    svc.envelope({
+      keaSessionId: id,
+      adapter: 'feedagent',
+      id: '00000000000000a2',
+      mono: 2,
+      receivedAt: T + 5000,
+      payload: { kind: 'noop', remaining: 0.4, resetIn: 1800 },
+    })
+    expect(inputs.filter((i) => i.sessionId === id), 'no new session status input').toHaveLength(1)
+    expect(usage.reports).toHaveLength(2)
+    expect(usage.reports.at(-1)).toEqual({
+      agent: 'feedagent',
+      account: '/cfg/feed',
+      windows: [
+        {
+          id: 'primary',
+          shortLabel: '5h',
+          tipLabel: 'Primary 5-hour',
+          spokenLabel: 'primary 5-hour',
+          priority: 0,
+          usedPct: 60,
+          resetsAt: T + 5000 + 1_800_000,
+        },
+      ],
+      at: T + 5000,
+    })
+
+    // (3) Turning usageLimits off clears status.usage and ignores further usage readings while session status keeps updating
+    await settings.set('agents.feedagent.usageLimits', false)
+    expect(usage.cleared).toEqual(['feedagent'])
+    svc.envelope({
+      keaSessionId: id,
+      adapter: 'feedagent',
+      id: '00000000000000a3',
+      mono: 3,
+      receivedAt: T + 10_000,
+      payload: { kind: 'end', remaining: 0.1, resetIn: 900 },
+    })
+    expect(usage.reports, 'no usage report while usageLimits is false').toHaveLength(2)
+    expect(inputs.filter((i) => i.sessionId === id).map((i) => i.events.map((e: AgentEvent) => e.t))).toEqual([
+      ['turn.started'],
+      ['turn.finished'],
+    ])
+
+    // (4) An adapter without fromHooks (Claude) does NOT invoke usage.map on regular hook envelopes
+    const cid = '01CLAUDEHOOK0000000000000B'
+    sessions.set(cid, view(cid, { agent: 'claude', lifecycle: 'live' }))
+    svc.envelope({
+      keaSessionId: cid,
+      adapter: 'claude',
+      id: '00000000000000c1',
+      mono: 4,
+      receivedAt: T + 15_000,
+      payload: { hook_event_name: 'UserPromptSubmit', session_id: '11111111-2222-4333-8444-555555555555', prompt: 'hi' },
+    })
+    expect(claudeUsageMapCalls).toBe(0)
   })
 
   it('U-AGT-21 · an envelope that comes twice, through core’s socket and through the spool (a busy or hung core read the line after the helper had spooled it), is applied once, whichever copy comes first; envelopes without an id still apply', () => {

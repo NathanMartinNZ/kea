@@ -10,6 +10,11 @@
 //! event). It goes to core's socket within the same bound but is never spooled: without core's answer it is dropped,
 //! since the agent can run its status line after every message and only the latest reading matters, so a spool of
 //! them would crowd out the session's own events. It prints nothing, so the agent's status line stays empty.
+//!
+//! `kea-helper feed` takes the same arguments for a status line that carries the session's own state: its stdin is
+//! capped at `STATUSLINE_STDIN_MAX_BYTES`, its envelope carries no `"statusline":true` mark (core routes it as a
+//! session event), and without core's answer within `HOOK_BOUND_MS` it goes to the session spool so state transitions
+//! survive while core is away. It always exits 0 and prints nothing.
 
 use std::ffi::OsString;
 use std::fs::OpenOptions;
@@ -24,19 +29,35 @@ use serde_json::{Map, Value};
 
 use crate::args::valid_id;
 use crate::limits::{
-    HOOK_BOUND_MS, HOOK_ENVELOPE_MAX_BYTES, HOOK_STDIN_MAX_BYTES, HOOK_SUMMARY_MAX_CHARS, SPOOL_HARD_BYTES, SPOOL_REWRITES_MAX, SPOOL_SOFT_BYTES,
-    STATUSLINE_STDIN_MAX_BYTES,
+    HOOK_BOUND_MS, HOOK_ENVELOPE_MAX_BYTES, HOOK_STDIN_MAX_BYTES, HOOK_SUMMARY_MAX_CHARS, PROJECTION_MAP_KEYS_MAX, SPOOL_HARD_BYTES,
+    SPOOL_REWRITES_MAX, SPOOL_SOFT_BYTES, STATUSLINE_STDIN_MAX_BYTES,
 };
 use crate::rundir::{SHARED_RUN_ROOT_PREFIX, check_own_socket, check_run_dir, run_dir};
 
 type FieldPath = Vec<String>;
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct CountWhere {
+    pub path: FieldPath,
+    pub field: FieldPath,
+    pub equals: Value,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct KeepMap {
+    pub path: FieldPath,
+    pub fields: Vec<FieldPath>,
+    pub max_keys: usize,
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Projection {
     pub keep: Vec<FieldPath>,
     pub count: Vec<FieldPath>,
+    pub count_where: Vec<CountWhere>,
+    pub keep_map: Vec<KeepMap>,
     pub summarise: Vec<FieldPath>,
-    pub critical: Option<(FieldPath, Vec<Value>)>,
+    pub critical: Vec<(FieldPath, Vec<Value>)>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -53,6 +74,33 @@ fn field_path(v: &Value) -> Option<FieldPath> {
     (!s.is_empty() && parts.iter().all(|p| !p.is_empty())).then_some(parts)
 }
 
+fn is_scalar(v: &Value) -> bool {
+    matches!(v, Value::String(_) | Value::Number(_) | Value::Bool(_) | Value::Null)
+}
+
+fn parse_count_where(v: &Value) -> Option<CountWhere> {
+    let o = v.as_object()?;
+    let path = field_path(o.get("path")?)?;
+    let field = field_path(o.get("field")?)?;
+    let equals = o.get("equals")?.clone();
+    is_scalar(&equals).then_some(CountWhere { path, field, equals })
+}
+
+fn parse_keep_map(v: &Value) -> Option<KeepMap> {
+    let o = v.as_object()?;
+    let path = field_path(o.get("path")?)?;
+    let fields = o.get("fields")?.as_array()?.iter().map(field_path).collect::<Option<Vec<_>>>()?;
+    let max_keys = match o.get("maxKeys") {
+        None | Some(Value::Null) => PROJECTION_MAP_KEYS_MAX as usize,
+        Some(n) => (n.as_u64()? as usize).min(PROJECTION_MAP_KEYS_MAX as usize),
+    };
+    Some(KeepMap { path, fields, max_keys })
+}
+
+fn parse_critical_rule(c: &Value) -> Option<(FieldPath, Vec<Value>)> {
+    Some((field_path(c.get("field")?)?, c.get("values")?.as_array()?.clone()))
+}
+
 pub fn parse_projection(text: &str) -> Option<Projection> {
     let v: Value = serde_json::from_str(text).ok()?;
     let obj = v.as_object()?;
@@ -63,11 +111,22 @@ pub fn parse_projection(text: &str) -> Option<Projection> {
             Some(_) => None,
         }
     };
-    let critical = match obj.get("critical") {
-        None | Some(Value::Null) => None,
-        Some(c) => Some((field_path(c.get("field")?)?, c.get("values")?.as_array()?.clone())),
+    let count_where = match obj.get("countWhere") {
+        None | Some(Value::Null) => Vec::new(),
+        Some(Value::Array(a)) => a.iter().map(parse_count_where).collect::<Option<Vec<_>>>()?,
+        Some(_) => return None,
     };
-    Some(Projection { keep: list("keep")?, count: list("count")?, summarise: list("summarise")?, critical })
+    let keep_map = match obj.get("keepMap") {
+        None | Some(Value::Null) => Vec::new(),
+        Some(Value::Array(a)) => a.iter().map(parse_keep_map).collect::<Option<Vec<_>>>()?,
+        Some(_) => return None,
+    };
+    let critical = match obj.get("critical") {
+        None | Some(Value::Null) => Vec::new(),
+        Some(Value::Array(a)) => a.iter().map(parse_critical_rule).collect::<Option<Vec<_>>>()?,
+        Some(c) => vec![parse_critical_rule(c)?],
+    };
+    Some(Projection { keep: list("keep")?, count: list("count")?, count_where, keep_map, summarise: list("summarise")?, critical })
 }
 
 pub fn parse_args(args: &[OsString]) -> Option<HookArgs> {
@@ -155,6 +214,7 @@ fn summary_text(v: &Value) -> Option<String> {
 #[derive(Clone, Debug, PartialEq)]
 enum Kind {
     Keep,
+    KeepMap,
     Count,
     Summary,
 }
@@ -169,9 +229,9 @@ struct Item {
 }
 
 /// keep: scalars (strings capped); count: array length, object key count, numbers as-is;
+/// countWhere: array elements matching a scalar subfield; keepMap: bounded object map of scalar subfields;
 /// summarise: strings (or compact JSON of anything else) cut on a character boundary.
 fn items(payload: &Value, p: &Projection) -> Vec<Item> {
-    let critical_path = p.critical.as_ref().map(|(f, _)| f);
     let mut out = Vec::new();
     for path in &p.keep {
         let value = match get(payload, path) {
@@ -179,7 +239,8 @@ fn items(payload: &Value, p: &Projection) -> Vec<Item> {
             Some(v @ (Value::Number(_) | Value::Bool(_) | Value::Null)) => v.clone(),
             _ => continue,
         };
-        out.push(Item { kind: Kind::Keep, critical: critical_path == Some(path), path: path.clone(), value });
+        let critical = p.critical.iter().any(|(f, _)| f == path);
+        out.push(Item { kind: Kind::Keep, critical, path: path.clone(), value });
     }
     for path in &p.count {
         let value = match get(payload, path) {
@@ -189,6 +250,35 @@ fn items(payload: &Value, p: &Projection) -> Vec<Item> {
             _ => continue,
         };
         out.push(Item { kind: Kind::Count, critical: false, path: path.clone(), value });
+    }
+    for rule in &p.count_where {
+        let Some(Value::Array(arr)) = get(payload, &rule.path) else { continue };
+        let n = arr.iter().filter(|elem| get(elem, &rule.field) == Some(&rule.equals)).count();
+        out.push(Item { kind: Kind::Count, critical: false, path: rule.path.clone(), value: Value::from(n) });
+    }
+    for rule in &p.keep_map {
+        let Some(Value::Object(map)) = get(payload, &rule.path) else { continue };
+        let mut outer = Map::new();
+        for (k, entry) in map {
+            if outer.len() >= rule.max_keys {
+                break;
+            }
+            let mut inner = Map::new();
+            for field in &rule.fields {
+                let val = match get(entry, field) {
+                    Some(Value::String(s)) => Value::String(cut_chars(s, HOOK_SUMMARY_MAX_CHARS as usize).to_owned()),
+                    Some(v @ (Value::Number(_) | Value::Bool(_) | Value::Null)) => v.clone(),
+                    _ => continue,
+                };
+                insert(&mut inner, field, val);
+            }
+            if !inner.is_empty() {
+                outer.insert(cut_chars(k, HOOK_SUMMARY_MAX_CHARS as usize).to_owned(), Value::Object(inner));
+            }
+        }
+        if !outer.is_empty() {
+            out.push(Item { kind: Kind::KeepMap, critical: false, path: rule.path.clone(), value: Value::Object(outer) });
+        }
     }
     for path in &p.summarise {
         if let Some(text) = get(payload, path).and_then(summary_text) {
@@ -215,7 +305,7 @@ fn build(items: &[Item], summary_chars: usize) -> Map<String, Value> {
 }
 
 pub fn is_critical(payload: &Value, p: &Projection) -> bool {
-    p.critical.as_ref().is_some_and(|(field, values)| get(payload, field).is_some_and(|v| values.contains(v)))
+    p.critical.iter().any(|(field, values)| get(payload, field).is_some_and(|v| values.contains(v)))
 }
 
 /// The byte core answers each envelope line with (`HOOK_ACK_BYTE` in `@kea/protocol`).
@@ -257,7 +347,7 @@ fn render(a: &HookArgs, s: &Stamp, payload: &Map<String, Value>, flags: &[&str])
 }
 
 /// The envelope line (with its newline), at most `HOOK_ENVELOPE_MAX_BYTES`: summaries are
-/// shortened (halved), then dropped, then non-critical keeps, then counts, until it fits.
+/// shortened (halved), then dropped, then non-critical map keeps, then non-critical keeps, then counts, until it fits.
 pub fn envelope(a: &HookArgs, s: &Stamp, payload: Option<&Value>, flag: Option<&str>) -> String {
     envelope_with(a, s, payload, flag.as_slice())
 }
@@ -275,7 +365,11 @@ fn envelope_with(a: &HookArgs, s: &Stamp, payload: Option<&Value>, flags: &[&str
         let has = |k: Kind, items: &[Item]| items.iter().rposition(|i| i.kind == k && !i.critical);
         if chars > 0 && items.iter().any(|i| i.kind == Kind::Summary) {
             chars /= 2;
-        } else if let Some(i) = has(Kind::Summary, &items).or_else(|| has(Kind::Keep, &items)).or_else(|| has(Kind::Count, &items)) {
+        } else if let Some(i) = has(Kind::Summary, &items)
+            .or_else(|| has(Kind::KeepMap, &items))
+            .or_else(|| has(Kind::Keep, &items))
+            .or_else(|| has(Kind::Count, &items))
+        {
             items.remove(i);
         } else if !items.is_empty() {
             items.clear();
@@ -518,18 +612,34 @@ pub fn read_stdin(r: &mut impl Read, cap: u64) -> Option<Vec<u8>> {
     (!over).then_some(data)
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Mode {
+    /// Agent hook: `HOOK_STDIN_MAX_BYTES` cap, spooled on failure, no `statusline` mark.
+    Hook,
+    /// Usage-only status line: `STATUSLINE_STDIN_MAX_BYTES` cap, never spooled, `"statusline": true` mark.
+    StatusLine,
+    /// Session-status feed: `STATUSLINE_STDIN_MAX_BYTES` cap, spooled on failure, no `statusline` mark.
+    Feed,
+}
+
 /// The whole hook, minus process concerns. `stdin_cap` is `HOOK_STDIN_MAX_BYTES` in production.
 pub fn run(args: &[OsString], stdin: &mut impl Read, stdin_cap: u64) -> Outcome {
-    run_as(args, stdin, stdin_cap, false)
+    run_as(args, stdin, stdin_cap, Mode::Hook)
 }
 
 /// The whole status line, minus process concerns. `stdin_cap` is `STATUSLINE_STDIN_MAX_BYTES` in production.
 pub fn run_statusline(args: &[OsString], stdin: &mut impl Read, stdin_cap: u64) -> Outcome {
-    run_as(args, stdin, stdin_cap, true)
+    run_as(args, stdin, stdin_cap, Mode::StatusLine)
 }
 
-/// A hook, or a status line (`statusline`): its envelope marked, and never spooled.
-fn run_as(args: &[OsString], stdin: &mut impl Read, stdin_cap: u64, statusline: bool) -> Outcome {
+/// The whole session-status feed, minus process concerns. `stdin_cap` is `STATUSLINE_STDIN_MAX_BYTES` in production.
+pub fn run_feed(args: &[OsString], stdin: &mut impl Read, stdin_cap: u64) -> Outcome {
+    run_as(args, stdin, stdin_cap, Mode::Feed)
+}
+
+/// A hook, a usage status line (`Mode::StatusLine`, marked and never spooled), or a session-status feed (`Mode::Feed`,
+/// unmarked and spooled when core is away).
+fn run_as(args: &[OsString], stdin: &mut impl Read, stdin_cap: u64, mode: Mode) -> Outcome {
     let stamp = match (envelope_id(), crate::os::hook_clock_ns()) {
         (Ok(id), Ok(mono)) => Some(Stamp { id, mono, received_at: crate::sys::wall_ms() }),
         _ => None,
@@ -549,6 +659,7 @@ fn run_as(args: &[OsString], stdin: &mut impl Read, stdin_cap: u64, statusline: 
         },
     };
     let critical = payload.as_ref().is_some_and(|p| is_critical(p, &a.projection));
+    let statusline = mode == Mode::StatusLine;
     let flags: Vec<&str> = flag.into_iter().chain(statusline.then_some(STATUSLINE_FLAG)).collect();
     let line = envelope_with(&a, &stamp, payload.as_ref(), &flags);
     drop(payload);
@@ -598,6 +709,14 @@ pub fn main(args: &[OsString]) -> i32 {
 pub fn statusline_main(args: &[OsString]) -> i32 {
     std::panic::set_hook(Box::new(|_| {}));
     let _ = std::panic::catch_unwind(|| run_statusline(args, &mut io::stdin().lock(), STATUSLINE_STDIN_MAX_BYTES));
+    0
+}
+
+/// `kea-helper feed`: as `statusline_main`, for a status line that carries the session's state (spooled when core is
+/// away, and unmarked so core routes it as a session event). Prints nothing and always exits 0.
+pub fn feed_main(args: &[OsString]) -> i32 {
+    std::panic::set_hook(Box::new(|_| {}));
+    let _ = std::panic::catch_unwind(|| run_feed(args, &mut io::stdin().lock(), STATUSLINE_STDIN_MAX_BYTES));
     0
 }
 

@@ -24,12 +24,24 @@ export const COMMANDCODE_EVENTS = [
   'tool_queued', 'tool_running', 'tool_completed', 'tool_errored', 'tool_denied', 'tool_hook_blocked', 'turn_end', 'run_end',
   'interrupted', 'run_error', 'session_titled', 'permission_mode_changed', 'compaction_start', 'compaction_done', 'session_shutdown',
 ] as const
+/**
+ * Antigravity CLI status-line feed step names; fake-agent updates its stateful snapshot and runs `statusLine.command`
+ * through `/bin/sh -c` with the JSON snapshot on stdin.
+ */
+export const ANTIGRAVITY_EVENTS = [
+  'initializing', 'working', 'tool_use', 'tool_confirmation', 'tool_confirmation_clear', 'reviewing', 'authenticating',
+  'error', 'idle', 'clear', 'title', 'meta', 'snapshot',
+] as const
 
 export const RECORD_KINDS = {
   claude: ['user', 'assistant', 'interrupt', 'ai-title', 'custom-title', 'cost-state', 'raw'],
   commandcode: ['user', 'assistant', 'error', 'title', 'raw'],
+  antigravity: ['user', 'assistant', 'running', 'error', 'raw'],
 } as const
-export type RecordKind = (typeof RECORD_KINDS)['claude'][number] | (typeof RECORD_KINDS)['commandcode'][number]
+export type RecordKind =
+  | (typeof RECORD_KINDS)['claude'][number]
+  | (typeof RECORD_KINDS)['commandcode'][number]
+  | (typeof RECORD_KINDS)['antigravity'][number]
 
 export const FILE_OPS = ['write', 'append', 'modify', 'delete', 'rename', 'mkdir'] as const
 export type FileOp = (typeof FILE_OPS)[number]
@@ -318,7 +330,7 @@ class Checker {
       case 'hook': {
         const o = isObj(v) ? v : { event: v }
         this.keys(here, o, ['event', 'tool', 'input', 'fields'])
-        const events = this.flavour === 'claude' ? CLAUDE_EVENTS : COMMANDCODE_EVENTS
+        const events = this.flavour === 'claude' ? CLAUDE_EVENTS : this.flavour === 'commandcode' ? COMMANDCODE_EVENTS : ANTIGRAVITY_EVENTS
         const event = this.oneOf(`${here}.event`, o.event, events)
         return {
           at,
@@ -523,6 +535,19 @@ const COMMANDCODE_TURN = `
   - frame: ["fake-agent · {{model}}", "", "> {{prompt}}", "", "Done: listed the files.", "", "> "]
 `
 
+/** One Antigravity CLI turn, driving the status-line feed and step transcript. */
+const ANTIGRAVITY_TURN = `
+  - hook: working
+  - transcript: { record: user, text: "{{prompt}}" }
+  - transcript: { record: running }
+  - frame: ["✻ fake-agent · {{model}}", "", "> {{prompt}}", "", "Working…"]
+  - sleep: 40
+  - hook: { event: tool_use, tool: run_command, input: { command: "ls" } }
+  - transcript: { record: assistant, text: "Done: listed the files." }
+  - hook: { event: idle, fields: { conversation_title: "Fake agent turn" } }
+  - frame: ["✻ fake-agent · {{model}}", "", "> {{prompt}}", "", "Done: listed the files.", "", "> "]
+`
+
 export const DEFAULT_SCENARIOS: Record<Flavour, string> = {
   claude: `
 version: 1
@@ -556,6 +581,22 @@ onInterrupt:
   - hook: interrupted
   - hook: { event: run_end, fields: { result: { stopReason: interrupted, finalText: "" } } }
   - frame: ["fake-agent · {{model}}", "", "Interrupted.", "", "> "]
+`,
+  antigravity: `
+version: 1
+name: default (antigravity)
+steps:
+  - probe: [decrqm-2026, kitty, osc11]
+  - altScreen: enter
+  - title: "fake-agent (antigravity)"
+  - argvHash
+${ANTIGRAVITY_TURN}
+onLine:
+${ANTIGRAVITY_TURN}
+onInterrupt:
+  - transcript: { record: error, text: "Interrupted by user" }
+  - hook: idle
+  - frame: ["✻ fake-agent · {{model}}", "", "Interrupted.", "", "> "]
 `,
 }
 

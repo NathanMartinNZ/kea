@@ -12,10 +12,11 @@ import { homedir, tmpdir, userInfo } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { FakeAgent } from './agent.ts'
-import { argvHash, ArgvError, FAKE_CLAUDE_VERSION, FAKE_COMMANDCODE_VERSION, type FakeOptions, parseArgv, type ParsedArgv, reportedPermissionMode } from './argv.ts'
-import { ClaudeHooks, type HookSink, hooksDisabledBy, parseClaudeSettings, parseStatusLine, SettingsError } from './hooks.ts'
+import { argvHash, ArgvError, FAKE_ANTIGRAVITY_VERSION, FAKE_CLAUDE_VERSION, FAKE_COMMANDCODE_VERSION, type FakeOptions, parseArgv, type ParsedArgv, reportedPermissionMode } from './argv.ts'
+import { AntigravityFeed, ClaudeHooks, type HookSink, hooksDisabledBy, parseClaudeSettings, parseStatusLine, SettingsError } from './hooks.ts'
 import { EventLog } from './log.ts'
 import { ModHost } from './mods.ts'
+import type { Vars } from './runner.ts'
 import { defaultScenario, loadScenarioFile, type Scenario, ScenarioError } from './scenario.ts'
 import { ProcessTerminal } from './term.ts'
 import { statusFileLocation, StatusFileWriter } from './status.ts'
@@ -25,15 +26,15 @@ export const FAKE_AGENT_VERSION = '0.1.0'
 /** How long the exit path waits for stdout to drain before exiting anyway (a PTY nobody reads). */
 const EXIT_FLUSH_MS = 2000
 /** Defaults per flavour: `--as claude` mimics Claude Code 2.1.296 (claude-opus-5-5 at medium effort). */
-const DEFAULT_MODEL: Record<string, string> = { claude: 'claude-opus-5-5', commandcode: 'fake-model-1' }
+const DEFAULT_MODEL: Record<string, string> = { claude: 'claude-opus-5-5', commandcode: 'fake-model-1', antigravity: 'Gemini 3.8 Flash (Low)' }
 const CLAUDE_DEFAULT_EFFORT = 'medium'
 
 const USAGE = `fake-agent ${FAKE_AGENT_VERSION}: a scriptable stand-in for an agent CLI (tools/fake-agent/README.md)
 
-usage: node tools/fake-agent/src/main.ts --as claude|commandcode [fake-agent options] [agent flags…] [-- <prompt>]
+usage: node tools/fake-agent/src/main.ts --as claude|commandcode|antigravity [fake-agent options] [agent flags…] [-- <prompt>]
 
 fake-agent options (each also from an env var):
-  --as <flavour>        claude | commandcode                          FAKE_AGENT_AS
+  --as <flavour>        claude | commandcode | antigravity            FAKE_AGENT_AS
   --scenario <file>     YAML/JSON scenario (default: one short turn)  FAKE_AGENT_SCENARIO
   --fake-home <dir>     stands in for HOME for transcript paths       FAKE_AGENT_HOME
   --log <file>          JSONL event log for tests                     FAKE_AGENT_LOG
@@ -43,11 +44,14 @@ fake-agent options (each also from an env var):
 --as commandcode reads: -m <model> --effort <e> --permission-mode <p> --mod <file> --mod-option <name=value> (both
                         repeatable) -t/--trust -n <name> -r <id or name>; the prompt is the positional argument (or
                         follows --); --version, --help, --list-models and status --json answer as 1.79.2 does
+--as antigravity reads: --model=<m> --effort=<e> --mode=<p> --dangerously-skip-permissions --settings=<json|file>
+                        --conversation=<id> -i/--prompt-interactive=<prompt>; --version, --help (stderr) and models
+                        answer as 1.5.13 does
 `
 
-/** Command Code's recorded answers (`--help`, `--list-models`): the committed fixtures of the version this stands in for. */
-function recorded(file: string): string {
-  return readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../../../fixtures/cli/commandcode', FAKE_COMMANDCODE_VERSION, file), 'utf8')
+/** Recorded CLI answers (`--help`, model lists): the committed fixtures of the version each flavour stands in for. */
+function recorded(flavour: 'commandcode' | 'antigravity', version: string, file: string): string {
+  return readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../../../fixtures/cli', flavour, version, file), 'utf8')
 }
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -79,12 +83,29 @@ async function main(): Promise<void> {
     // recorded help and model list, and `status --json` (exit 0 signed in, 1 not: `FAKE_AGENT_LOGGED_IN=0`)
     const version = process.env.FAKE_AGENT_CLI_VERSION || FAKE_COMMANDCODE_VERSION
     if (agent.version) return void process.stdout.write(`${version}\n`)
-    if (agent.help) return void process.stdout.write(recorded('help.txt'))
-    if (agent.listModels) return void process.stdout.write(recorded('list-models.txt'))
+    if (agent.help) return void process.stdout.write(recorded('commandcode', FAKE_COMMANDCODE_VERSION, 'help.txt'))
+    if (agent.listModels) return void process.stdout.write(recorded('commandcode', FAKE_COMMANDCODE_VERSION, 'list-models.txt'))
     if (agentArgv[0] === 'status' && agentArgv[1] === '--json' && agentArgv.length === 2) {
       const authenticated = process.env.FAKE_AGENT_LOGGED_IN !== '0'
       process.stdout.write(`${JSON.stringify({ authenticated, version })}\n`)
       process.exitCode = authenticated ? 0 : 1
+      return
+    }
+  }
+  if (agent.flavour === 'antigravity') {
+    // detection's three questions, answered as Antigravity CLI 1.5.13 answers them: `--version` on stdout, Go `flag`
+    // `--help` on stderr (stdout empty), and `models` on stdout with the status line on stderr (or exit 1 when offline)
+    const version = process.env.FAKE_AGENT_CLI_VERSION || FAKE_ANTIGRAVITY_VERSION
+    if (agent.version) return void process.stdout.write(`${version}\n`)
+    if (agent.help) return void process.stderr.write(recorded('antigravity', FAKE_ANTIGRAVITY_VERSION, 'help.txt'))
+    if (agent.modelsCmd) {
+      if (process.env.FAKE_AGENT_OFFLINE === '1') {
+        process.stderr.write('Fetching available models...\nError: Please sign in to view available models. Launch the CLI without arguments to sign in.\n')
+        process.exitCode = 1
+        return
+      }
+      process.stderr.write('Fetching available models...\n')
+      process.stdout.write(recorded('antigravity', FAKE_ANTIGRAVITY_VERSION, 'models.txt'))
       return
     }
   }
@@ -109,7 +130,7 @@ async function main(): Promise<void> {
   const scenario = scenarioFor(fake, cwd)
   const fakeHome = fake.fakeHome ? resolve(cwd, fake.fakeHome) : null
   const place = (id: string) => transcriptLocation({ flavour: fake.as, cwd, sessionId: id, override: fakeHome, home: homedir(), realHome: userInfo().homedir })
-  let sessionId = (agent.flavour === 'claude' ? (agent.sessionId ?? agent.resume) : null) ?? randomUUID()
+  let sessionId = (agent.flavour === 'claude' ? (agent.sessionId ?? agent.resume) : agent.flavour === 'antigravity' ? agent.resume : null) ?? randomUUID()
   if (agent.flavour === 'commandcode' && agent.resume !== null) {
     // `--resume <id or name>`: an id as it is, a name looked up among this project's sessions (their meta files' titles)
     const byName = UUID.test(agent.resume) ? agent.resume : commandCodeSessionByName(dirname(place(sessionId).path), agent.resume)
@@ -122,6 +143,7 @@ async function main(): Promise<void> {
   const loc = place(sessionId)
   const transcript = loc.writable ? new TranscriptWriter(loc.path, { sessionId, cwd, model, version: `${FAKE_AGENT_VERSION} (fake-agent)` }, undefined, fake.as) : null
   if (!loc.writable) process.stderr.write(`fake-agent: ${loc.reason}\n`)
+  const vars: Vars = { sessionId, cwd, model, prompt: agent.prompt, line: '', key: '', argvHash: hash, flavour: fake.as, permissionMode, transcriptPath: loc.path }
 
   let hooks: HookSink
   let hooksOff: string | null = null
@@ -144,6 +166,28 @@ async function main(): Promise<void> {
     // `disableAllHooks` turns a custom status line off too
     const statusLine = agent.settings !== null && !hooksOff ? parseStatusLine(agent.settings) : null
     hooks = new ClaudeHooks(config, { sessionId, transcriptPath: loc.path, cwd, permissionMode, model, effort: agent.effort ?? CLAUDE_DEFAULT_EFFORT, source: agent.resume ? 'resume' : 'startup' }, process.env, statusLine ? { command: statusLine } : null)
+  } else if (agent.flavour === 'antigravity') {
+    const ownOff = process.env.FAKE_AGENT_OWN_STATUSLINE === '1'
+    const statusLine = agent.settings !== null && !ownOff ? parseStatusLine(agent.settings) : null
+    const feed = new AntigravityFeed(
+      {
+        sessionId,
+        transcriptPath: loc.path,
+        cwd,
+        permissionMode,
+        model,
+        effort: agent.effort,
+        transcriptPathFor: (id) => place(id).path,
+      },
+      process.env,
+      statusLine ? { command: statusLine } : null,
+    )
+    feed.onSessionId = (id) => {
+      transcript?.setSession(id)
+      vars.sessionId = id
+      vars.transcriptPath = place(id).path
+    }
+    hooks = feed
   } else {
     // a mod runs in the agent's process and reads the agent's home (kea-mod.ts looks there for the session's file):
     // here that is the fake home, and never the account's real one (fake-agent reads nothing under ~/.commandcode)
@@ -209,7 +253,7 @@ async function main(): Promise<void> {
     io: term,
     scenario,
     flavour: fake.as,
-    vars: { sessionId, cwd, model, prompt: agent.prompt, line: '', key: '', argvHash: hash, flavour: fake.as, permissionMode, transcriptPath: loc.path },
+    vars,
     hooks,
     transcript,
     transcriptRefusal: loc.writable ? null : loc.reason,

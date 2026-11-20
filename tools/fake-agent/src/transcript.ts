@@ -1,6 +1,6 @@
 // Transcript records: JSONL appended under a stand-in HOME, at the path the real CLI would use. fake-agent never writes
-// under the real `~/.claude*` / `~/.commandcode`, which belong to the user's own agent CLIs: with no override and HOME
-// pointing at the real home it refuses and says so; an override inside the real home is refused too.
+// under the real `~/.claude*` / `~/.commandcode` / `~/.gemini`, which belong to the user's own agent CLIs: with no
+// override and HOME pointing at the real home it refuses and says so; an override inside the real home is refused too.
 
 import { createHash, randomUUID } from 'node:crypto'
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
@@ -29,7 +29,7 @@ export function commandCodeSlug(cwd: string): string {
   return split.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'root'
 }
 
-const AGENT_DIRS: Record<Flavour, string> = { claude: '.claude', commandcode: '.commandcode' }
+const AGENT_DIRS: Record<Flavour, string> = { claude: '.claude', commandcode: '.commandcode', antigravity: '.gemini' }
 
 export type TranscriptLocation = { path: string; writable: true } | { path: string; writable: false; reason: string }
 
@@ -55,8 +55,10 @@ function inside(child: string, parent: string): boolean {
  */
 export function transcriptLocation(o: { flavour: Flavour; cwd: string; sessionId: string; override: string | null; home: string; realHome: string }): TranscriptLocation {
   const base = o.override ?? o.home
-  const dirName = o.flavour === 'claude' ? claudeProjectDirName(o.cwd) : commandCodeSlug(o.cwd)
-  const path = join(base, AGENT_DIRS[o.flavour], 'projects', dirName, `${o.sessionId}.jsonl`)
+  const path =
+    o.flavour === 'antigravity'
+      ? join(base, AGENT_DIRS.antigravity, 'antigravity-cli', 'brain', o.sessionId, '.system_generated', 'logs', 'transcript.jsonl')
+      : join(base, AGENT_DIRS[o.flavour], 'projects', o.flavour === 'claude' ? claudeProjectDirName(o.cwd) : commandCodeSlug(o.cwd), `${o.sessionId}.jsonl`)
   const realHome = real(o.realHome)
   const target = real(base)
   if (target === realHome) {
@@ -65,7 +67,7 @@ export function transcriptLocation(o: { flavour: Flavour; cwd: string; sessionId
   }
   if (inside(target, realHome)) {
     const first = target.slice(realHome.length + 1).split(sep)[0] ?? ''
-    if (first.startsWith('.claude') || first === '.commandcode' || first.startsWith('.kea')) {
+    if (first.startsWith('.claude') || first === '.commandcode' || first === '.gemini' || first.startsWith('.kea')) {
       return { path, writable: false, reason: `not writing transcripts: the fake home is inside the real ~/${first}` }
     }
   }
@@ -118,6 +120,7 @@ export class TranscriptWriter {
   private readonly flavour: Flavour
   private turn = 0
   private messages = 0
+  private stepIndex = 0
 
   constructor(path: string, ctx: RecordContext, now: () => Date = () => new Date(), flavour: Flavour = 'claude') {
     this.path = path
@@ -126,16 +129,59 @@ export class TranscriptWriter {
     this.flavour = flavour
     // a resumed Command Code session's file is already there: no second header
     if (flavour === 'commandcode' && existsSync(path)) this.made = true
+    if (flavour === 'antigravity' && existsSync(path)) {
+      this.made = true
+      try {
+        this.stepIndex = readFileSync(path, 'utf8').split('\n').filter(Boolean).length
+      } catch {
+        this.stepIndex = 0
+      }
+    }
   }
 
-  /** Command Code: another conversation in the same process (`/clear`): its own files beside the first's. */
+  /** Command Code and Antigravity: another conversation in the same process (`/clear`): its own files beside the first's. */
   setSession(sessionId: string): void {
+    if (this.flavour === 'antigravity') {
+      const brainDir = dirname(dirname(dirname(dirname(this.path))))
+      this.path = join(brainDir, sessionId, '.system_generated', 'logs', 'transcript.jsonl')
+      this.ctx.sessionId = sessionId
+      this.stepIndex = 0
+      this.made = existsSync(this.path)
+      return
+    }
     this.path = join(dirname(this.path), `${sessionId}.jsonl`)
     this.ctx.sessionId = sessionId
     this.parent = null
     this.turn = 0
     this.messages = 0
     this.made = existsSync(this.path)
+  }
+
+  private antigravity(kind: RecordKind, o: { text: string | null; json: Json | null }): Record<string, unknown> {
+    if (kind === 'raw') return { ...((o.json ?? {}) as Record<string, unknown>) }
+    const created_at = this.now().toISOString()
+    const step_index = this.stepIndex++
+    if (kind === 'user') {
+      return { step_index, source: 'USER_EXPLICIT', type: 'USER_INPUT', status: 'DONE', created_at, content: o.text ?? '' }
+    }
+    if (kind === 'running') {
+      return {
+        step_index,
+        source: 'MODEL',
+        type: 'PLANNER_RESPONSE',
+        status: 'RUNNING',
+        created_at,
+        model: this.ctx.model,
+        ...(o.text !== null ? { content: o.text } : {}),
+      }
+    }
+    if (kind === 'error') {
+      return { step_index, source: 'MODEL', type: 'PLANNER_RESPONSE', status: 'ERROR', created_at, model: this.ctx.model, content: o.text ?? '' }
+    }
+    if (kind === 'assistant') {
+      return { step_index, source: 'MODEL', type: 'PLANNER_RESPONSE', status: 'DONE', created_at, model: this.ctx.model, content: o.text ?? '' }
+    }
+    throw new Error(`transcript record ${kind} is not Antigravity CLI's`)
   }
 
   /** Command Code: the session's title, in `<id>.meta.json` (`userRenamed`: the person's own, `--name` included). */
@@ -210,10 +256,20 @@ export class TranscriptWriter {
       if (kind !== 'title') this.append(r)
       return r
     }
+    if (this.flavour === 'antigravity') {
+      r = this.antigravity(kind, o)
+      for (const [k, v] of Object.entries(o.fields)) {
+        if (v === null) delete r[k]
+        else r[k] = v
+      }
+      this.append(r)
+      return r
+    }
     switch (kind) {
       case 'error':
       case 'title':
-        throw new Error(`transcript record ${kind} is Command Code's`)
+      case 'running':
+        throw new Error(`transcript record ${kind} is not Claude Code's`)
       case 'user':
         r = this.message('user', { role: 'user', content: o.text ?? '' })
         break

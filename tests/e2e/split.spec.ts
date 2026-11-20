@@ -785,7 +785,7 @@ test('E-ST-11 · usage limits, with the setting on: a Claude Code session’s re
 
   // the tooltip, on either part: each window with its share and reset, and when it was seen
   await page.locator(`${STATUS_ROW} .usage-part[data-window="session"]`).hover()
-  const tip = `Session limit: ${danger} % used, resets ${resetWords(resets.session)} · Weekly: ${warn} % used, resets ${resetWords(resets.week)} · as of `
+  const tip = `Session limit: ${danger}% used, resets ${resetWords(resets.session)} · Weekly: ${warn}% used, resets ${resetWords(resets.week)} · as of `
   await expect(tooltip(page).locator('span')).toHaveText(new RegExp(`^${escapeRe(tip)}\\d\\d:\\d\\d$`), { timeout: STEP_MS })
   await page.mouse.move(1, 1)
   await expect(tooltip(page)).toHaveCount(0)

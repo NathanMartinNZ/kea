@@ -38,7 +38,7 @@ describe('the adapter registry', () => {
         }
       }
     }
-    for (const argv of [[], ['/bin/zsh', '-l'], ['claude', '--settings'], ['claude', '--settings', '{not json'], ['claude', '--settings', '"a string"'], ['claude', '--settings', '{"hooks":{"Stop":[{"hooks":[{"command":7}]}]}}'], ['cmd', '--mod-option'], ['cmd', '--mod-option', 'kea=%%%'], ['cmd', '--mod-option', 'other=abc'], ['npm', 'run', 'dev']]) {
+    for (const argv of [[], ['/bin/zsh', '-l'], ['claude', '--settings'], ['claude', '--settings', '{not json'], ['claude', '--settings', '"a string"'], ['claude', '--settings', '{"hooks":{"Stop":[{"hooks":[{"command":7}]}]}}'], ['cmd', '--mod-option'], ['cmd', '--mod-option', 'kea=%%%'], ['cmd', '--mod-option', 'other=abc'], ['agy', '--settings={not json'], ['agy', '--settings={"statusLine":{"command":7}}'], ['npm', 'run', 'dev']]) {
       expect(registry.helperPaths(argv), JSON.stringify(argv)).toEqual([])
     }
   })

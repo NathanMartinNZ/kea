@@ -2,16 +2,16 @@
 // `5h 25% · 7d 67%`. Each window's share is rounded down to a whole percent and coloured by how full it is; a window at
 // its limit says so with its reset (`5h limit · 15:10`); a window past its reset is left out, and with none left the
 // meter is hidden. The tooltip spells each window out with its reset and when it was seen, and the accessible name says
-// the same in words. The parts come in the order they give way where the row is narrow, from the last: the meter's
-// stylesheet wraps the weekly part out of sight first, then the session part.
+// the same in words. The parts come in `compareUsageWindows` order (lowest priority first), so where the row is narrow
+// the meter's stylesheet wraps later parts out of sight first.
 
-import { clockTime, L, type UsageReading, type UsageWindowId } from '@kea/protocol'
+import { clockTime, compareUsageWindows, L, type UsageReading } from '@kea/protocol'
 
 export type UsageLevel = 'plain' | 'warn' | 'danger'
 
 /** One window as the meter shows it. */
 export interface UsagePart {
-  id: UsageWindowId
+  id: string
   /** `5h 25%`, or `5h limit · 15:10` at the limit. */
   text: string
   level: UsageLevel
@@ -24,10 +24,6 @@ export interface UsageView {
   label: string
 }
 
-const SHORT: Record<UsageWindowId, string> = { session: '5h', week: '7d' }
-const TIP: Record<UsageWindowId, string> = { session: 'Session limit', week: 'Weekly' }
-const SPOKEN: Record<UsageWindowId, string> = { session: 'session', week: 'weekly' }
-const ORDER: Record<UsageWindowId, number> = { session: 0, week: 1 }
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const
 const SEP = ' · '
 
@@ -48,7 +44,7 @@ export function resetText(ms: number, now: number): string {
 /** The meter for `r` at `now`; null when there is nothing to show (no reading, or every window past its reset). */
 export function usageView(r: UsageReading | null, now: number): UsageView | null {
   if (!r) return null
-  const windows = r.windows.filter((w) => w.resetsAt > now).sort((a, b) => ORDER[a.id] - ORDER[b.id])
+  const windows = r.windows.filter((w) => w.resetsAt > now).sort(compareUsageWindows)
   if (windows.length === 0) return null
   const parts: UsagePart[] = []
   const tips: string[] = []
@@ -57,9 +53,9 @@ export function usageView(r: UsageReading | null, now: number): UsageView | null
     const pct = Math.floor(w.usedPct)
     const reset = resetText(w.resetsAt, now)
     const full = w.usedPct >= 100
-    parts.push({ id: w.id, text: full ? `${SHORT[w.id]} limit${SEP}${reset}` : `${SHORT[w.id]} ${pct}%`, level: usageLevel(w.usedPct) })
-    tips.push(`${TIP[w.id]}: ${pct}% used, resets ${reset}`)
-    spoken.push(full ? `${SPOKEN[w.id]} limit reached until ${reset}` : `${SPOKEN[w.id]} ${pct}%`)
+    parts.push({ id: w.id, text: full ? `${w.shortLabel} limit${SEP}${reset}` : `${w.shortLabel} ${pct}%`, level: usageLevel(w.usedPct) })
+    tips.push(`${w.tipLabel}: ${pct}% used, resets ${reset}`)
+    spoken.push(full ? `${w.spokenLabel} limit reached until ${reset}` : `${w.spokenLabel} ${pct}%`)
   }
   return {
     parts,

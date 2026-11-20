@@ -5,12 +5,12 @@
 [![Licence: MIT](https://img.shields.io/badge/licence-MIT-8246e7)](LICENSE)
 [![macOS 14 or later on Apple silicon](https://img.shields.io/badge/macOS-14%2B%20Apple%20silicon-8246e7)](#macos)
 [![Linux on x64 or arm64](https://img.shields.io/badge/Linux-x64%20%C2%B7%20arm64-8246e7)](#linux)
-[![Agents: Claude Code and Command Code](https://img.shields.io/badge/agents-Claude%20Code%20%C2%B7%20Command%20Code-8246e7)](#requirements)
+[![Agents: Claude Code, Command Code and Antigravity CLI](https://img.shields.io/badge/agents-Claude%20Code%20%C2%B7%20Command%20Code%20%C2%B7%20Antigravity%20CLI-8246e7)](#requirements)
 
 ![Pixel art of three kea, New Zealand's alpine parrot, on a snowy ridge above a glacial lake, one tugging at a pack](docs/hero.jpg)
 
-Kea is a desktop app for macOS (Apple silicon) and Linux that runs coding-agent CLIs side by side: Claude Code and
-Command Code today. Each session gets its own git worktree and branch, a real terminal running the agent's own CLI, a
+Kea is a desktop app for macOS (Apple silicon) and Linux that runs coding-agent CLIs side by side: Claude Code,
+Command Code and Antigravity CLI today. Each session gets its own git worktree and branch, a real terminal running the agent's own CLI, a
 live file tree with the session's changes, and a dev server one click away. The sidebar shows which sessions are
 working, which are waiting for you and which have finished. Quitting Kea stops every session's terminals, so nothing is left running;
 they keep running through an update or a crash.
@@ -116,9 +116,10 @@ systems are best effort. [Installing Kea on Linux by hand](docs/install-linux.md
   recommend it, so apt and dnf install it with Kea. Without git, Kea still opens folders, with no worktrees and no
   Changes view.
 - At least one agent CLI, installed and signed in as you use it in a terminal:
-  [Claude Code](https://code.claude.com/docs/en/setup) (`claude`) or
-  [Command Code](https://commandcode.ai/docs/quickstart) (`cmd`). Settings › Agents shows where Kea found each one,
-  its version and whether it is signed in.
+  [Claude Code](https://code.claude.com/docs/en/setup) (`claude`),
+  [Command Code](https://commandcode.ai/docs/quickstart) (`cmd`) or
+  [Antigravity CLI](https://antigravity.google/docs/getting-started.md) (`agy`). Settings › Agents shows where Kea
+  found each one, its version and whether it is signed in.
 
 ### Uninstall
 
@@ -248,7 +249,7 @@ Electron's window state is in `~/Library/Application Support/Kea` on macOS and `
 
 ## What Kea does not do
 
-- **Change your repositories' configuration or the agents' own folders** (`~/.claude`, `~/.commandcode`). What an
+- **Change your repositories' configuration or the agents' own folders** (`~/.claude`, `~/.commandcode`, `~/.gemini`). What an
   agent needs from Kea is passed to its process when it starts. In a repository Kea uses git: a worktree and a branch
   per session, and a ref under `refs/kea/` that keeps a deleted session restorable. It runs `git init` or discards a
   change only when you click it.
@@ -296,4 +297,4 @@ the project's conventions. Report security problems privately, as described in [
 Kea is released under the [MIT licence](LICENSE). The bundled font, code ported from xterm.js and the recorded agent
 output in `fixtures/` keep their own licences: see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-Kea is an independent project. It is not affiliated with or endorsed by Anthropic or Command Code.
+Kea is an independent project. It is not affiliated with or endorsed by Anthropic, Command Code or Google.

@@ -33,7 +33,7 @@ const SAMPLE: Record<TableEventType, TableEvent> = {
   'turn.interrupted': { t: 'turn.interrupted' },
   'turn.failed': { t: 'turn.failed', error: 'overloaded', kind: 'overloaded' },
   compacting: { t: 'compacting', active: true },
-  'account.usage': { t: 'account.usage', windows: [{ id: 'session', usedPct: 100, resetsAt: T0 + 9 }] },
+  'account.usage': { t: 'account.usage', windows: [{ id: 'session', shortLabel: '5h', tipLabel: 'Session limit', spokenLabel: 'session', priority: 0, usedPct: 100, resetsAt: T0 + 9 }] },
   'session.ended': { t: 'session.ended', reason: 'clear' },
   meta: { t: 'meta', model: 'm' },
   'pty.spawned': { t: 'pty.spawned' },

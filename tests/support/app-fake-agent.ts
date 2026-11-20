@@ -10,6 +10,7 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { writeAgentShim } from '../../tools/fake-agent/src/index.ts'
+import { harnessUserHome } from '../../tools/perf/src/launch.ts'
 import { until, type Kea, type KeaRun } from './app.ts'
 import { paneSession, selectSession, startSession, tabOf, waitLive } from './app-sessions.ts'
 
@@ -50,6 +51,70 @@ export function fakeClaude(run: KeaRun, name: string, scenario: string, o: { hoo
     env.CLAUDE_CONFIG_DIR = config
   }
   writeAgentShim(run.agentBin, 'claude', { env })
+  return { file, log }
+}
+
+/**
+ * Give the fake-agent `cmd` sessions started from now on `scenario` (YAML after `version: 1`) and an event log of
+ * their own, with `FAKE_AGENT_HOME` inside the run's sandboxed user home.
+ */
+export function fakeCommandCode(run: KeaRun, name: string, scenario: string, o: { env?: Record<string, string> } = {}): FakeClaude {
+  const file = path.join(run.home, `${name}.yaml`)
+  const body = scenario.trimStart().startsWith('version:') ? scenario.trimEnd() : `version: 1\nname: ${name}\n${scenario.trimEnd()}`
+  fs.writeFileSync(file, `${body}\n`)
+  const log = path.join(run.home, `${name}.log`)
+  const env: Record<string, string> = {
+    FAKE_AGENT_HOME: harnessUserHome(run.home),
+    FAKE_AGENT_SCENARIO: file,
+    FAKE_AGENT_LOG: log,
+    ...(o.env ?? {}),
+  }
+  writeAgentShim(run.agentBin, 'commandcode', { name: 'cmd', env })
+  return { file, log }
+}
+
+/**
+ * Give the fake-agent `agy` sessions started from now on `scenario` (YAML after `version: 1`) and an event log of
+ * their own, with `FAKE_AGENT_HOME` inside the run's sandboxed user home. `quota` sets `FAKE_AGENT_QUOTA` (inline JSON
+ * or a file path); `ownStatusLine` writes a user `statusLine` entry into `<userHome>/.gemini/antigravity-cli/settings.json`.
+ */
+export function fakeAntigravity(
+  run: KeaRun,
+  name: string,
+  scenario: string,
+  o: {
+    env?: Record<string, string>
+    quota?: string | Record<string, unknown>
+    ownStatusLine?: boolean | { command: string; enabled?: boolean }
+  } = {},
+): FakeClaude {
+  const file = path.join(run.home, `${name}.yaml`)
+  const body = scenario.trimStart().startsWith('version:') ? scenario.trimEnd() : `version: 1\nname: ${name}\n${scenario.trimEnd()}`
+  fs.writeFileSync(file, `${body}\n`)
+  const log = path.join(run.home, `${name}.log`)
+  const userHome = harnessUserHome(run.home)
+  const env: Record<string, string> = {
+    FAKE_AGENT_HOME: userHome,
+    FAKE_AGENT_SCENARIO: file,
+    FAKE_AGENT_LOG: log,
+    ...(o.quota !== undefined ? { FAKE_AGENT_QUOTA: typeof o.quota === 'string' ? o.quota : JSON.stringify(o.quota) } : {}),
+    ...(o.env ?? {}),
+  }
+  if (o.ownStatusLine !== undefined) {
+    const cfgDir = path.join(userHome, '.gemini', 'antigravity-cli')
+    fs.mkdirSync(cfgDir, { recursive: true, mode: 0o700 })
+    const settingsPath = path.join(cfgDir, 'settings.json')
+    if (o.ownStatusLine === false) {
+      fs.rmSync(settingsPath, { force: true })
+    } else {
+      const statusLine =
+        typeof o.ownStatusLine === 'object'
+          ? { type: 'command', ...o.ownStatusLine }
+          : { type: 'command', command: 'echo custom' }
+      fs.writeFileSync(settingsPath, `${JSON.stringify({ statusLine }, null, 2)}\n`)
+    }
+  }
+  writeAgentShim(run.agentBin, 'antigravity', { name: 'agy', env })
   return { file, log }
 }
 

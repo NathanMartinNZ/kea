@@ -106,7 +106,7 @@ describe('the per-build kea-helper copy', () => {
     const registry = defaultRegistry()
     const odd = path.join(tempHome(), 'a "quoted" home')
     fs.mkdirSync(odd)
-    for (const [id, h] of [['commandcode', home], ['claude', odd], ['commandcode', odd]] as const) {
+    for (const [id, h] of [['commandcode', home], ['claude', odd], ['commandcode', odd], ['antigravity', odd]] as const) {
       const helper = copy(h, N1)
       copy(h, N2)
       copy(h, NOW)

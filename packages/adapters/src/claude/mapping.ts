@@ -6,6 +6,7 @@
 // reduced to its command, path, url, pattern or (compact JSON) questions.
 
 import { L, type AgentEvent, type FailureKind, type StatusFileReading, type UsageWindow } from '@kea/protocol'
+import { clampUsagePct } from '../kit/usage.ts'
 import type { RawAgentSignal, SessionSignals } from '../types.ts'
 import {
   FAILURE_KINDS,
@@ -177,16 +178,24 @@ export function knownEvent(p: Payload): boolean {
 
 // ── the status line: the account's usage ──────────────────────────────────────────────────────────────
 
-/** The status line's windows, row for row: Kea's window id and the payload's share used and reset time. */
-const USAGE_WINDOW_FIELDS: readonly { id: UsageWindow['id']; used: string; resets: string }[] = [
-  { id: 'session', used: STATUS_LINE_FIELDS.sessionUsed, resets: STATUS_LINE_FIELDS.sessionResets },
-  { id: 'week', used: STATUS_LINE_FIELDS.weekUsed, resets: STATUS_LINE_FIELDS.weekResets },
+/** The status line's windows, row for row: Claude's labels and priority, and the payload's share used and reset time. */
+const USAGE_WINDOW_FIELDS: readonly {
+  id: string
+  shortLabel: string
+  tipLabel: string
+  spokenLabel: string
+  priority: number
+  used: string
+  resets: string
+}[] = [
+  { id: 'session', shortLabel: '5h', tipLabel: 'Session limit', spokenLabel: 'session', priority: 0, used: STATUS_LINE_FIELDS.sessionUsed, resets: STATUS_LINE_FIELDS.sessionResets },
+  { id: 'week', shortLabel: '7d', tipLabel: 'Weekly', spokenLabel: 'weekly', priority: 1, used: STATUS_LINE_FIELDS.weekUsed, resets: STATUS_LINE_FIELDS.weekResets },
 ]
 
 /**
- * A (projected) status line payload → the account's usage: each window the payload carries, its share used (clamped
- * to 0–100) and its reset time in wall ms (the payload's Unix seconds). A window with a value missing or out of range
- * is left out on its own; none at all (before the session's first reply, an API key) gives nothing.
+ * A (projected) status line payload → the account's usage: each window the payload carries, its labels, its share used
+ * (clamped to 0–100) and its reset time in wall ms (the payload's Unix seconds). A window with a value missing or out of
+ * range is left out on its own; none at all (before the session's first reply, an API key) gives nothing.
  */
 export function usageEvents(p: Payload): AgentEvent[] {
   const windows: UsageWindow[] = []
@@ -196,7 +205,15 @@ export function usageEvents(p: Payload): AgentEvent[] {
     if (typeof used !== 'number' || !Number.isFinite(used) || typeof resets !== 'number' || !(resets > 0)) continue
     const resetsAt = Math.round(resets * 1000)
     if (!Number.isSafeInteger(resetsAt)) continue
-    windows.push({ id: w.id, usedPct: Math.min(100, Math.max(0, used)), resetsAt })
+    windows.push({
+      id: w.id,
+      shortLabel: w.shortLabel,
+      tipLabel: w.tipLabel,
+      spokenLabel: w.spokenLabel,
+      priority: w.priority,
+      usedPct: clampUsagePct(used),
+      resetsAt,
+    })
   }
   return windows.length ? [{ t: 'account.usage', windows }] : []
 }

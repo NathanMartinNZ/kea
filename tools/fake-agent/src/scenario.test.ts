@@ -4,7 +4,7 @@ import { DEFAULT_SCENARIOS, defaultScenario, parseScenario, ScenarioError, type 
 const opts = { flavour: 'claude' as const, baseDir: '/base', source: 'test.yaml' }
 const OUTSIDE = '/etc/hosts' // os-ok: test data
 
-function problems(yaml: string, o: { flavour: 'claude' | 'commandcode' } = opts): string[] {
+function problems(yaml: string, o: { flavour: 'claude' | 'commandcode' | 'antigravity' } = opts): string[] {
   try {
     parseScenario(yaml, { ...opts, ...o })
   } catch (e) {
@@ -129,7 +129,10 @@ steps:
     expect(problems(`version: 1\nsteps: [ ${['message_start', 'model_request_start', 'model_request_end', 'message_end', 'tool_hook_blocked', 'tool_denied', 'interrupted', 'run_error'].map((e) => `{ hook: ${e} }`).join(', ')} ]`, { flavour: 'commandcode' })).toEqual([])
     expect(problems('version: 1\nflavour: commandcode\nsteps: []')).toEqual(['flavour: scenario is for string "commandcode" but fake-agent runs --as claude'])
     expect(problems('version: 1\nexitCostUsd: 0.5\nsteps: []', { flavour: 'commandcode' })).toEqual(['exitCostUsd: only for --as claude (Command Code has no cost-state record)'])
-    for (const flavour of ['claude', 'commandcode'] as const) {
+    expect(problems('version: 1\nsteps: [ { hook: SessionStart } ]', { flavour: 'antigravity' })).toEqual([expect.stringMatching(/^steps\[0\]\.hook\.event: expected one of initializing/)])
+    expect(problems('version: 1\nsteps: [ { transcript: { record: ai-title, title: x } } ]', { flavour: 'antigravity' })).toEqual([expect.stringMatching(/record: expected one of user, assistant, running, error, raw/)])
+    expect(problems(`version: 1\nsteps: [ ${['initializing', 'working', 'tool_use', 'tool_confirmation', 'tool_confirmation_clear', 'reviewing', 'authenticating', 'error', 'idle', 'clear', 'title', 'meta', 'snapshot'].map((e) => `{ hook: ${e} }`).join(', ')}, { transcript: { record: running } } ]`, { flavour: 'antigravity' })).toEqual([])
+    for (const flavour of ['claude', 'commandcode', 'antigravity'] as const) {
       const s = defaultScenario(flavour, '/cwd')
       expect(s.steps.length).toBeGreaterThan(5)
       expect(s.onLine).not.toBeNull()

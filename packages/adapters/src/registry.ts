@@ -3,6 +3,7 @@
 // only its folder, its fixtures and its contract tests (U-AGT-15).
 
 import type { AgentSettingsExtension } from '@kea/protocol'
+import { antigravity } from './antigravity/adapter.ts'
 import { claude } from './claude/adapter.ts'
 import { commandcode } from './commandcode/adapter.ts'
 import type { AgentAdapter } from './types.ts'
@@ -58,7 +59,7 @@ export class AdapterRegistry {
 }
 
 /** The adapters Kea ships, in the composer's order. */
-export const ADAPTERS: readonly AgentAdapter[] = [claude, commandcode]
+export const ADAPTERS: readonly AgentAdapter[] = [claude, commandcode, antigravity]
 
 /**
  * Every command name a shipped adapter's CLI is installed under, by adapter id. The harnesses read this list: a run of

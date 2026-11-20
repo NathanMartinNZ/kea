@@ -175,8 +175,8 @@ describe('claude usage status line', () => {
       {
         t: 'account.usage',
         windows: [
-          { id: 'session', usedPct: 25, resetsAt: 1_794_426_600_000 },
-          { id: 'week', usedPct: 67, resetsAt: 1_794_618_000_000 },
+          { id: 'session', shortLabel: '5h', tipLabel: 'Session limit', spokenLabel: 'session', priority: 0, usedPct: 25, resetsAt: 1_794_426_600_000 },
+          { id: 'week', shortLabel: '7d', tipLabel: 'Weekly', spokenLabel: 'weekly', priority: 1, usedPct: 67, resetsAt: 1_794_618_000_000 },
         ],
       },
     ])
@@ -184,13 +184,15 @@ describe('claude usage status line', () => {
     // each window on its own; a fraction kept; a value out of range or of the wrong type drops only its window
     const rl = (o: Record<string, unknown>) => ({ rate_limits: o })
     const win = (used: unknown, resets: unknown) => ({ used_percentage: used, resets_at: resets })
+    const sessionWin = (usedPct: number, resetsAt: number) => ({ id: 'session', shortLabel: '5h', tipLabel: 'Session limit', spokenLabel: 'session', priority: 0, usedPct, resetsAt })
+    const weekWin = (usedPct: number, resetsAt: number) => ({ id: 'week', shortLabel: '7d', tipLabel: 'Weekly', spokenLabel: 'weekly', priority: 1, usedPct, resetsAt })
     const cases: [Record<string, unknown>, AgentEvent[]][] = [
-      [rl({ five_hour: win(42.5, 1_794_426_600) }), [{ t: 'account.usage', windows: [{ id: 'session', usedPct: 42.5, resetsAt: 1_794_426_600_000 }] }]],
-      [rl({ seven_day: win(0, 1_794_618_000) }), [{ t: 'account.usage', windows: [{ id: 'week', usedPct: 0, resetsAt: 1_794_618_000_000 }] }]],
-      [rl({ five_hour: win('25', 1_794_426_600), seven_day: win(67, 1_794_618_000) }), [{ t: 'account.usage', windows: [{ id: 'week', usedPct: 67, resetsAt: 1_794_618_000_000 }] }]],
+      [rl({ five_hour: win(42.5, 1_794_426_600) }), [{ t: 'account.usage', windows: [sessionWin(42.5, 1_794_426_600_000)] }]],
+      [rl({ seven_day: win(0, 1_794_618_000) }), [{ t: 'account.usage', windows: [weekWin(0, 1_794_618_000_000)] }]],
+      [rl({ five_hour: win('25', 1_794_426_600), seven_day: win(67, 1_794_618_000) }), [{ t: 'account.usage', windows: [weekWin(67, 1_794_618_000_000)] }]],
       [rl({ five_hour: win(25, null), seven_day: win(67, -1) }), []],
-      [rl({ five_hour: win(120, 1_794_426_600) }), [{ t: 'account.usage', windows: [{ id: 'session', usedPct: 100, resetsAt: 1_794_426_600_000 }] }]],
-      [rl({ five_hour: win(-3, 1_794_426_600) }), [{ t: 'account.usage', windows: [{ id: 'session', usedPct: 0, resetsAt: 1_794_426_600_000 }] }]],
+      [rl({ five_hour: win(120, 1_794_426_600) }), [{ t: 'account.usage', windows: [sessionWin(100, 1_794_426_600_000)] }]],
+      [rl({ five_hour: win(-3, 1_794_426_600) }), [{ t: 'account.usage', windows: [sessionWin(0, 1_794_426_600_000)] }]],
       [rl({ five_hour: win(25, 1e300) }), []],
       [{ rate_limits: 'x' }, []],
       [{}, []],

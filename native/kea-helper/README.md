@@ -1,12 +1,13 @@
 # native/kea-helper
 
-Kea's small native helper (Rust, no async runtime). One binary, six subcommands:
+Kea's small native helper (Rust, no async runtime). One binary, seven subcommands:
 
 | Subcommand | Lifetime | What |
 |---|---|---|
 | `pty` | One PTY, detached (survives Kea) | The **holder**: owns exactly one PTY, a ring file of its output, and one Kea client |
 | `hook` | Milliseconds | Agent hook → projected envelope → `core.sock` (core answers it), else the session spool |
 | `statusline` | Milliseconds | An agent's status line, delivered as `hook` delivers but never spooled: the account's usage for Kea, nothing printed |
+| `feed` | Milliseconds | An agent's status line carrying session state, delivered and spooled as `hook` delivers, nothing printed |
 | `footprint <pid…>` | Milliseconds | Physical footprint per pid (macOS `ri_phys_footprint`; Linux `RssAnon + VmSwap`) |
 | `ports <pid…>` | Milliseconds | Listening TCP sockets per pid (macOS libproc; Linux `/proc/<pid>/net/tcp{,6}`) |
 | `ports --all` | Milliseconds | Linux: every TCP listener, this user's with their pid, others' as `-` (who holds a port) |
@@ -34,7 +35,7 @@ agent flag, path or payload field name appears in this crate.
   non-dumpable holder. `procfs.rs`: the `/proc` text parsers, pure and built on both systems, so their tests run on
   macOS against `fixtures/os/linux/`. `#[cfg(target_os)]` appears on the two system modules only, and `os::IS_LINUX`
   picks the per-system numbers of `limits.rs`.
-- `rundir.rs`, `hook.rs` (`hook` and `statusline`, with `hook/tests.rs`), `footprint.rs`, `ports.rs`, `procs.rs`,
+- `rundir.rs`, `hook.rs` (`hook`, `statusline` and `feed`, with `hook/tests.rs`), `footprint.rs`, `ports.rs`, `procs.rs`,
   `sys.rs` (thin libc helpers).
 - `limits.rs`, generated from `constants/limits.toml` by `pnpm codegen`.
 - `golden_tests.rs` (the wire format against the shared golden file) and `test_alloc.rs` (the counting allocator the
@@ -324,26 +325,31 @@ Reads the agent's JSON payload on stdin, keeps only what the projection names, s
 exits 0 and prints nothing, not even on a panic (a silent panic hook plus `catch_unwind`). Every field name arrives in
 `--project`, so the helper itself knows no agent.
 
-- **Projection** `{"keep":[path…],"count":[path…],"summarise":[path…],"critical":{"field":path,"values":[…]}}`.
+- **Projection** `{"keep":[path…],"count":[path…],"countWhere":[{"path":path,"field":path,"equals":scalar}…],"keepMap":[{"path":path,"fields":[path…],"maxKeys":N}…],"summarise":[path…],"critical":{"field":path,"values":[…]}|[{"field":path,"values":[…]}…]}`.
   - Paths are dotted (`tool_input.command`); an empty path or empty segment makes the projection invalid, and the
-    event is dropped. Absent lists are empty; `critical` may be absent or `null`; other keys are ignored. A path
-    missing from the payload is skipped.
+    event is dropped. Absent lists are empty; `critical` may be absent, `null`, a single `{field, values}` rule or an
+    array of rules; other keys are ignored. A path missing from the payload is skipped.
   - `keep`: strings (capped at `HOOK_SUMMARY_MAX_CHARS` characters), numbers, booleans and `null` are copied; objects
     and arrays are skipped. `count`: an array becomes its length, an object its key count, a number stays a number;
-    anything else is skipped. `summarise`: a string is cut to `HOOK_SUMMARY_MAX_CHARS` characters on a char boundary;
-    any other non-null value becomes its compact JSON text, cut the same way (serialisation stops early for huge
-    values).
-  - Output keeps the nesting (`{"tool_input":{"command":"…"}}`), in the order keeps, counts, summaries; if two paths
-    collide (`a` and `a.b`), the first one written wins. Nothing not named survives. Whether an event is critical is
-    decided on the raw payload (JSON equality with one of `values`), so the field need not be kept.
+    anything else is skipped. `countWhere`: an array at `path` becomes the count of its elements whose nested field
+    `field` equals the scalar `equals`. `keepMap`: an object at `path` keeps at most `maxKeys` entries (default and
+    cap `PROJECTION_MAP_KEYS_MAX`), copying only the listed scalar `fields` of each entry object (keys and string
+    values capped at `HOOK_SUMMARY_MAX_CHARS` characters) and skipping empty entries. `summarise`: a string is cut to
+    `HOOK_SUMMARY_MAX_CHARS` characters on a char boundary; any other non-null value becomes its compact JSON text,
+    cut the same way (serialisation stops early for huge values).
+  - Output keeps the nesting (`{"tool_input":{"command":"…"}}`), in the order keeps, counts (`count` then
+    `countWhere`), map keeps, summaries; if two paths collide (`a` and `a.b`), the first one written wins. Nothing
+    not named survives. Whether an event is critical is decided on the raw payload (any `critical` rule's `field`
+    matching one of its `values` by JSON equality), so the field need not be kept.
 - **Envelope** (one line), in exactly this key order:
   `{"keaSessionId","adapter","id":<16 hex digits>,"mono":<ns>,"receivedAt":<unix ms>,"payload":{…}}`.
   - `id` is random per run (`arc4random_buf` on macOS, `getrandom` on Linux). `mono` is a clock that stops while the
     machine sleeps (`CLOCK_UPTIME_RAW` on macOS, `CLOCK_MONOTONIC` on Linux). `mono` and `receivedAt` are taken when
     the hook starts, before reading stdin.
   - At most `HOOK_ENVELOPE_MAX_BYTES` including the trailing newline. If larger, the summary length is halved
-    repeatedly (down to 0), then items are dropped last-first (summaries, then keeps other than `critical.field`, then
-    counts), and finally everything: an envelope with `payload:{}` always fits, since ids are ≤ 64 characters.
+    repeatedly (down to 0), then items are dropped last-first (summaries, then map keeps, then keeps other than a
+    `critical` field, then counts), and finally everything: an envelope with `payload:{}` always fits, since ids are ≤
+    64 characters.
 - **Bad stdin.** Not JSON (or not UTF-8) gives `payload:{}` plus a top-level `"malformed":true`. More than
   `HOOK_STDIN_MAX_BYTES` is still drained to EOF (the agent never sees a broken pipe) and dropped: `payload:{}` plus
   `"oversize":true`. stdin is always read to EOF, even when the arguments are invalid.
@@ -385,6 +391,19 @@ after `payload`, which is how core tells it from a hook's. It is never spooled: 
 `HOOK_BOUND_MS` the line is dropped, since the agent can run its status line after every message and the next run's
 reading replaces it, so a spool of them would only crowd out the session's own events. It prints nothing at all and
 always exits 0, since the agent shows whatever its status line prints.
+
+## `feed`
+
+```
+kea-helper feed <adapter> --session <keaSessionId> --home <KEA_HOME> --project '<projection JSON>'
+```
+
+What an agent runs as a status line when the payload carries the session's own state: the arguments, the projection,
+the validation and the delivery are `hook`'s. stdin is capped at `STATUSLINE_STDIN_MAX_BYTES` (above it, drained to
+EOF and dropped: `payload:{}` plus `"oversize":true`). Unlike `statusline`, the envelope carries no
+`"statusline":true` mark, so core routes it as a session event, and when core does not answer within `HOOK_BOUND_MS`
+the line is appended to `<home>/sessions/<id>/spool.ndjson` under the same `SPOOL_SOFT_BYTES` and `SPOOL_HARD_BYTES`
+rules as `hook` so state transitions survive while core is away. It prints nothing at all and always exits 0.
 
 ## `footprint <pid…>`
 

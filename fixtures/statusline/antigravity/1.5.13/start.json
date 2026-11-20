@@ -1,0 +1,34 @@
+{
+  "cwd": "/Users/HOME__/demo",
+  "session_id": "",
+  "conversation_id": "",
+  "transcript_path": "/Users/HOME__/.gemini/antigravity/brain/.system_generated/logs/transcript.jsonl",
+  "model": {
+    "id": "Gemini 4 Neon (XHigh)",
+    "display_name": "Gemini 4 Neon (XHigh)"
+  },
+  "workspace": {
+    "current_dir": "/Users/HOME__/demo",
+    "project_dir": "/Users/HOME__/demo"
+  },
+  "version": "1.5.13",
+  "context_window": {
+    "total_input_tokens": 0,
+    "total_output_tokens": 0,
+    "context_window_size": 0,
+    "used_percentage": 0,
+    "remaining_percentage": 0,
+    "current_usage": null
+  },
+  "exceeds_200k_tokens": null,
+  "product": "antigravity",
+  "agent_state": "idle",
+  "vcs": {
+    "type": "git"
+  },
+  "sandbox": {
+    "enabled": false
+  },
+  "email": "fixture@example.invalid",
+  "terminal_width": 100
+}

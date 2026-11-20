@@ -561,8 +561,8 @@ onLine:
     expect(usage.store.get(account)).toMatchObject({
       agent: 'claude',
       windows: [
-        { id: 'session', usedPct: 42, resetsAt: (now + FIVE_HOURS) * 1000 },
-        { id: 'week', usedPct: 67, resetsAt: (now + WEEK) * 1000 },
+        { id: 'session', shortLabel: '5h', tipLabel: 'Session limit', spokenLabel: 'session', priority: 0, usedPct: 42, resetsAt: (now + FIVE_HOURS) * 1000 },
+        { id: 'week', shortLabel: '7d', tipLabel: 'Weekly', spokenLabel: 'weekly', priority: 1, usedPct: 67, resetsAt: (now + WEEK) * 1000 },
       ],
     })
     // only the projection reached core: the usage and the session id, no path, cost or model

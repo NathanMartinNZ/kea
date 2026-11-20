@@ -78,9 +78,9 @@ test('E-CMP-2 · composer options with two agents: switching Claude Code → Com
   await addProject(kea, demoRepo(run).root)
   await promptFocused(page)
 
-  // both CLIs detected in the background (the composer was usable meanwhile): the registry's order, Shell last
+  // all CLIs detected in the background (the composer was usable meanwhile): the registry's order, Shell last
   let menu = await openSelector(page, 1, 'Agent')
-  await expect(menu.locator('.kea-menu-label')).toHaveText(['Claude Code', 'Command Code', 'Shell'], { timeout: STEP_MS })
+  await expect(menu.locator('.kea-menu-label')).toHaveText(['Claude Code', 'Command Code', 'Antigravity CLI', 'Shell'], { timeout: STEP_MS })
   await page.keyboard.press('Escape')
   await expect(menu).toHaveCount(0)
   expect(await shown(page)).toEqual(['Agent: Claude Code', 'Model: default', 'Effort: model default', 'Permission mode: Ask before edits'])

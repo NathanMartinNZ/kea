@@ -686,7 +686,7 @@ export class AgentService {
     if (!adapter.usage.enabled(this.o.settings.values.agent(adapter.id))) return
     let events: AgentEvent[]
     try {
-      events = adapter.usage.map(env.payload)
+      events = adapter.usage.map(env.payload, env.receivedAt)
     } catch (e) {
       this.o.log.warn('status line not read', { sessionId: env.keaSessionId, adapter: adapter.id, error: String(e) })
       return
@@ -727,6 +727,7 @@ export class AgentService {
       this.stats.stale++
       return
     }
+    if (l.adapter.usage?.fromHooks) this.statusLine(env, l.adapter)
     // quiet only if Kea could not have shown it live: emitted before this core started
     const spooled = fromSpool && mono < this.born
     // the agent runs: a status file its watch has not seen appear may be there

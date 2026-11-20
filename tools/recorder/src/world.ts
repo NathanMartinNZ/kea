@@ -3,10 +3,12 @@
 // real user's home is write-protected and the agent's real config is unreadable, the network is local only (the mock
 // model), and every attempt to go elsewhere is refused and counted.
 //
-// Two agents run in it. Claude Code gets its config dir, the mock model as its API and its telemetry and update
+// Three agents run in it. Claude Code gets its config dir, the mock model as its API and its telemetry and update
 // switches. Command Code (`agent: 'commandcode'`, used by the static contract capture) keeps its files under HOME
 // (`<home>/.commandcode`), so the world's HOME is all it needs; it runs local-only (no Command Code backend, no
 // telemetry: its own switch), with updates off, and `seedCommandCode` gives it the mock model as a provider of its own.
+// Antigravity (`agent: 'antigravity'`) keeps its files under HOME (`<home>/.gemini/antigravity-cli`), seeded by
+// `seedAntigravity`, with telemetry off and the real `~/.gemini` denied by the sandbox profile.
 
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
@@ -54,7 +56,7 @@ export function sandboxProfile(o: { ports: readonly number[]; world: string }, u
 ${o.ports.map((p) => `(allow network-outbound (remote ip ${lit(`localhost:${p}`)}))`).join('\n')}
 (allow network-outbound (remote unix-socket (subpath ${lit(o.world)})))
 (deny file-write* (subpath ${lit(h)}))
-(deny file-read* (subpath ${lit(`${h}/.claude`)}) (literal ${lit(`${h}/.claude.json`)}) (subpath ${lit(`${h}/.config/claude`)}) (subpath ${lit(`${h}/.commandcode`)}))
+(deny file-read* (subpath ${lit(`${h}/.claude`)}) (literal ${lit(`${h}/.claude.json`)}) (subpath ${lit(`${h}/.config/claude`)}) (subpath ${lit(`${h}/.commandcode`)}) (subpath ${lit(`${h}/.gemini`)}))
 (deny process-exec ${DENIED_EXEC.map((p) => `(literal ${lit(p)})`).join(' ')})
 `
 }
@@ -105,13 +107,13 @@ export function makeWorld(opts: { repo: string; trusted: boolean; ports: readonl
 export function forbiddenEnvKey(key: string, worldKeys: ReadonlySet<string>): string | null {
   if (worldKeys.has(key)) return 'set by the recorder'
   if (/proxy/i.test(key)) return 'proxy settings are the recorder’s'
-  if (/^(ANTHROPIC|CLAUDE_CODE_USE|AWS|GOOGLE|CLOUD_ML|VERTEX|OPENAI|OPENROUTER)_/.test(key) || /^COMMAND_?CODE_API/.test(key)) return 'model backend and credentials are the recorder’s'
+  if (/^(ANTHROPIC|CLAUDE_CODE_USE|AWS|GOOGLE|CLOUD_ML|VERTEX|OPENAI|OPENROUTER|ANTIGRAVITY|GEMINI|AGY)_/.test(key) || /^COMMAND_?CODE_API/.test(key)) return 'model backend and credentials are the recorder’s'
   if (/^(NODE_OPTIONS|NODE_PATH|DYLD_.*|LD_.*|BUN_.*)$/.test(key)) return 'would load code into the agent'
   return null
 }
 
 /** Which agent's switches the environment carries (default Claude Code's). */
-export type WorldAgent = 'claude' | 'commandcode'
+export type WorldAgent = 'claude' | 'commandcode' | 'antigravity'
 
 /**
  * The agent's environment: nothing inherited but PATH's tool directories; HOME and config inside the world.
@@ -146,16 +148,25 @@ const COMMAND_CODE_QUIET_ENV = {
   COMMANDCODE_SKIP_UPDATES: '1',
 } as const
 
+/** Antigravity's switches for: no telemetry. */
+const ANTIGRAVITY_QUIET_ENV = {
+  DO_NOT_TRACK: '1',
+} as const
+
 /**
- * Both agents' quiet switches, for every harness that starts Kea (`appEnv`, tools/perf/src/launch.ts): no harness may
+ * Every agent's quiet switches, for every harness that starts Kea (`appEnv`, tools/perf/src/launch.ts): no harness may
  * start a real agent CLI, and if one ever does through a path nobody guarded, it at least reports nothing and updates
  * nothing.
  */
-export const QUIET_AGENT_ENV: Readonly<Record<string, string>> = { ...CLAUDE_QUIET_ENV, ...COMMAND_CODE_QUIET_ENV }
+export const QUIET_AGENT_ENV: Readonly<Record<string, string>> = {
+  ...CLAUDE_QUIET_ENV,
+  ...COMMAND_CODE_QUIET_ENV,
+  ...ANTIGRAVITY_QUIET_ENV,
+}
 
-/** The keys agentEnv sets itself, for either agent (for validating a scenario before any world exists). */
+/** The keys agentEnv sets itself, for any agent (for validating a scenario before any world exists). */
 export const WORLD_ENV_KEYS: ReadonlySet<string> = new Set(
-  (['claude', 'commandcode'] as const).flatMap((agent) => Object.keys(worldEnv(NO_WORLD, { mockUrl: '', proxyUrl: '', agent }))),
+  (['claude', 'commandcode', 'antigravity'] as const).flatMap((agent) => Object.keys(worldEnv(NO_WORLD, { mockUrl: '', proxyUrl: '', agent }))),
 )
 
 /** Claude Code's part: its config dir, the mock model as its API, a dummy key, telemetry and updates off. */
@@ -185,6 +196,16 @@ function commandCodeEnv(w: World, o: { localOnly?: boolean }): Record<string, st
   }
 }
 
+/**
+ * Antigravity's part: its files live under HOME (`<home>/.gemini/antigravity-cli`), so the world's HOME and sinkhole
+ * proxies isolate it, with telemetry off and no inherited `ANTIGRAVITY_*` variables.
+ */
+function antigravityEnv(_w: World, _o: { mockUrl?: string }): Record<string, string> {
+  return {
+    ...ANTIGRAVITY_QUIET_ENV,
+  }
+}
+
 function worldEnv(w: World, o: { mockUrl: string; proxyUrl: string; agent?: WorldAgent; localOnly?: boolean }): Record<string, string> {
   return {
     PATH: [w.bin, dirname(process.execPath), '/usr/bin', '/bin', '/usr/sbin', '/sbin'].join(':'),
@@ -195,7 +216,7 @@ function worldEnv(w: World, o: { mockUrl: string; proxyUrl: string; agent?: Worl
     TMPDIR: `${w.tmp}/`,
     LANG: 'en_US.UTF-8',
     LC_ALL: 'en_US.UTF-8',
-    ...(o.agent === 'commandcode' ? commandCodeEnv(w, o) : claudeEnv(w, o)),
+    ...(o.agent === 'commandcode' ? commandCodeEnv(w, o) : o.agent === 'antigravity' ? antigravityEnv(w, o) : claudeEnv(w, o)),
     HTTPS_PROXY: o.proxyUrl,
     HTTP_PROXY: o.proxyUrl,
     https_proxy: o.proxyUrl,
@@ -209,6 +230,16 @@ function worldEnv(w: World, o: { mockUrl: string; proxyUrl: string; agent?: Worl
     GIT_COMMITTER_NAME: 'Kea Fixture',
     GIT_COMMITTER_EMAIL: 'fixture@example.invalid',
   }
+}
+
+/**
+ * Antigravity's files in the world's HOME (`<home>/.gemini/antigravity-cli`). The real `~/.gemini` is never read: the
+ * sandbox profile denies it, and HOME is the world's.
+ */
+export function seedAntigravity(w: World): { dir: string } {
+  const dir = join(w.home, '.gemini', 'antigravity-cli')
+  mkdirSync(dir, { recursive: true, mode: 0o700 })
+  return { dir }
 }
 
 /**

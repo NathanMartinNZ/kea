@@ -456,6 +456,12 @@ export const L = {
   ccModelsMax: 500,
   /** a Command Code session's meta file (its title) is read whole up to this size; a larger one is not read (bytes) */
   ccMetaFileMaxBytes: 65536,
+  /** an agent CLI's cached model list is renewed in the background once it is this old (ms) */
+  agModelsTtlMs: 86400000,
+  /** models kept from an agent CLI's own model list; any other id can still be typed (models) */
+  agModelsMax: 200,
+  /** upper bound on map entries copied by one keepMap projection rule (keys) */
+  projectionMapKeysMax: 16,
   /** output flowing this long after the last keystroke → turn.started (ms) */
   tier3WorkingAfterMs: 1000,
   /** no output this long while working with no tier-1 source → turn.finished (ms) */
@@ -816,6 +822,8 @@ export const L = {
   usageDangerRatio: 0.95,
   /** a usage reading no session has refreshed for this long is hidden: use outside Kea (the web app, another machine) may have moved it (ms) */
   usageStaleMs: 21600000,
+  /** usage limit windows kept and shown per account reading (windows) */
+  usageWindowsMax: 4,
   /** status line stdin above this is drained and dropped; a payload is about 1.5 KB (bytes) */
   statuslineStdinMaxBytes: 65536,
   /** how much of a virtual env's pyvenv.cfg is read for its prompt name; the file is a few short lines (bytes) */
@@ -1053,6 +1061,9 @@ export const LIMIT_META: Record<LimitName, { unit: string; why: string; whyLinux
   ccModelListTtlMs: { unit: "ms", why: "Command Code's detection (its model list) is renewed in the background once it is this old" },
   ccModelsMax: { unit: "models", why: "models of Command Code's own list the composer offers; any other id can still be typed" },
   ccMetaFileMaxBytes: { unit: "bytes", why: "a Command Code session's meta file (its title) is read whole up to this size; a larger one is not read" },
+  agModelsTtlMs: { unit: "ms", why: "an agent CLI's cached model list is renewed in the background once it is this old" },
+  agModelsMax: { unit: "models", why: "models kept from an agent CLI's own model list; any other id can still be typed" },
+  projectionMapKeysMax: { unit: "keys", why: "upper bound on map entries copied by one keepMap projection rule" },
   tier3WorkingAfterMs: { unit: "ms", why: "output flowing this long after the last keystroke → turn.started" },
   tier3ReadyAfterMs: { unit: "ms", why: "no output this long while working with no tier-1 source → turn.finished" },
   activityReportMs: { unit: "ms", why: "ptyhost rate-limits activity started/stopped signals to core" },
@@ -1233,6 +1244,7 @@ export const LIMIT_META: Record<LimitName, { unit: string; why: string; whyLinux
   usageWarnRatio: { unit: "ratio", why: "a usage limit's window this full shows in the warning colour" },
   usageDangerRatio: { unit: "ratio", why: "a usage limit's window this full shows in the danger colour" },
   usageStaleMs: { unit: "ms", why: "a usage reading no session has refreshed for this long is hidden: use outside Kea (the web app, another machine) may have moved it" },
+  usageWindowsMax: { unit: "windows", why: "usage limit windows kept and shown per account reading" },
   statuslineStdinMaxBytes: { unit: "bytes", why: "status line stdin above this is drained and dropped; a payload is about 1.5 KB" },
   venvConfigMaxBytes: { unit: "bytes", why: "how much of a virtual env's pyvenv.cfg is read for its prompt name; the file is a few short lines" },
 }

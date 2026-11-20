@@ -65,7 +65,7 @@ describe('fake-agent argv', () => {
     })()
     expect(missing).toBeInstanceOf(ArgvError)
     expect((missing as ArgvError).exitCode).toBe(2)
-    expect(() => splitFakeOptions(['--as', 'codex'], {})).toThrow(/claude, commandcode/)
+    expect(() => splitFakeOptions(['--as', 'codex'], {})).toThrow(/claude, commandcode, antigravity/)
 
     // the hash is over what the adapter built, so a test can compute it from the SpawnSpec
     const adapterArgs = ['--session-id', UUID, '--settings', SETTINGS, '--', 'hello']
@@ -75,5 +75,62 @@ describe('fake-agent argv', () => {
     expect(argvHash(['a'])).not.toBe(argvHash(['a', '']))
     expect(argvHash(adapterArgs)).toMatch(/^[0-9a-f]{64}$/)
     expect(argvHashLine('ab')).toBe('fake-agent argv sha256=ab')
+  })
+
+  it('U-FAKE-32 · --as antigravity reads Go-style single/double-dash and --flag=value flags (-i/--prompt-interactive, --conversation, --mode, --dangerously-skip-permissions, --settings, --model, --effort, models subcommand) and validates --mode and --effort', () => {
+    const agSettings = JSON.stringify({ statusLine: { type: 'command', command: "'/x/kea-helper' 'feed' 'antigravity'", stack_with_default: true } })
+    const a = parseAgentArgv('antigravity', [
+      '--model=gemini-3.8-flash',
+      '--effort=high',
+      '--mode=accept-edits',
+      `--settings=${agSettings}`,
+      '--add-dir=/tmp/a',
+      '--prompt-interactive=-starts with dash\nand newline',
+    ])
+    if (a.flavour !== 'antigravity') throw new Error('flavour')
+    expect(a.model).toBe('gemini-3.8-flash')
+    expect(a.effort).toBe('high')
+    expect(a.permissionMode).toBe('accept-edits')
+    expect(a.dangerouslySkipPermissions).toBe(false)
+    expect(a.settings).toBe(agSettings)
+    expect(a.prompt).toBe('-starts with dash\nand newline')
+    expect(a.extra).toEqual(['--add-dir=/tmp/a'])
+    expect(a.modelsCmd).toBe(false)
+    expect(reportedPermissionMode(a)).toBe('accept-edits')
+
+    // Go single-dash flags (-mode=plan, -i=..., -conversation=...) and two-token form (-i <prompt>)
+    const b = parseAgentArgv('antigravity', ['-model=gemini-4-neon', '-effort', 'xhigh', '-mode=plan', `-conversation=${UUID}`, '-i=resume prompt'])
+    if (b.flavour !== 'antigravity') throw new Error('flavour')
+    expect([b.model, b.effort, b.permissionMode, b.resume, b.prompt]).toEqual(['gemini-4-neon', 'xhigh', 'plan', UUID, 'resume prompt'])
+    expect(reportedPermissionMode(b)).toBe('plan')
+
+    // --dangerously-skip-permissions maps to dangerouslySkipPermissions: true and reportedPermissionMode 'yolo'
+    const yolo = parseAgentArgv('antigravity', ['--dangerously-skip-permissions', '-i', 'run all'])
+    if (yolo.flavour !== 'antigravity') throw new Error('flavour')
+    expect(yolo.dangerouslySkipPermissions).toBe(true)
+    expect(yolo.prompt).toBe('run all')
+    expect(reportedPermissionMode(yolo)).toBe('yolo')
+
+    // Default mode (no --mode and no --dangerously-skip-permissions)
+    const dflt = parseAgentArgv('antigravity', [])
+    expect(reportedPermissionMode(dflt)).toBe('default')
+
+    // `models` subcommand
+    const models = parseAgentArgv('antigravity', ['models'])
+    if (models.flavour !== 'antigravity') throw new Error('flavour')
+    expect(models.modelsCmd).toBe(true)
+    expect(models.prompt).toBe('')
+
+    // Prompt named "models" via --prompt-interactive=models is a prompt, not the subcommand
+    const promptModels = parseAgentArgv('antigravity', ['--prompt-interactive=models'])
+    if (promptModels.flavour !== 'antigravity') throw new Error('flavour')
+    expect(promptModels.modelsCmd).toBe(false)
+    expect(promptModels.prompt).toBe('models')
+
+    // Validation of --mode and --effort
+    expect(() => parseAgentArgv('antigravity', ['--mode=yolo'])).toThrow(/Allowed choices/)
+    expect(() => parseAgentArgv('antigravity', ['--mode', 'acceptEdits'])).toThrow(/Allowed choices/)
+    expect(() => parseAgentArgv('antigravity', ['--effort=extreme'])).toThrow(/Allowed choices/)
+    expect(() => parseAgentArgv('antigravity', ['--model'])).toThrow(/argument missing/)
   })
 })

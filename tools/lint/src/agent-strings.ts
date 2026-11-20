@@ -20,10 +20,13 @@ export const SEED: AgentString[] = [
   { text: 'CLAUDECODE', kind: 'env', source: 'seed' },
   { text: 'CLAUDE_CODE_', kind: 'env-prefix', source: 'seed' },
   { text: 'ANTHROPIC_', kind: 'env-prefix', source: 'seed' },
+  { text: 'ANTIGRAVITY_', kind: 'env-prefix', source: 'seed' },
   ...['hook_event_name', 'transcript_path', 'tool_input', 'tool_name', 'session_id', 'permission_mode', 'notification_type', 'last_assistant_message', 'agent_id', 'agent_type', 'prompt_id', 'session_title'].map(
     (text) => ({ text, kind: 'field' as const, source: 'seed' }),
   ),
-  ...['~/.claude', '.claude/', '.commandcode', 'commandcode', 'claude/projects'].map((text) => ({ text, kind: 'path' as const, source: 'seed' })),
+  ...['~/.claude', '.claude/', '.commandcode', 'commandcode', 'claude/projects', '.gemini/antigravity-cli', 'antigravity-cli', '.agents/hooks.json'].map(
+    (text) => ({ text, kind: 'path' as const, source: 'seed' }),
+  ),
 ]
 
 /** Payload fields that are also Kea's own column names: allowed in SQL. */

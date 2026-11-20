@@ -12,9 +12,10 @@ import type { StatusFileWriter } from './status.ts'
 import { AbortedError, type Io } from './term.ts'
 import type { TranscriptWriter } from './transcript.ts'
 
-export const LIFECYCLE_EVENTS: Record<Flavour, { start: string; end: string }> = {
+export const LIFECYCLE_EVENTS: Record<Flavour, { start: string; end: string | null }> = {
   claude: { start: 'SessionStart', end: 'SessionEnd' },
   commandcode: { start: 'session_start', end: 'session_shutdown' },
+  antigravity: { start: 'initializing', end: null },
 }
 
 export interface AgentDeps {
@@ -188,10 +189,11 @@ export class FakeAgent {
       log.event('ending', { reason, code })
       // a graceful end removes the status file before SessionEnd fires; SIGKILL leaves it
       this.d.status?.remove()
-      if (scenario.fireSessionEnd && this.d.hooks) {
+      const endEvent = LIFECYCLE_EVENTS[flavour].end
+      if (scenario.fireSessionEnd && this.d.hooks && endEvent !== null) {
         try {
-          const { payload, runs } = await this.d.hooks.fire(LIFECYCLE_EVENTS[flavour].end, { tool: null, input: null, fields: { reason } })
-          log.event('hook', { event: LIFECYCLE_EVENTS[flavour].end, payload, runs: runs.map(summariseRun) })
+          const { payload, runs } = await this.d.hooks.fire(endEvent, { tool: null, input: null, fields: { reason } })
+          log.event('hook', { event: endEvent, payload, runs: runs.map(summariseRun) })
         } catch (e) {
           log.event('error', { message: `end hook: ${(e as Error).message}` })
         }

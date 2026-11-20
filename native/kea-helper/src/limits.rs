@@ -455,6 +455,12 @@ pub const CC_MODEL_LIST_TTL_MS: u64 = 86400000;
 pub const CC_MODELS_MAX: u64 = 500;
 /// a Command Code session's meta file (its title) is read whole up to this size; a larger one is not read (bytes)
 pub const CC_META_FILE_MAX_BYTES: u64 = 65536;
+/// an agent CLI's cached model list is renewed in the background once it is this old (ms)
+pub const AG_MODELS_TTL_MS: u64 = 86400000;
+/// models kept from an agent CLI's own model list; any other id can still be typed (models)
+pub const AG_MODELS_MAX: u64 = 200;
+/// upper bound on map entries copied by one keepMap projection rule (keys)
+pub const PROJECTION_MAP_KEYS_MAX: u64 = 16;
 /// output flowing this long after the last keystroke → turn.started (ms)
 pub const TIER3_WORKING_AFTER_MS: u64 = 1000;
 /// no output this long while working with no tier-1 source → turn.finished (ms)
@@ -815,6 +821,8 @@ pub const USAGE_WARN_RATIO: f64 = 0.8;
 pub const USAGE_DANGER_RATIO: f64 = 0.95;
 /// a usage reading no session has refreshed for this long is hidden: use outside Kea (the web app, another machine) may have moved it (ms)
 pub const USAGE_STALE_MS: u64 = 21600000;
+/// usage limit windows kept and shown per account reading (windows)
+pub const USAGE_WINDOWS_MAX: u64 = 4;
 /// status line stdin above this is drained and dropped; a payload is about 1.5 KB (bytes)
 pub const STATUSLINE_STDIN_MAX_BYTES: u64 = 65536;
 /// how much of a virtual env's pyvenv.cfg is read for its prompt name; the file is a few short lines (bytes)

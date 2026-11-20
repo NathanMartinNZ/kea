@@ -361,9 +361,9 @@ export function stageRoot(root: string, o: { app: string; files: readonly RootFi
 
 const fold = (text: string) => text.split('\n').map((l) => (l.trim() === '' ? ' .' : ` ${l}`)).join('\n')
 
-const LONG_DESCRIPTION = `Kea runs coding-agent CLIs (Claude Code, Command Code) side by side. Each
-session gets its own git worktree, a real terminal, a live file tree and a dev
-server one click away, and keeps running when Kea quits.`
+const LONG_DESCRIPTION = `Kea runs coding-agent CLIs (Claude Code, Command Code, Antigravity CLI) side
+by side. Each session gets its own git worktree, a real terminal, a live file
+tree and a dev server one click away, and keeps running when Kea quits.`
 
 /** The .deb's `DEBIAN/control`. `installedKb`: the root's size in KiB. */
 export function debControl(m: PackageMeta, target: Target, installedKb: number): string {

@@ -204,6 +204,8 @@ describe('agent strings', () => {
       "if (process.env.CLAUDE_CODE_ENTRYPOINT) {}",
       'const f = payload.tool_name',
       "const dir = join(home, '.claude/projects')",
+      "if (process.env.ANTIGRAVITY_CSRF_TOKEN) {}",
+      "const ag = join(home, '.gemini/antigravity-cli', '.agents/hooks.json')",
       "const mode = '--mode' // a different flag",
       '// mentions --settings in a comment only',
       "const s = 'session_ids'",
@@ -214,6 +216,8 @@ describe('agent strings', () => {
       '2: agent-specific "CLAUDE_CODE_ENTRYPOINT" outside packages/adapters (move it there, or mark the line `// kea-lint-allow U-AGT-11: <reason>`)',
       '3: agent-specific "tool_name" outside packages/adapters (move it there, or mark the line `// kea-lint-allow U-AGT-11: <reason>`)',
       '4: agent-specific ".claude/", "claude/projects" outside packages/adapters (move it there, or mark the line `// kea-lint-allow U-AGT-11: <reason>`)',
+      '5: agent-specific "ANTIGRAVITY_CSRF_TOKEN" outside packages/adapters (move it there, or mark the line `// kea-lint-allow U-AGT-11: <reason>`)',
+      '6: agent-specific ".gemini/antigravity-cli", "antigravity-cli", ".agents/hooks.json" outside packages/adapters (move it there, or mark the line `// kea-lint-allow U-AGT-11: <reason>`)',
     ])
   })
 

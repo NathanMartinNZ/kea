@@ -3,13 +3,15 @@
 
 import { createHash } from 'node:crypto'
 
-export type Flavour = 'claude' | 'commandcode'
+export type Flavour = 'claude' | 'commandcode' | 'antigravity'
 
 /** The Claude Code version `--version` reports; `FAKE_AGENT_CLI_VERSION` overrides it (an outdated CLI). */
 export const FAKE_CLAUDE_VERSION = '2.1.296'
 /** The Command Code version `--as commandcode` stands in for (its recorded answers: fixtures/cli/commandcode/<version>/). */
 export const FAKE_COMMANDCODE_VERSION = '1.79.2'
-export const FLAVOURS: readonly Flavour[] = ['claude', 'commandcode']
+/** The Antigravity CLI version `--as antigravity` stands in for (its recorded answers: fixtures/cli/antigravity/<version>/). */
+export const FAKE_ANTIGRAVITY_VERSION = '1.5.13'
+export const FLAVOURS: readonly Flavour[] = ['claude', 'commandcode', 'antigravity']
 
 /** fake-agent's own options. Each also has an env var, so a `claude`/`cmd` shim on PATH needs no extra flags. */
 export interface FakeOptions {
@@ -59,7 +61,17 @@ export interface CommandCodeArgs extends CommonArgs {
   listModels: boolean
 }
 
-export type AgentArgs = ClaudeArgs | CommandCodeArgs
+export interface AntigravityArgs extends CommonArgs {
+  flavour: 'antigravity'
+  /** Raw `--settings` value: inline JSON or a file path. */
+  settings: string | null
+  /** `--dangerously-skip-permissions`. */
+  dangerouslySkipPermissions: boolean
+  /** `models` subcommand (`agy models`). */
+  modelsCmd: boolean
+}
+
+export type AgentArgs = ClaudeArgs | CommandCodeArgs | AntigravityArgs
 
 export interface ParsedArgv {
   fake: FakeOptions
@@ -84,6 +96,8 @@ export const CLAUDE_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']
 export const COMMANDCODE_PERMISSION_MODES = ['default', 'standard', 'plan', 'accept-edits', 'auto-accept', 'yolo', 'bypass', 'dont-ask']
 const COMMANDCODE_REPORTED: Record<string, string> = { default: 'default', standard: 'default', plan: 'plan', 'accept-edits': 'auto-accept', 'auto-accept': 'auto-accept', yolo: 'bypass', bypass: 'bypass', 'dont-ask': 'dont-ask' }
 export const COMMANDCODE_EFFORTS = ['off', 'low', 'medium', 'high', 'xhigh', 'max']
+export const ANTIGRAVITY_MODES = ['accept-edits', 'auto', 'plan']
+export const ANTIGRAVITY_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -198,9 +212,53 @@ const COMMANDCODE_FLAGS: FlagTable = {
   '--fork-session': ['bool', null],
 }
 
+const ANTIGRAVITY_FLAGS: FlagTable = {
+  '--model': ['value', 'model'],
+  '--effort': ['value', 'effort'],
+  '--mode': ['value', 'permissionMode'],
+  '--dangerously-skip-permissions': ['bool', 'dangerouslySkipPermissions'],
+  '--settings': ['value', 'settings'],
+  '--conversation': ['value', 'resume'],
+  '--prompt-interactive': ['value', 'promptInteractive'],
+  '-i': ['value', 'promptInteractive'],
+  '--i': ['value', 'promptInteractive'],
+  '--help': ['bool', 'help'],
+  '-h': ['bool', 'help'],
+  '--h': ['bool', 'help'],
+  '--version': ['bool', 'version'],
+  '-v': ['bool', 'version'],
+  '--v': ['bool', 'version'],
+  '--add-dir': ['value', null],
+  '--agent': ['value', null],
+  '--continue': ['bool', null],
+  '-c': ['bool', null],
+  '--c': ['bool', null],
+  '--disable-slash-commands': ['bool', null],
+  '--input-format': ['value', null],
+  '--json-schema': ['value', null],
+  '--log-file': ['value', null],
+  '--new-project': ['bool', null],
+  '--output-format': ['value', null],
+  '--print': ['value', null],
+  '-p': ['value', null],
+  '--p': ['value', null],
+  '--prompt': ['value', null],
+  '--print-timeout': ['value', null],
+  '--project': ['value', null],
+  '--remote-agent': ['bool', null],
+  '--remote-control': ['bool', null],
+  '--sandbox': ['bool', null],
+}
+
+/** Normalise a Go `flag`-package single-dash long flag (`-mode` → `--mode`) while keeping short aliases (`-i`, `-h`, `-v`, `-c`, `-p`). */
+function normaliseGoFlag(flag: string): string {
+  if (flag.startsWith('-') && !flag.startsWith('--') && flag.length > 2) return `-${flag}`
+  return flag
+}
+
 /** Parse the agent part of argv (fake-agent's options already removed). */
 export function parseAgentArgv(flavour: Flavour, argv: readonly string[]): AgentArgs {
-  const table = flavour === 'claude' ? CLAUDE_FLAGS : COMMANDCODE_FLAGS
+  const table = flavour === 'claude' ? CLAUDE_FLAGS : flavour === 'commandcode' ? COMMANDCODE_FLAGS : ANTIGRAVITY_FLAGS
   const fields: Record<string, string | boolean | string[]> = {}
   const extra: string[] = []
   const positionals: string[] = []
@@ -216,16 +274,21 @@ export function parseAgentArgv(flavour: Flavour, argv: readonly string[]): Agent
       positionals.push(a)
       continue
     }
-    const eq = a.startsWith('--') ? a.indexOf('=') : -1
-    const flag = eq > 0 ? a.slice(0, eq) : a
-    const spec = table[flag]
+    const eq = flavour === 'antigravity' || a.startsWith('--') ? a.indexOf('=') : -1
+    const rawFlag = eq > 0 ? a.slice(0, eq) : a
+    const lookupFlag = flavour === 'antigravity' ? normaliseGoFlag(rawFlag) : rawFlag
+    const spec = table[lookupFlag]
     if (!spec) {
       extra.push(a) // unknown: a boolean, or `--flag=value` in one token
       continue
     }
     const [arity, field] = spec
     if (arity === 'bool') {
-      if (field) fields[field] = true
+      if (eq > 0) {
+        const b = a.slice(eq + 1)
+        if (field) fields[field] = b !== 'false' && b !== '0'
+        else extra.push(a)
+      } else if (field) fields[field] = true
       else extra.push(a)
       continue
     }
@@ -233,7 +296,7 @@ export function parseAgentArgv(flavour: Flavour, argv: readonly string[]): Agent
     if (eq > 0) values.push(a.slice(eq + 1))
     else {
       const v = argv[i + 1]
-      if (v === undefined || (v.startsWith('-') && v !== '-')) throw new ArgvError(`error: option '${flag}' argument missing`)
+      if (v === undefined || (v.startsWith('-') && v !== '-')) throw new ArgvError(`error: option '${rawFlag}' argument missing`)
       values.push(v)
       i++
       if (arity === 'variadic') {
@@ -242,12 +305,14 @@ export function parseAgentArgv(flavour: Flavour, argv: readonly string[]): Agent
     }
     if (field === 'mods' || field === 'modOptions') fields[field] = [...((fields[field] as string[] | undefined) ?? []), ...values]
     else if (field) fields[field] = values[values.length - 1] as string
-    else extra.push(...(eq > 0 ? [a] : [flag, ...values]))
+    else extra.push(...(eq > 0 ? [a] : [rawFlag, ...values]))
   }
 
-  const prompt = (afterDashDash ?? positionals).join(' ')
-  if (afterDashDash && positionals.length > 0) extra.push(...positionals)
   const str = (k: string) => (typeof fields[k] === 'string' ? (fields[k] as string) : null)
+  const modelsCmd = flavour === 'antigravity' && argv.length === 1 && argv[0] === 'models'
+  const interactivePrompt = flavour === 'antigravity' ? str('promptInteractive') : null
+  const prompt = modelsCmd ? '' : (interactivePrompt ?? (afterDashDash ?? positionals).join(' '))
+  if ((afterDashDash || interactivePrompt !== null) && positionals.length > 0 && !modelsCmd) extra.push(...positionals)
   const common: CommonArgs = {
     model: str('model'),
     effort: str('effort'),
@@ -265,6 +330,17 @@ export function parseAgentArgv(flavour: Flavour, argv: readonly string[]): Agent
     choice('--permission-mode', common.permissionMode, CLAUDE_PERMISSION_MODES)
     choice('--effort', common.effort, CLAUDE_EFFORTS)
     return { flavour, ...common, sessionId, settings: str('settings') }
+  }
+  if (flavour === 'antigravity') {
+    choice('--mode', common.permissionMode, ANTIGRAVITY_MODES)
+    choice('--effort', common.effort, ANTIGRAVITY_EFFORTS)
+    return {
+      flavour,
+      ...common,
+      settings: str('settings'),
+      dangerouslySkipPermissions: fields.dangerouslySkipPermissions === true,
+      modelsCmd,
+    }
   }
   choice('--permission-mode', common.permissionMode, COMMANDCODE_PERMISSION_MODES)
   choice('--effort', common.effort, COMMANDCODE_EFFORTS)
@@ -292,5 +368,6 @@ export function parseArgv(argv: readonly string[], env: Record<string, string | 
 export function reportedPermissionMode(args: AgentArgs): string {
   const m = args.permissionMode
   if (args.flavour === 'claude') return m === null || m === 'manual' ? 'default' : m
+  if (args.flavour === 'antigravity') return args.dangerouslySkipPermissions ? 'yolo' : (m ?? 'default')
   return m === null ? 'default' : (COMMANDCODE_REPORTED[m] ?? m)
 }

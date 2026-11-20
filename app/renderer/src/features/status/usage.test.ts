@@ -11,8 +11,8 @@ const WEEK_RESET = at(16, 9, 0) // the Monday after
 function reading(session: number | null, week: number | null, o: { seenAt?: number; agent?: string; account?: string; sessionReset?: number; weekReset?: number } = {}): UsageReading {
   const seenAt = o.seenAt ?? NOW
   const windows: UsageReading['windows'] = []
-  if (session !== null) windows.push({ id: 'session', usedPct: session, resetsAt: o.sessionReset ?? SESSION_RESET, seenAt })
-  if (week !== null) windows.push({ id: 'week', usedPct: week, resetsAt: o.weekReset ?? WEEK_RESET, seenAt })
+  if (session !== null) windows.push({ id: 'session', shortLabel: '5h', tipLabel: 'Session limit', spokenLabel: 'session', priority: 0, usedPct: session, resetsAt: o.sessionReset ?? SESSION_RESET, seenAt })
+  if (week !== null) windows.push({ id: 'week', shortLabel: '7d', tipLabel: 'Weekly', spokenLabel: 'weekly', priority: 1, usedPct: week, resetsAt: o.weekReset ?? WEEK_RESET, seenAt })
   return { account: o.account ?? 'claude', agent: o.agent ?? 'claude', windows, seenAt }
 }
 
@@ -90,5 +90,28 @@ describe('the usage meter', () => {
     expect(latestReading([older, newer, other], 'shell')).toBeNull()
     expect(latestReading([older], null)).toBeNull()
     expect(latestReading([], 'claude')).toBeNull()
+  })
+
+  it('U-ST-26 · arbitrary adapter windows render their own shortLabel, tipLabel and spokenLabel in priority then id order with no lookup table', () => {
+    const custom: UsageReading = {
+      account: 'custom:/cfg',
+      agent: 'custom',
+      seenAt: NOW,
+      windows: [
+        { id: 'zeta', shortLabel: 'Zeta', tipLabel: 'Zeta bucket', spokenLabel: 'zeta', usedPct: 12.8, resetsAt: WEEK_RESET, seenAt: NOW },
+        { id: 'flash', shortLabel: 'Flash', tipLabel: 'Flash quota', spokenLabel: 'flash', priority: 2, usedPct: 85, resetsAt: SESSION_RESET, seenAt: NOW },
+        { id: 'alpha', shortLabel: 'Alpha', tipLabel: 'Alpha bucket', spokenLabel: 'alpha', usedPct: 100, resetsAt: SESSION_RESET, seenAt: NOW },
+        { id: 'pro', shortLabel: 'Pro', tipLabel: 'Pro quota', spokenLabel: 'pro', priority: 0, usedPct: 96, resetsAt: SESSION_RESET, seenAt: NOW },
+      ],
+    }
+    const v = usageView(custom, NOW)!
+    expect(v.parts).toEqual([
+      { id: 'pro', text: 'Pro 96%', level: 'danger' },
+      { id: 'flash', text: 'Flash 85%', level: 'warn' },
+      { id: 'alpha', text: 'Alpha limit · 15:10', level: 'danger' },
+      { id: 'zeta', text: 'Zeta 12%', level: 'plain' },
+    ])
+    expect(v.tip).toBe('Pro quota: 96% used, resets 15:10 · Flash quota: 85% used, resets 15:10 · Alpha bucket: 100% used, resets 15:10 · Zeta bucket: 12% used, resets Mon 09:00 · as of 14:02')
+    expect(v.label).toBe('Usage: pro 96%, flash 85%, alpha limit reached until 15:10, zeta 12%')
   })
 })

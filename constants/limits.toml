@@ -1156,6 +1156,21 @@ value = 65536
 unit = "bytes"
 why = "a Command Code session's meta file (its title) is read whole up to this size; a larger one is not read"
 
+[ag_models_ttl_ms]
+value = 86400000
+unit = "ms"
+why = "an agent CLI's cached model list is renewed in the background once it is this old"
+
+[ag_models_max]
+value = 200
+unit = "models"
+why = "models kept from an agent CLI's own model list; any other id can still be typed"
+
+[projection_map_keys_max]
+value = 16
+unit = "keys"
+why = "upper bound on map entries copied by one keepMap projection rule"
+
 [tier3_working_after_ms]
 value = 1000
 unit = "ms"
@@ -2083,6 +2098,11 @@ why = "a usage limit's window this full shows in the danger colour"
 value = 21600000
 unit = "ms"
 why = "a usage reading no session has refreshed for this long is hidden: use outside Kea (the web app, another machine) may have moved it"
+
+[usage_windows_max]
+value = 4
+unit = "windows"
+why = "usage limit windows kept and shown per account reading"
 
 [statusline_stdin_max_bytes]
 value = 65536

@@ -38,6 +38,10 @@ describe('Claude status line payloads', () => {
       if (e.t !== 'account.usage') throw new Error(`${v}: not a usage event`)
       expect(e.windows.map((w) => w.id), v).toEqual(['session', 'week'])
       for (const w of e.windows) expect(zUsageWindow.safeParse(w).success, `${v} ${w.id}`).toBe(true)
+      expect(e.windows.map((w) => [w.shortLabel, w.tipLabel, w.spokenLabel, w.priority]), v).toEqual([
+        ['5h', 'Session limit', 'session', 0],
+        ['7d', 'Weekly', 'weekly', 1],
+      ])
       expect(e.windows.map((w) => [w.usedPct, w.resetsAt]), v).toEqual([
         [field(after, STATUS_LINE_FIELDS.sessionUsed), (field(after, STATUS_LINE_FIELDS.sessionResets) as number) * 1000],
         [field(after, STATUS_LINE_FIELDS.weekUsed), (field(after, STATUS_LINE_FIELDS.weekResets) as number) * 1000],

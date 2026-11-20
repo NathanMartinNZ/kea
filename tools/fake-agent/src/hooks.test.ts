@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
-import { ClaudeHooks, type HookConfig, hooksDisabledBy, parseClaudeSettings, runCommand, selectHooks, SettingsError } from './hooks.ts'
+import { AntigravityFeed, ClaudeHooks, type HookConfig, hooksDisabledBy, parseClaudeSettings, parseStatusLine, runCommand, selectHooks, SettingsError } from './hooks.ts'
 import { ModHost } from './mods.ts'
 
 const dir = mkdtempSync(join(tmpdir(), 'fake-agent-hooks-'))
@@ -208,5 +208,71 @@ export default function (cmd: Cmd) {
     expect(hooksDisabledBy({ ...o, configDir: null }, read), 'a null config dir is not read').toBeNull()
     files['/w/.claude/settings.json'] = 'not json'
     expect(hooksDisabledBy({ ...o, configDir: null }, read)).toBeNull()
+  })
+
+  it('U-FAKE-34 · AntigravityFeed maintains stateful statusLine snapshots, omits cycle_mode for default and yolo, reads FAKE_AGENT_QUOTA inline or from a file, respects parseStatusLine enabled !== false, and runs statusLine.command through /bin/sh -c', async () => {
+    expect(parseStatusLine('{"statusLine":{"type":"command","command":"echo ok","stack_with_default":true}}')).toBe('echo ok')
+    expect(parseStatusLine('{"statusLine":{"type":"command","command":"echo off","enabled":false}}')).toBeNull()
+    expect(parseStatusLine('{"statusLine":true}')).toBeNull()
+
+    const out = join(dir, 'u34-feed.jsonl')
+    const quotaFile = join(dir, 'u34-quota.json')
+    writeFileSync(quotaFile, JSON.stringify({ 'gemini-5h': { remaining_fraction: 0.5, reset_in_seconds: 1800 } }))
+
+    const ids: string[] = []
+    const feed = new AntigravityFeed(
+      {
+        sessionId: 'conv-start',
+        transcriptPath: '/fake/.gemini/antigravity-cli/brain/conv-start/.system_generated/logs/transcript.jsonl',
+        cwd: dir,
+        permissionMode: 'yolo',
+        model: 'Gemini 3.8 Flash (Low)',
+        effort: 'low',
+        transcriptPathFor: (id) => `/fake/.gemini/antigravity-cli/brain/${id}/.system_generated/logs/transcript.jsonl`,
+      },
+      { ...process.env, FAKE_AGENT_QUOTA: quotaFile },
+      { command: `'${process.execPath}' '${STUB}' '${out}' 'feed' 'antigravity'` },
+    )
+    feed.onSessionId = (id) => ids.push(id)
+
+    await feed.fire('initializing', { tool: null, input: null, fields: {} })
+    await feed.fire('working', { tool: null, input: null, fields: { context_window: { used_percentage: 12.5 }, cost: { total_usd: 0.04 } } })
+    await feed.fire('reviewing', { tool: null, input: null, fields: { cycle_mode: 'plan' } })
+    await feed.fire('authenticating', { tool: null, input: null, fields: {} })
+    await feed.fire('error', { tool: null, input: null, fields: { cycle_mode: 'default' } })
+    await feed.fire('clear', { tool: null, input: null, fields: { conversation_id: 'conv-cleared' } })
+
+    const logged = records(out).map((r) => JSON.parse(r.stdin) as Record<string, unknown>)
+    expect(logged).toHaveLength(6)
+    // yolo omits cycle_mode initially
+    expect(logged[0]).not.toHaveProperty('cycle_mode')
+    expect(logged[0]).toMatchObject({
+      conversation_id: 'conv-start',
+      agent_state: 'initializing',
+      quota: { 'gemini-5h': { remaining_fraction: 0.5, reset_in_seconds: 1800 } },
+    })
+    expect(logged[1]).toMatchObject({
+      agent_state: 'working',
+      context_window: { used_percentage: 12.5, remaining_percentage: 87.5 },
+      cost: { total_usd: 0.04 },
+    })
+    expect(logged[2]).toMatchObject({ agent_state: 'reviewing', cycle_mode: 'plan' })
+    // authenticating sets model: null unless overridden
+    expect(logged[3]).toMatchObject({ agent_state: 'authenticating', model: null })
+    // error restores model and cycle_mode: 'default' omits cycle_mode
+    expect(logged[4]).toMatchObject({
+      agent_state: 'error',
+      model: { id: 'Gemini 3.8 Flash (Low)', display_name: 'Gemini 3.8 Flash (Low)', effort: 'low' },
+    })
+    expect(logged[4]).not.toHaveProperty('cycle_mode')
+    // clear switches conversation_id, updates transcript_path, resets contextUsedPct to 0, and notifies onSessionId
+    expect(ids).toEqual(['conv-cleared'])
+    expect(logged[5]).toMatchObject({
+      conversation_id: 'conv-cleared',
+      session_id: 'conv-cleared',
+      agent_state: 'idle',
+      transcript_path: '/fake/.gemini/antigravity-cli/brain/conv-cleared/.system_generated/logs/transcript.jsonl',
+      context_window: { used_percentage: 0 },
+    })
   })
 })

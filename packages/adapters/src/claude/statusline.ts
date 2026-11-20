@@ -10,57 +10,17 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { L } from '@kea/protocol'
-import type { AgentSettingsLike, Env } from '../types.ts'
+import { shellWord, shellWords } from '../kit/shell.ts'
+import { USAGE_LIMITS_KEY, usageLimitsOn } from '../kit/usage.ts'
+import type { Env } from '../types.ts'
 import { configDir } from './config.ts'
 import { CONFIG_DIR_NAME, LOCAL_SETTINGS_FILE, SETTINGS_FILE, SETTINGS_STATUS_LINE, STATUS_LINE_FIELDS } from './contract.ts'
 
-/** The setting that turns the status line on. */
-export const USAGE_LIMITS_KEY = 'usageLimits'
-
-/** `agents.claude.usageLimits`: on unless it is `false` (its default is on). */
-export function usageLimitsOn(settings: Pick<AgentSettingsLike, string>): boolean {
-  return settings[USAGE_LIMITS_KEY] !== false
-}
+export { shellWord, shellWords, USAGE_LIMITS_KEY, usageLimitsOn }
 
 /** The status line's `--project`, generated from the contract: the usage windows and the session id, kept as is. */
 export function statusLineProjection(): { keep: string[]; count: string[]; summarise: string[] } {
   return { keep: Object.values(STATUS_LINE_FIELDS), count: [], summarise: [] }
-}
-
-// ── the one shell string ───────────────────────────────────────────────────────────────────────────────
-
-/** One word for a POSIX shell: single-quoted, each `'` written `'\''`; nothing inside single quotes is interpreted. */
-export function shellWord(s: string): string {
-  return `'${s.replaceAll("'", `'\\''`)}'`
-}
-
-/**
- * The words of a command `shellWord` built and joined with single spaces, or null for any other text: a status line
- * Kea did not make is never read as one of its own.
- */
-export function shellWords(command: string): string[] | null {
-  const out: string[] = []
-  let i = 0
-  while (i < command.length) {
-    if (out.length > 0) {
-      if (command[i] !== ' ') return null
-      i++
-    }
-    if (command[i] !== "'") return null
-    let word = ''
-    for (;;) {
-      const end = command.indexOf("'", i + 1)
-      if (end < 0) return null
-      word += command.slice(i + 1, end)
-      i = end + 1
-      // `'\''`: a quote inside the word, then the quoting goes on
-      if (!command.startsWith(`\\''`, i)) break
-      word += "'"
-      i += 2
-    }
-    out.push(word)
-  }
-  return out.length > 0 ? out : null
 }
 
 // ── the user's own status line ─────────────────────────────────────────────────────────────────────────

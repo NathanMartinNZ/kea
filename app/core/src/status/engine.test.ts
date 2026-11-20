@@ -625,7 +625,10 @@ describe('account conditions', () => {
 })
 
 describe('usage readings', () => {
-  const W = (id: UsageWindow['id'], usedPct: number, resetsAt: number): UsageWindow => ({ id, usedPct, resetsAt })
+  const W = (id: 'session' | 'week', usedPct: number, resetsAt: number): UsageWindow =>
+    id === 'session'
+      ? { id, shortLabel: '5h', tipLabel: 'Session limit', spokenLabel: 'session', priority: 0, usedPct, resetsAt }
+      : { id, shortLabel: '7d', tipLabel: 'Weekly', spokenLabel: 'weekly', priority: 1, usedPct, resetsAt }
   const FIVE_HOURS = 5 * 3600_000
   const WEEK = 7 * 86_400_000
 

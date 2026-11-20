@@ -5,10 +5,9 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Flavour } from './argv.ts'
 
-export { argvHash, argvHashLine, type Flavour } from './argv.ts'
+export { argvHash, argvHashLine, FAKE_ANTIGRAVITY_VERSION, FAKE_CLAUDE_VERSION, FAKE_COMMANDCODE_VERSION, FLAVOURS, type Flavour } from './argv.ts'
 export { DEFAULT_SCENARIOS, parseScenario, type Scenario, ScenarioError, validateScenario } from './scenario.ts'
 export { castSchedule, parseCast } from './cassette.ts'
-export { FAKE_CLAUDE_VERSION, FLAVOURS } from './argv.ts'
 
 /** Absolute path of the entry point (run with Node; types are stripped). */
 export const FAKE_AGENT_MAIN = fileURLToPath(new URL('./main.ts', import.meta.url))
@@ -38,15 +37,21 @@ function shQuote(s: string): string {
   return `'${s.replaceAll("'", `'\\''`)}'`
 }
 
+const DEFAULT_BIN: Record<Flavour, string> = {
+  claude: 'claude',
+  commandcode: 'cmd',
+  antigravity: 'agy',
+}
+
 /**
- * A stand-in CLI on PATH for the suites: `<dir>/<name>` (default `claude` / `cmd`), an executable sh script that runs
- * fake-agent with `--as <flavour>` and passes Kea's argv through untouched (`"$@"`), so detection, launch and resume
- * run against it exactly as against the real binary. `env` is exported first (fake-agent's own options have env forms:
- * FAKE_AGENT_SCENARIO, FAKE_AGENT_HOME, FAKE_AGENT_LOG, FAKE_AGENT_CLI_VERSION, FAKE_AGENT_LOGGED_IN). Returns the
- * script's path.
+ * A stand-in CLI on PATH for the suites: `<dir>/<name>` (default `claude` / `cmd` / `agy`), an executable sh script
+ * that runs fake-agent with `--as <flavour>` and passes Kea's argv through untouched (`"$@"`), so detection, launch and
+ * resume run against it exactly as against the real binary. `env` is exported first (fake-agent's own options have env
+ * forms: FAKE_AGENT_SCENARIO, FAKE_AGENT_HOME, FAKE_AGENT_LOG, FAKE_AGENT_CLI_VERSION, FAKE_AGENT_LOGGED_IN). Returns
+ * the script's path.
  */
 export function writeAgentShim(dir: string, flavour: Flavour, o: { node?: string; name?: string; env?: Record<string, string> } = {}): string {
-  const file = join(dir, o.name ?? (flavour === 'claude' ? 'claude' : 'cmd'))
+  const file = join(dir, o.name ?? DEFAULT_BIN[flavour])
   const exports = Object.entries(o.env ?? {}).map(([k, v]) => {
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(k)) throw new Error(`bad env name ${k}`)
     return `export ${k}=${shQuote(v)}\n`

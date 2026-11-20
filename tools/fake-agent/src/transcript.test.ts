@@ -69,4 +69,67 @@ describe('fake-agent transcripts', () => {
     expect(recs[6]).toMatchObject({ type: 'cost-state', totalCostUSD: 0.25 })
     expect(recs[7]).toEqual({ type: 'summary', summary: 's' })
   })
+
+  it('U-FAKE-33 · Antigravity transcripts live under .gemini/antigravity-cli/brain/<id>/.system_generated/logs/transcript.jsonl, refuse the real home and ~/.gemini, write step records, and switch brain/<newId>/ on setSession', () => {
+    const home = join(dir, 'ag-home')
+    const realHome = join(dir, 'ag-real-home')
+    mkdirSync(join(realHome, '.gemini'), { recursive: true })
+
+    const loc = transcriptLocation({ flavour: 'antigravity', cwd: '/w/t', sessionId: 'conv-1', override: home, home: realHome, realHome })
+    expect(loc).toEqual({
+      path: join(home, '.gemini', 'antigravity-cli', 'brain', 'conv-1', '.system_generated', 'logs', 'transcript.jsonl'),
+      writable: true,
+    })
+
+    // Refuses real home and any fake home inside real ~/.gemini
+    expect(transcriptLocation({ flavour: 'antigravity', cwd: '/w', sessionId: 'conv-1', override: null, home: realHome, realHome })).toMatchObject({
+      writable: false,
+      reason: expect.stringMatching(/never writes under the real ~\/\.gemini/),
+    })
+    expect(transcriptLocation({ flavour: 'antigravity', cwd: '/w', sessionId: 'conv-1', override: realHome, home: '/elsewhere', realHome })).toMatchObject({
+      writable: false,
+    })
+    expect(transcriptLocation({ flavour: 'antigravity', cwd: '/w', sessionId: 'conv-1', override: join(realHome, '.gemini'), home: '/elsewhere', realHome })).toMatchObject({
+      writable: false,
+      reason: expect.stringMatching(/inside the real ~\/\.gemini/),
+    })
+    expect(transcriptLocation({ flavour: 'antigravity', cwd: '/w', sessionId: 'conv-1', override: join(realHome, '.gemini', 'antigravity-cli'), home: '/elsewhere', realHome })).toMatchObject({
+      writable: false,
+      reason: expect.stringMatching(/inside the real ~\/\.gemini/),
+    })
+
+    // Writes step records (user -> USER_INPUT DONE, running -> PLANNER_RESPONSE RUNNING, assistant -> PLANNER_RESPONSE DONE, error -> PLANNER_RESPONSE ERROR, raw)
+    const w = new TranscriptWriter(loc.path, { sessionId: 'conv-1', cwd: '/w/t', model: 'gemini-3.8-flash-low', version: '1.5.13' }, () => new Date(0), 'antigravity')
+    expect(existsSync(loc.path)).toBe(false)
+    w.write('user', { ...fields, text: 'explain this repo' })
+    w.write('running', fields)
+    w.write('assistant', { ...fields, text: 'Here is the explanation.', fields: { input_tokens: 100, output_tokens: 25 } })
+    w.write('error', { ...fields, text: 'Interrupted' })
+    w.write('raw', { ...fields, json: { step_index: 4, source: 'MODEL', type: 'GENERIC', status: 'DONE', content: 'tool output' } })
+
+    const readSteps = (p: string) =>
+      readFileSync(p, 'utf8')
+        .trim()
+        .split('\n')
+        .map((l) => JSON.parse(l) as Record<string, unknown>)
+
+    expect(readSteps(loc.path)).toEqual([
+      { step_index: 0, source: 'USER_EXPLICIT', type: 'USER_INPUT', status: 'DONE', created_at: '1970-01-01T00:00:00.000Z', content: 'explain this repo' },
+      { step_index: 1, source: 'MODEL', type: 'PLANNER_RESPONSE', status: 'RUNNING', created_at: '1970-01-01T00:00:00.000Z', model: 'gemini-3.8-flash-low' },
+      { step_index: 2, source: 'MODEL', type: 'PLANNER_RESPONSE', status: 'DONE', created_at: '1970-01-01T00:00:00.000Z', model: 'gemini-3.8-flash-low', content: 'Here is the explanation.', input_tokens: 100, output_tokens: 25 },
+      { step_index: 3, source: 'MODEL', type: 'PLANNER_RESPONSE', status: 'ERROR', created_at: '1970-01-01T00:00:00.000Z', model: 'gemini-3.8-flash-low', content: 'Interrupted' },
+      { step_index: 4, source: 'MODEL', type: 'GENERIC', status: 'DONE', content: 'tool output' },
+    ])
+
+    // setSession(/clear) moves to brain/<newId>/.system_generated/logs/transcript.jsonl and resets step_index to 0
+    w.setSession('conv-2')
+    const path2 = join(home, '.gemini', 'antigravity-cli', 'brain', 'conv-2', '.system_generated', 'logs', 'transcript.jsonl')
+    expect(w.path).toBe(path2)
+    w.write('user', { ...fields, text: 'fresh conversation' })
+    w.write('assistant', { ...fields, text: 'Fresh reply.' })
+    expect(readSteps(path2)).toEqual([
+      { step_index: 0, source: 'USER_EXPLICIT', type: 'USER_INPUT', status: 'DONE', created_at: '1970-01-01T00:00:00.000Z', content: 'fresh conversation' },
+      { step_index: 1, source: 'MODEL', type: 'PLANNER_RESPONSE', status: 'DONE', created_at: '1970-01-01T00:00:00.000Z', model: 'gemini-3.8-flash-low', content: 'Fresh reply.' },
+    ])
+  })
 })

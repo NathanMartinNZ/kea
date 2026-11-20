@@ -4,27 +4,31 @@ A scriptable stand-in for an agent CLI. It reads a scenario (YAML or JSON) and b
 probes it, enters the alternate screen, draws synchronized frames, sets titles, rings bells, waits for keys, fires hooks
 exactly the way the real CLI does (exec'd synchronously, JSON on stdin) and writes transcript records. It makes the e2e,
 integration and chaos suites deterministic, free and offline. `--as claude` stands in for Claude Code 2.1.296 (its
-status file, `--version`, `auth status` and payload defaults), and `--as commandcode` for Command Code 1.79.2 (its mod
-API, events and files, as recorded in `fixtures/`).
+status file, `--version`, `auth status` and payload defaults), `--as commandcode` for Command Code 1.79.2 (its mod
+API, events and files, as recorded in `fixtures/`), and `--as antigravity` for Antigravity CLI 1.5.13 (its Go-style
+flags, `--help` on stderr, `models` subcommand, `--settings` status-line feed and step-record transcripts).
 
 ```sh
-node tools/fake-agent/src/main.ts --as claude|commandcode [fake-agent options] [agent flags…] [-- <prompt>]
+node tools/fake-agent/src/main.ts --as claude|commandcode|antigravity [fake-agent options] [agent flags…] [-- <prompt>]
 ```
 
 ## Options
 
-fake-agent's own options may appear anywhere before `--`; each also has an env var, so a `claude` / `cmd` shim on
-`PATH` needs no extra flags. They are removed before the agent flags are parsed and are not part of the argv hash.
+fake-agent's own options may appear anywhere before `--`; each also has an env var, so a `claude`, `cmd` or `agy` shim
+on `PATH` needs no extra flags. They are removed before the agent flags are parsed and are not part of the argv hash.
 
 | Option | Env | Meaning |
 |---|---|---|
-| `--as claude\|commandcode` | `FAKE_AGENT_AS` | Flavour (required) |
+| `--as claude\|commandcode\|antigravity` | `FAKE_AGENT_AS` | Flavour (required) |
 | `--scenario <file>` | `FAKE_AGENT_SCENARIO` | Scenario file; default: one short realistic turn, then an idle prompt |
 | `--fake-home <dir>` | `FAKE_AGENT_HOME` | Stands in for `HOME` when placing transcripts (below) |
 | `--log <file>` | `FAKE_AGENT_LOG` | JSONL event log for tests (below) |
-| — | `FAKE_AGENT_CLI_VERSION` | The version `--version` prints (and Claude's status file carries): default `2.1.296` for claude, `1.79.2` for commandcode; an older one stands in for an outdated CLI |
+| — | `FAKE_AGENT_CLI_VERSION` | The version `--version` prints (and Claude's status file carries): default `2.1.296` for claude, `1.79.2` for commandcode, `1.5.13` for antigravity; an older one stands in for an outdated CLI |
 | — | `FAKE_AGENT_LOGGED_IN` | `0`: `claude auth status` / `cmd status --json` says signed out (exit 1) |
+| — | `FAKE_AGENT_OFFLINE` | `1`: `agy models` fails on stderr and exits 1, as when signed out or offline |
 | — | `FAKE_AGENT_RATE_LIMITS` | Claude's `rate_limits` for the status line after each reply: inline JSON, or a file read at each run (a test changes it between replies); unset, a payload has none |
+| — | `FAKE_AGENT_QUOTA` | Antigravity's `quota` buckets for the status-line snapshot: inline JSON, or a file read at each run; unset, a snapshot has none |
+| — | `FAKE_AGENT_OWN_STATUSLINE` | `1`: ignores `--settings` `statusLine` in `--as antigravity`, standing in for a session where the user's own status line is active |
 
 **`--as claude`** reads what Kea passes: `--session-id <uuid>` (validated like the real CLI), `--model`, `--effort`,
 `--permission-mode` (the real choices; `manual` is reported as `default`), `--settings <inline JSON or file>` (only
@@ -42,6 +46,16 @@ repeatable), `-t/--trust`, `-n/--name`, `-r/--resume <id or name>`; the prompt i
 project's `<id>.meta.json` titles; none found exits 1 with the CLI's own message). Detection's questions answer as
 1.79.2 does: `--version` (`1.79.2` alone on a line), `--help` and `--list-models` (the recorded texts in
 `fixtures/cli/commandcode/1.79.2/`), `status --json` (`{authenticated, version}`, exit 0 or 1).
+
+**`--as antigravity`** stands in for Antigravity CLI 1.5.13 (`writeAgentShim` writes an `agy` shim) and reads its
+Go-style flags (`--flag=value` and `--flag value`): `--model`, `--effort` (`low`…`max`), `--mode` (`accept-edits`,
+`auto`, `plan`), `--dangerously-skip-permissions`, `--settings` (inline JSON or a file path; `statusLine.command` runs
+through `/bin/sh -c` unless `FAKE_AGENT_OWN_STATUSLINE=1`), `--conversation <uuid>`, and
+`-i/--prompt-interactive <prompt>`. There is no pre-assigned session id on a fresh launch: the conversation id is
+random, or the `--conversation` id on resume. Detection's questions answer as 1.5.13 does: `--version` (`1.5.13` on
+stdout), `--help` (written to **stderr** with stdout empty, as Go's `flag` package prints usage, from
+`fixtures/cli/antigravity/1.5.13/help.txt`), and the `models` subcommand (`Fetching available models...` on stderr and
+`fixtures/cli/antigravity/1.5.13/models.txt` on stdout, or exit 1 on stderr when `FAKE_AGENT_OFFLINE=1`).
 
 From a test:
 
@@ -119,7 +133,7 @@ expected one of …`) and fake-agent exits 2. A step is a one-key mapping (`- ki
 | `wait` | `key` · `line` · `{answer: y}` · `{for, answer, timeoutMs, echo: true}` | Waits for any key, a line (echoed, Backspace works), or one specific key (others are ignored). On timeout it moves on. Sets `{{key}}` / `{{line}}` |
 | `choose` | `{key: [steps], …}` | Waits for one of the keys and runs its branch. Keys: one character or `enter`, `esc`, `tab`, `space`, `backspace`, `up`, `down`, `left`, `right`, `shift-tab`, `shift-enter` |
 | `hook` | `Event` · `{event, tool, input, fields}` | Fires one hook event (below). `fields` are merged over the payload; a `null` field removes it. `UserPromptSubmit` gets `prompt: {{prompt}}` unless given |
-| `transcript` | `{record, text, title, costUsd, forToolUse, json, fields}` | Appends one JSONL record. Claude: `user`, `assistant` (with `usage`), `interrupt` (`[Request interrupted by user]`, or `… for tool use` with `forToolUse`), `ai-title`, `custom-title`, `cost-state`, `raw` (`json` as is). Command Code (format version 3): `user` (and its checkpoint line), `assistant`, `error` (`Error: <text>`), `title` (the meta file), `raw` |
+| `transcript` | `{record, text, title, costUsd, forToolUse, json, fields}` | Appends one JSONL record. Claude: `user`, `assistant` (with `usage`), `interrupt` (`[Request interrupted by user]`, or `… for tool use` with `forToolUse`), `ai-title`, `custom-title`, `cost-state`, `raw` (`json` as is). Command Code (format version 3): `user` (and its checkpoint line), `assistant`, `error` (`Error: <text>`), `title` (the meta file), `raw`. Antigravity (step records): `user` (`USER_INPUT`), `assistant` (`PLANNER_RESPONSE` `DONE`), `running` (`PLANNER_RESPONSE` `RUNNING`), `error` (`PLANNER_RESPONSE` `ERROR`), `raw` |
 | `file` | `{op, path, to, content, find, replace}` | `write`, `append`, `modify` (first `find` → `replace`), `delete` (recursive), `rename` (`to`), `mkdir`. Paths are relative and must stay inside the cwd |
 | `argvHash` | bare | Prints `fake-agent argv sha256=<hex>` |
 | `cassette` | `file` · `{file, speed: 1, maxIdleMs}` | Replays an asciicast v2 file's output events (`[t, "o", data]`) at `speed` (0 = all at once); gaps are capped at `maxIdleMs`, else the header's `idle_time_limit`. Relative to the scenario file |
@@ -129,7 +143,7 @@ expected one of …`) and fake-agent exits 2. A step is a one-key mapping (`- ki
 | `status` | `busy` · `{status, waitingFor}` · `{torn: true}` · `{removed: true}` · `{sessionId}` | Claude only: writes the live status file (below) now, a torn half-write, removes it, or switches its `sessionId`. With `statusFile: auto` the hooks also drive it |
 
 Template variables, usable in any text a step writes: `{{cols}}`, `{{rows}}`, `{{i}}`, `{{sessionId}}`, `{{cwd}}`,
-`{{model}}` (default `claude-opus-5-5` for claude, `fake-model-1` for commandcode), `{{prompt}}`, `{{line}}`, `{{key}}`, `{{argvHash}}`, `{{flavour}}`,
+`{{model}}` (default `claude-opus-5-5` for claude, `fake-model-1` for commandcode, `Gemini 3.8 Flash (Low)` for antigravity), `{{prompt}}`, `{{line}}`, `{{key}}`, `{{argvHash}}`, `{{flavour}}`,
 `{{permissionMode}}`, `{{transcriptPath}}`. An unknown name is a validation error.
 
 ## Hooks
@@ -185,17 +199,31 @@ and no `tool_running`. Only a tool name the CLI does not know, or a deny rule, i
 without ending the batch. An integration test scripts one in its third turn (I-AGT-9,
 `tests/integration/core-commandcode.test.ts`).
 
+**Antigravity CLI** has no session-only hooks; Kea passes a `statusLine` command in `--settings`. `AntigravityFeed`
+(`hooks.ts`) keeps a stateful session snapshot (`conversation_id`, `transcript_path`, `agent_state`,
+`tool_confirmation_pending`, `cycle_mode`, `conversation_title`, `model`, `context_window`, `cost`,
+`pending_input_count`, `task_count`, `subagents`, and `quota` from `FAKE_AGENT_QUOTA`) and on each `hook` step updates
+the snapshot and runs `statusLine.command` through `/bin/sh -c` with the full JSON snapshot on stdin. Step event names
+(`ANTIGRAVITY_EVENTS`): `initializing`, `working`, `tool_use`, `tool_confirmation` (`agent_state: 'tool_use'`,
+`tool_confirmation_pending: true`), `tool_confirmation_clear`, `reviewing`, `authenticating` (`model: null` unless
+overridden in `fields`), `error`, `idle`, `clear` (mints a new `conversation_id`, resets title and context, and moves
+the transcript path to the new conversation's `brain/<id>/` folder), `title`, `meta` and `snapshot`. A step's `fields`
+override or delete (`null`) snapshot fields for that run.
+
 ## Transcripts and the fake home
 
 Records go where the real CLI writes them, under a stand-in home: `<home>/.claude/projects/<cwd with every
-non-alphanumeric → ->/<sessionId>.jsonl` or `<home>/.commandcode/projects/<slug>/<id>.jsonl` (the slug is 1.79.2's:
-camel case split, lower case, each run of other characters one `-`, none at the ends), with `<id>.checkpoints.jsonl`
-(one line per prompt) and `<id>.meta.json` (the title) beside it. A Command Code file gets its `session` header with its
-first record, so a session nothing was said in leaves none. The home is `--fake-home` / `FAKE_AGENT_HOME`, else `$HOME`
-(tests set it to a temp dir). **fake-agent never writes under the real `~/.claude*` or `~/.commandcode`**: if the home
-resolves to the account's real home (from the password database, whatever `$HOME` says) or to a `.claude*` /
-`.commandcode` / `.kea*` folder inside it, it says so on stderr, skips every transcript step (logging
-`transcript-skipped`) and runs the rest. Hook payloads still carry the path.
+non-alphanumeric → ->/<sessionId>.jsonl`, `<home>/.commandcode/projects/<slug>/<id>.jsonl` (the slug is 1.79.2's:
+camel case split, lower case, each run of other characters one `-`, none at the ends, with `<id>.checkpoints.jsonl`
+and `<id>.meta.json` beside it), or
+`<home>/.gemini/antigravity-cli/brain/<sessionId>/.system_generated/logs/transcript.jsonl` (append-only step records
+with `step_index`, `source`, `type`, `status`, `created_at`, `model` and `content`). A Command Code file gets its
+`session` header with its first record, so a session nothing was said in leaves none. The home is `--fake-home` /
+`FAKE_AGENT_HOME`, else `$HOME` (tests set it to a temp dir). **fake-agent never writes under the real `~/.claude*`,
+`~/.commandcode` or `~/.gemini`**: if the home resolves to the account's real home (from the password database,
+whatever `$HOME` says) or to a `.claude*` / `.commandcode` / `.gemini` / `.kea*` folder inside it, it says so on
+stderr, skips every transcript step (logging `transcript-skipped`) and runs the rest. Hook payloads still carry the
+path.
 
 ## The live status file (Claude)
 
@@ -236,9 +264,9 @@ fake-agent option or scenario; 143 / 129 / 130 after SIGTERM / SIGHUP / SIGINT (
 
 ## Code and tests
 
-`argv.ts` (both command lines, argv hash) · `scenario.ts` (schema, validator, default scenarios) · `keys.ts` ·
+`argv.ts` (all three command lines, argv hash) · `scenario.ts` (schema, validator, default scenarios) · `keys.ts` ·
 `probes.ts` (queries, reply tokenizer) · `term.ts` (sequences, input router, process terminal) · `hooks.ts` (settings,
-Claude payloads, exec) · `mods.ts` (Command Code mod host) · `transcript.ts` · `status.ts` (the live status file) · `cassette.ts` · `files.ts` · `runner.ts`
+Claude payloads, Antigravity status-line feed, exec) · `mods.ts` (Command Code mod host) · `transcript.ts` · `status.ts` (the live status file) · `cassette.ts` · `files.ts` · `runner.ts`
 (steps) · `agent.ts` (lifecycle) · `log.ts` · `main.ts` · `index.ts` (what tests import).
 
 `npx vitest run --project unit tools/fake-agent` runs the tests: argv parsing, scenario validation, probe and key

@@ -48,9 +48,9 @@ name, with the reason.
 | `pnpm gallery` | Screenshots of every UI state in `dist/gallery/index.html`, for reviewing a visual change |
 
 The regular suites never run a real agent CLI: they use `tools/fake-agent` and a temporary `KEA_HOME`. Only the
-contract tests that launch the real Claude Code and Command Code (`pnpm test:contract:live` and the
-`pnpm test:contract:capture` scripts) do; they use your account and can cost money, and a pull request does not need
-them.
+contract tests that launch the real Claude Code, Command Code and Antigravity CLI (`pnpm test:contract:live` and the
+`pnpm test:contract:capture`, `pnpm test:contract:capture:cmd` and `pnpm test:contract:capture:agy` scripts) do; they
+use your account and can cost money, and a pull request does not need them.
 
 ## Finding your way around
 
@@ -91,7 +91,7 @@ The lint and the tests enforce most of these.
   entry point.
 - **Svelte:** heavy objects (xterm terminals, addons, canvases, ports) never sit in `$state` or `$derived`; see
   `app/renderer/README.md`.
-- **Kea never writes into a user's repository configuration or into `~/.claude` or `~/.commandcode`.**
+- **Kea never writes into a user's repository configuration or into `~/.claude`, `~/.commandcode` or `~/.gemini`.**
 
 ## Comments
 

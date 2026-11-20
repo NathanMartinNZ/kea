@@ -40,10 +40,10 @@ export const zAgentEvent = z.discriminatedUnion('t', [
   z.object({ t: z.literal('turn.failed'), error: z.string(), kind: zFailureKind, resetsAt: z.number().optional() }),
   z.object({ t: z.literal('compacting'), active: z.boolean() }),
   /**
-   * The account's usage limits as the agent reported them (Claude's status line, on unless turned off): each window's share used and
-   * when it resets. Belongs to the account, not the session: core keeps one reading per account (`status.usage`).
+   * The account's usage limits as the agent reported them (a status line, on unless turned off): each window's labels,
+   * share used and when it resets. Belongs to the account, not the session: core keeps one reading per account (`status.usage`).
    */
-  z.object({ t: z.literal('account.usage'), windows: z.array(z.lazy(() => zUsageWindow)).max(2) }),
+  z.object({ t: z.literal('account.usage'), windows: z.array(z.lazy(() => zUsageWindow)).max(L.usageWindowsMax) }),
   z.object({ t: z.literal('session.ended'), reason: z.string().optional() }),
   z.object({
     t: z.literal('meta'),
@@ -146,23 +146,39 @@ export type AccountCondition = z.infer<typeof zAccountCondition>
 
 export const USAGE_STORE = 'status.usage'
 
-/** A usage limit's window: `session` the rolling five hours, `week` the rolling seven days. */
-export const USAGE_WINDOWS = ['session', 'week'] as const
-export type UsageWindowId = (typeof USAGE_WINDOWS)[number]
-
-/** One window as an agent reports it: the share used (0–100) and when it resets (wall ms). */
-export const zUsageWindow = z.object({ id: z.enum(USAGE_WINDOWS), usedPct: z.number().min(0).max(100), resetsAt: z.number().int() })
+/**
+ * One usage-limit window as an adapter reports it: its stable id and labels (`shortLabel` for the chip, `tipLabel` for
+ * the tooltip, `spokenLabel` for the accessible name, optional `priority` where lower stays visible longest), the share
+ * used (0–100) and when it resets (wall ms).
+ */
+export const zUsageWindow = z.object({
+  id: z.string().min(1).max(64),
+  shortLabel: z.string().min(1).max(24),
+  tipLabel: z.string().min(1).max(64),
+  spokenLabel: z.string().min(1).max(64),
+  priority: z.number().int().min(0).max(99).optional(),
+  usedPct: z.number().min(0).max(100),
+  resetsAt: z.number().int(),
+})
 export type UsageWindow = z.infer<typeof zUsageWindow>
 
 /**
- * One account's reading, keyed by `account` (the agent and its config folder, so two Claude logins are two
+ * Deterministic display and storage order for usage windows: lowest `priority` first (default 50; stays visible longest
+ * on narrow rows), ties broken lexicographically by `id`.
+ */
+export function compareUsageWindows(a: Pick<UsageWindow, 'id' | 'priority'>, b: Pick<UsageWindow, 'id' | 'priority'>): number {
+  return (a.priority ?? 50) - (b.priority ?? 50) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+}
+
+/**
+ * One account's reading, keyed by `account` (the agent and its config folder, so two logins of the same agent are two
  * readings). Each window carries when it was last seen (wall ms); `seenAt` is the latest of them. A window past its
  * `resetsAt` is dropped, and so is a reading no event has refreshed for `usage_stale_ms`.
  */
 export const zUsageReading = z.object({
   account: z.string(),
   agent: z.string(),
-  windows: z.array(zUsageWindow.extend({ seenAt: z.number().int() })).max(USAGE_WINDOWS.length),
+  windows: z.array(zUsageWindow.extend({ seenAt: z.number().int() })).max(L.usageWindowsMax),
   seenAt: z.number().int(),
 })
 export type UsageReading = z.infer<typeof zUsageReading>

@@ -79,7 +79,7 @@ async function openSelector(page: Page, digit: 1 | 2 | 3 | 4, name: string): Pro
 /** Choose Command Code in the composer's Agent menu by key (`⌘1`, `↓`, `↵`), once detection has listed it. */
 async function chooseCommandCode(page: Page): Promise<void> {
   const menu = await openSelector(page, 1, 'Agent')
-  await expect(menu.locator('.kea-menu-label')).toHaveText(['Claude Code', 'Command Code', 'Shell'], { timeout: STEP_MS })
+  await expect(menu.locator('.kea-menu-label')).toHaveText(['Claude Code', 'Command Code', 'Antigravity CLI', 'Shell'], { timeout: STEP_MS })
   await page.keyboard.press('ArrowDown')
   await page.keyboard.press('Enter')
   await expect(menu).toHaveCount(0)
@@ -661,7 +661,7 @@ test('E-SET-3 · Settings › Agents with both agents: Command Code’s card say
   expect(found.lines[0]).toMatch(/^Version \d+\.\d+\.\d+ · Signed in$/)
   expect(await look.evaluate((e) => e === document.activeElement), 'the keyboard is still on "Look again": Esc, Tab and ↵ go on working in the sheet').toBe(true)
 
-  // ── each card's keys: the ones every agent has, then its own (auto-trust is Command Code's alone) ──
+  // ── each card's keys: the ones every agent has, then its own (auto-trust is on worktree-trusting agents, not Claude Code) ──
   const trust = cmdCard.getByRole('switch', { name: 'Auto-trust Kea worktrees' })
   await expect(trust).toBeChecked()
   await expect(claudeCard.getByRole('switch', { name: 'Auto-trust Kea worktrees' })).toHaveCount(0)

@@ -121,7 +121,7 @@ describe('file mentions at an agent prompt', () => {
       expect(atMention(evil)).toBeNull()
     }
     // every shipped adapter has its own form; an agent without one gets the generic rule (quotes for a space, a quote or an `@`)
-    for (const a of ADAPTERS) expect(a.fileMention?.('src/my file.ts'), a.id).toBe('@"src/my file.ts"')
+    for (const a of ADAPTERS) expect((a.fileMention ?? atMention)('src/my file.ts'), a.id).toBe('@"src/my file.ts"')
     expect([atMention('a b'), atMention('a@b'), atMention('a"b'), atMention('plain.ts')]).toEqual(['@"a b"', '@"a@b"', null, '@plain.ts'])
   })
 })

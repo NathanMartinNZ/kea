@@ -630,6 +630,372 @@ fn r_agt_4_statusline_is_never_spooled_while_core_is_away() {
     assert_eq!(statusline(&bad), Outcome::Dropped);
 }
 
+/// A session-status feed projection using `keep`, `countWhere`, `keepMap`, `summarise` and multi-rule `critical`
+/// (made-up field names: the helper knows no agent's).
+fn feed_proj() -> Value {
+    json!({
+        "keep": ["conv", "phase", "awaiting", "mode", "model.id", "model.effort", "context.pct", "cost.usd"],
+        "count": [],
+        "countWhere": [{"path": "workers", "field": "state", "equals": "running"}],
+        "keepMap": [{"path": "buckets", "fields": ["left", "reset", "secs", "disabled"], "maxKeys": PROJECTION_MAP_KEYS_MAX}],
+        "summarise": ["title"],
+        "critical": [
+            {"field": "phase", "values": ["idle", "review", "auth", "failed"]},
+            {"field": "awaiting", "values": [true]}
+        ]
+    })
+}
+
+fn feed_payload(phase: &str, awaiting: bool, blob: usize) -> String {
+    json!({
+        "conv": "c-42",
+        "phase": phase,
+        "awaiting": awaiting,
+        "mode": "auto",
+        "model": {"id": "Model X", "effort": "high", "display": "ignored"},
+        "context": {"pct": 37.5, "tokens": 99_999},
+        "cost": {"usd": 0.12, "sub": 0.04},
+        "title": "Fix projection parity",
+        "email": "user@example.com",
+        "cwd": "/private/dir",
+        "workers": [
+            {"name": "w1", "role": "r1", "state": "running"},
+            {"name": "w2", "role": "r2", "state": "done"}
+        ],
+        "buckets": {
+            "b-week": {"left": 0.8, "reset": "2026-11-27T00:00:00Z", "secs": 604_800, "extra": "drop"},
+            "b-5h": {"left": 0.25, "reset": "2026-11-20T19:00:00Z", "secs": 18_000, "disabled": false}
+        },
+        "blob": "z".repeat(blob)
+    })
+    .to_string()
+}
+
+// test: R-AGT-5
+#[test]
+fn r_agt_5_feed_delivers_unmarked_envelope_and_spools_append_only_when_core_is_away() {
+    let h = home();
+    let a = args(&h.home, &feed_proj());
+    let sock = h.home.join("run/core.sock");
+    let listener = UnixListener::bind(&sock).unwrap();
+    let core = core_answering(listener, Some(ACK));
+    let input = feed_payload("working", true, 512);
+    let out = run_feed(&a, &mut input.as_bytes(), STATUSLINE_STDIN_MAX_BYTES);
+    assert_eq!(out, Outcome::Delivered);
+    let v: Value = serde_json::from_str(&core.join().unwrap()).unwrap();
+    assert!(v.get("statusline").is_none(), "a feed envelope carries no statusline mark so core routes it as a session event");
+    assert_eq!((v["keaSessionId"].as_str(), v["adapter"].as_str()), (Some(SESSION), Some("fake-agent")));
+    assert_eq!(
+        v["payload"],
+        json!({
+            "conv": "c-42",
+            "phase": "working",
+            "awaiting": true,
+            "mode": "auto",
+            "model": {"id": "Model X", "effort": "high"},
+            "context": {"pct": 37.5},
+            "cost": {"usd": 0.12},
+            "workers": 1,
+            "buckets": {
+                "b-5h": {"left": 0.25, "reset": "2026-11-20T19:00:00Z", "secs": 18_000, "disabled": false},
+                "b-week": {"left": 0.8, "reset": "2026-11-27T00:00:00Z", "secs": 604_800}
+            },
+            "title": "Fix projection parity"
+        })
+    );
+    assert!(spool_lines(&h.home).is_empty());
+
+    // When core's socket is missing, refused, or closes without ACK, `run_feed` spools append-only in order.
+    std::fs::remove_file(&sock).unwrap();
+    assert_eq!(run_feed(&a, &mut feed_payload("working", false, 0).as_bytes(), STATUSLINE_STDIN_MAX_BYTES), Outcome::Spooled);
+    stale_socket(&sock);
+    assert_eq!(run_feed(&a, &mut feed_payload("working", true, 0).as_bytes(), STATUSLINE_STDIN_MAX_BYTES), Outcome::Spooled);
+    std::fs::remove_file(&sock).unwrap();
+    let silent_core = core_answering(UnixListener::bind(&sock).unwrap(), None);
+    assert_eq!(run_feed(&a, &mut feed_payload("idle", false, 0).as_bytes(), STATUSLINE_STDIN_MAX_BYTES), Outcome::Spooled);
+    let _ = silent_core.join().unwrap();
+
+    let spooled = spool_lines(&h.home);
+    assert_eq!(spooled.len(), 3, "every missed snapshot is appended in order");
+    let phases: Vec<_> = spooled
+        .iter()
+        .map(|l| (l["payload"]["phase"].as_str().unwrap(), l["payload"]["awaiting"].as_bool().unwrap(), l.get("statusline").is_none()))
+        .collect();
+    assert_eq!(phases, [("working", false, true), ("working", true, true), ("idle", false, true)]);
+}
+
+/// Runs `crate::run(&argv)` in a forked child with piped stdin, stdout and stderr, returning
+/// `(exit_code, stdout_bytes, stderr_bytes)`.
+fn run_in_fork(argv: &[&str], stdin_bytes: &[u8]) -> (i32, Vec<u8>, Vec<u8>) {
+    unsafe {
+        let (mut in_p, mut out_p, mut err_p) = ([0; 2], [0; 2], [0; 2]);
+        assert_eq!(libc::pipe(in_p.as_mut_ptr()), 0);
+        assert_eq!(libc::pipe(out_p.as_mut_ptr()), 0);
+        assert_eq!(libc::pipe(err_p.as_mut_ptr()), 0);
+        let pid = libc::fork();
+        assert!(pid >= 0);
+        if pid == 0 {
+            libc::close(in_p[1]);
+            libc::close(out_p[0]);
+            libc::close(err_p[0]);
+            libc::dup2(in_p[0], libc::STDIN_FILENO);
+            libc::dup2(out_p[1], libc::STDOUT_FILENO);
+            libc::dup2(err_p[1], libc::STDERR_FILENO);
+            libc::close(in_p[0]);
+            libc::close(out_p[1]);
+            libc::close(err_p[1]);
+            let os_args: Vec<OsString> = argv.iter().map(Into::into).collect();
+            let code = crate::run(&os_args);
+            libc::_exit(code);
+        }
+        libc::close(in_p[0]);
+        libc::close(out_p[1]);
+        libc::close(err_p[1]);
+        let mut rest = stdin_bytes;
+        while !rest.is_empty() {
+            let n = libc::write(in_p[1], rest.as_ptr().cast(), rest.len());
+            if n <= 0 {
+                break;
+            }
+            rest = &rest[n as usize..];
+        }
+        libc::close(in_p[1]);
+        let mut out_buf = Vec::new();
+        let mut err_buf = Vec::new();
+        std::fs::File::from_raw_fd(out_p[0]).read_to_end(&mut out_buf).unwrap();
+        std::fs::File::from_raw_fd(err_p[0]).read_to_end(&mut err_buf).unwrap();
+        let mut status: libc::c_int = 0;
+        assert_eq!(libc::waitpid(pid, &mut status, 0), pid);
+        assert!(libc::WIFEXITED(status));
+        (libc::WEXITSTATUS(status), out_buf, err_buf)
+    }
+}
+
+// test: R-AGT-5
+#[test]
+fn r_agt_5_feed_stdin_is_capped_and_feed_main_is_silent_and_exits_zero() {
+    let h = home();
+    let a = args(&h.home, &feed_proj());
+    let sock = h.home.join("run/core.sock");
+    let listener = UnixListener::bind(&sock).unwrap();
+
+    // Over `STATUSLINE_STDIN_MAX_BYTES`: drained to EOF without breaking the sender's pipe, marked `oversize: true`
+    // and never marked `statusline: true`.
+    let big = feed_payload("working", false, STATUSLINE_STDIN_MAX_BYTES as usize);
+    assert!(big.len() as u64 > STATUSLINE_STDIN_MAX_BYTES);
+    let mut cursor = std::io::Cursor::new(big.as_bytes());
+    let core = core_answering(listener.try_clone().unwrap(), Some(ACK));
+    let out = run_feed(&a, &mut cursor, STATUSLINE_STDIN_MAX_BYTES);
+    assert_eq!(out, Outcome::Delivered);
+    assert_eq!(cursor.position() as usize, big.len(), "stdin drained to EOF so the sender never gets EPIPE");
+    let v: Value = serde_json::from_str(&core.join().unwrap()).unwrap();
+    assert_eq!(v["payload"], json!({}));
+    assert_eq!(v["oversize"], true);
+    assert!(v.get("statusline").is_none());
+
+    // `kea-helper feed` dispatch through `crate::run` / `feed_main`: prints 0 bytes to stdout and stderr and exits 0
+    // on valid JSON, malformed JSON, oversize input, and bad arguments.
+    std::fs::remove_file(&sock).unwrap();
+    let proj_str = feed_proj().to_string();
+    let home_str = h.home.to_str().unwrap();
+    for (argv, input) in [
+        (vec!["feed", "fake-agent", "--session", SESSION, "--home", home_str, "--project", &proj_str], feed_payload("idle", false, 0)),
+        (vec!["feed", "fake-agent", "--session", SESSION, "--home", home_str, "--project", &proj_str], "{not valid json".to_owned()),
+        (vec!["feed", "fake-agent", "--session", "../bad", "--home", home_str, "--project", &proj_str], "{}".to_owned()),
+        (vec!["feed", "fake-agent", "--session", SESSION, "--home", home_str, "--project", "{bad-proj"], "{}".to_owned()),
+        (vec!["feed"], "{}".to_owned()),
+    ] {
+        let (code, out_bytes, err_bytes) = run_in_fork(&argv, input.as_bytes());
+        assert_eq!(code, 0, "feed_main must always exit 0: {argv:?}");
+        assert!(out_bytes.is_empty(), "feed_main must print nothing to stdout: {out_bytes:?}");
+        assert!(err_bytes.is_empty(), "feed_main must print nothing to stderr: {err_bytes:?}");
+    }
+    let spooled = spool_lines(&h.home);
+    assert_eq!(spooled.len(), 2, "valid and malformed runs with valid args were spooled; bad-arg runs were dropped");
+    assert_eq!(spooled[0]["payload"]["phase"], "idle");
+    assert_eq!(spooled[1]["malformed"], true);
+    assert!(spooled[1].get("statusline").is_none());
+}
+
+// test: R-AGT-5
+#[test]
+fn r_agt_5_projection_count_where_keep_map_and_multi_rule_critical() {
+    // 1. `countWhere` validation and counting semantics.
+    assert!(
+        parse_projection(&json!({"keep": [], "count": [], "countWhere": [{"path": "a", "field": "b", "equals": [1]}], "summarise": []}).to_string()).is_none(),
+        "non-scalar equals is rejected"
+    );
+    assert!(
+        parse_projection(&json!({"keep": [], "count": [], "countWhere": [{"path": "a", "field": "b", "equals": {"k": 1}}], "summarise": []}).to_string()).is_none(),
+        "object equals is rejected"
+    );
+    let cw_proj = parse_projection(
+        &json!({
+            "keep": [],
+            "count": [],
+            "countWhere": [
+                {"path": "workers", "field": "state", "equals": "running"},
+                {"path": "none_match", "field": "state", "equals": "running"},
+                {"path": "nested.list", "field": "meta.ok", "equals": true},
+                {"path": "nulls", "field": "v", "equals": null},
+                {"path": "missing", "field": "state", "equals": "running"},
+                {"path": "not_array", "field": "state", "equals": "running"}
+            ],
+            "summarise": []
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let cw_payload = json!({
+        "workers": [
+            {"name": "secret-1", "role": "helper", "state": "running"},
+            {"name": "secret-2", "role": "verifier", "state": "done"},
+            {"name": "secret-3", "role": "worker", "state": "running"},
+            "scalar-elem",
+            null
+        ],
+        "none_match": [{"state": "done"}, {"state": "queued"}],
+        "nested": {"list": [{"meta": {"ok": true}}, {"meta": {"ok": false}}, {}]},
+        "nulls": [{"v": null}, {"v": 1}, {}],
+        "not_array": {"state": "running"}
+    });
+    let cw_out = Value::Object(project(&cw_payload, &cw_proj));
+    assert_eq!(cw_out, json!({"workers": 2, "none_match": 0, "nested": {"list": 1}, "nulls": 1}));
+    assert!(!cw_out.to_string().contains("secret-"), "element strings never leak");
+
+    // 2. `keepMap` scalar filtering, string/key truncation, deterministic key sorting, and `maxKeys` clamping.
+    let long_key = format!("k-{}", "x".repeat(HOOK_SUMMARY_MAX_CHARS as usize + 30));
+    let long_val = format!("v-{}", "🦜".repeat(HOOK_SUMMARY_MAX_CHARS as usize + 30));
+    let km_proj = parse_projection(
+        &json!({
+            "keep": [],
+            "count": [],
+            "keepMap": [
+                {"path": "buckets", "fields": ["left", "reset", "secs", "disabled", "nested.flag"], "maxKeys": 3},
+                {"path": "empty_outer", "fields": ["only_scalar"]}
+            ],
+            "summarise": []
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let km_payload = json!({
+        "buckets": {
+            "z-last": {"left": 0.1, "secs": 100},
+            "b-first": {
+                "left": 0.75,
+                "reset": long_val,
+                "secs": 3600,
+                "disabled": false,
+                "unlisted": "drop",
+                "obj_field": {"a": 1},
+                "nested": {"flag": true, "arr": [1, 2]}
+            },
+            "a-empty": {"obj_field": [1, 2], "unlisted": "drop"},
+            "a-scalar-entry": "not-an-object",
+            &long_key: {"left": 0, "disabled": true},
+            "m-second": {"left": 0.5, "secs": 1800}
+        },
+        "empty_outer": {
+            "e1": {"only_scalar": {"bad": 1}},
+            "e2": null
+        }
+    });
+    let km_out = Value::Object(project(&km_payload, &km_proj));
+    let cut_key = cut_chars(&long_key, HOOK_SUMMARY_MAX_CHARS as usize);
+    let cut_val = cut_chars(&long_val, HOOK_SUMMARY_MAX_CHARS as usize);
+    let buckets = km_out["buckets"].as_object().unwrap();
+    assert_eq!(buckets.keys().map(String::as_str).collect::<Vec<_>>(), ["b-first", cut_key, "m-second"]);
+    assert_eq!(
+        buckets["b-first"],
+        json!({"left": 0.75, "reset": cut_val, "secs": 3600, "disabled": false, "nested": {"flag": true}})
+    );
+    assert_eq!(buckets[cut_key], json!({"left": 0, "disabled": true}));
+    assert_eq!(buckets["m-second"], json!({"left": 0.5, "secs": 1800}));
+    assert!(km_out.get("empty_outer").is_none());
+
+    // Clamping `maxKeys` to `PROJECTION_MAP_KEYS_MAX`.
+    let mut many_map = Map::new();
+    for i in 0..(PROJECTION_MAP_KEYS_MAX + 6) {
+        many_map.insert(format!("k-{i:02}"), json!({"left": i}));
+    }
+    let clamp_proj = parse_projection(
+        &json!({
+            "keep": [],
+            "count": [],
+            "keepMap": [{"path": "buckets", "fields": ["left"], "maxKeys": PROJECTION_MAP_KEYS_MAX + 100}],
+            "summarise": []
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let clamp_out = Value::Object(project(&Value::Object(Map::from_iter([("buckets".to_owned(), Value::Object(many_map))])), &clamp_proj));
+    assert_eq!(clamp_out["buckets"].as_object().unwrap().len(), PROJECTION_MAP_KEYS_MAX as usize);
+
+    // 3. Shrinking order under `HOOK_ENVELOPE_MAX_BYTES`: Summary halved -> Summary dropped -> KeepMap dropped ->
+    // non-critical Keep dropped -> Count dropped, while critical Keep fields survive.
+    let h = home();
+    let ctrl = "\u{1}".repeat(250);
+    let shrink_proj = json!({
+        "keep": ["phase", "awaiting", "extra_keep"],
+        "count": ["items"],
+        "keepMap": [{"path": "buckets", "fields": ["b1", "b2", "b3"]}],
+        "summarise": ["title"],
+        "critical": [
+            {"field": "phase", "values": ["idle"]},
+            {"field": "awaiting", "values": [true]}
+        ]
+    });
+    let a = parse_args(&args(&h.home, &shrink_proj)).unwrap();
+    let stamp = Stamp { id: "0123456789abcdef".into(), mono: 1, received_at: 2 };
+    let heavy_buckets = json!({
+        "k1": {"b1": ctrl, "b2": ctrl, "b3": ctrl},
+        "k2": {"b1": ctrl, "b2": ctrl, "b3": ctrl}
+    });
+    let shrink_payload = json!({
+        "phase": "idle",
+        "awaiting": true,
+        "extra_keep": "kept-scalar",
+        "items": [1, 2, 3],
+        "buckets": heavy_buckets,
+        "title": ctrl
+    });
+    let line = envelope(&a, &stamp, Some(&shrink_payload), None);
+    assert!(line.len() <= HOOK_ENVELOPE_MAX_BYTES as usize, "{} bytes", line.len());
+    let v: Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(v["payload"]["phase"], "idle", "first critical field survives");
+    assert_eq!(v["payload"]["awaiting"], true, "second critical field survives");
+    assert_eq!(v["payload"]["extra_keep"], "kept-scalar", "Keep survives when dropping Summary + KeepMap fits the cap");
+    assert_eq!(v["payload"]["items"], 3, "Count survives when dropping Summary + KeepMap fits the cap");
+    assert!(v["payload"].get("title").is_none(), "Summary dropped before KeepMap");
+    assert!(v["payload"].get("buckets").is_none(), "KeepMap dropped before Keep and Count");
+
+    // 4. Multi-rule `critical` protects any matching rule above `SPOOL_SOFT_BYTES` and caps non-matching snapshots.
+    let spool_path = h.home.join("sessions").join(SESSION).join("spool.ndjson");
+    std::fs::write(&spool_path, vec![b'\n'; SPOOL_SOFT_BYTES as usize]).unwrap();
+    let feed_a = args(&h.home, &feed_proj());
+    assert_eq!(
+        run_feed(&feed_a, &mut feed_payload("working", false, 0).as_bytes(), STATUSLINE_STDIN_MAX_BYTES),
+        Outcome::Capped,
+        "neither rule matches: capped at soft limit"
+    );
+    assert_eq!(
+        run_feed(&feed_a, &mut feed_payload("working", true, 0).as_bytes(), STATUSLINE_STDIN_MAX_BYTES),
+        Outcome::Spooled,
+        "second critical rule (awaiting == true) matches: spooled above soft limit"
+    );
+    assert_eq!(
+        run_feed(&feed_a, &mut feed_payload("review", false, 0).as_bytes(), STATUSLINE_STDIN_MAX_BYTES),
+        Outcome::Spooled,
+        "first critical rule (phase in [idle, review, auth, failed]) matches: spooled above soft limit"
+    );
+    let text = std::fs::read_to_string(&spool_path).unwrap();
+    let lines: Vec<Value> = text.lines().filter(|l| !l.is_empty()).map(|l| serde_json::from_str(l).unwrap()).collect();
+    assert_eq!(lines.len(), 2);
+    assert_eq!((lines[0]["payload"]["phase"].as_str(), lines[0]["payload"]["awaiting"].as_bool()), (Some("working"), Some(true)));
+    assert_eq!((lines[1]["payload"]["phase"].as_str(), lines[1]["payload"]["awaiting"].as_bool()), (Some("review"), Some(false)));
+}
+
 #[test]
 fn r_agt_2_sources_name_no_agent_fields() {
     // Built from pieces so this test does not trip over itself.
@@ -653,9 +1019,16 @@ fn r_agt_2_sources_name_no_agent_fields() {
         ["seven", "day"].join("_"),
         ["used", "percentage"].join("_"),
         ["resets", "at"].join("_"),
+        ["agent", "state"].join("_"),
+        ["conversation", "id"].join("_"),
+        ["tool", "confirmation", "pending"].join("_"),
+        ["cycle", "mode"].join("_"),
+        ["conversation", "title"].join("_"),
+        ["stack", "with", "default"].join("_"),
         ["cla", "ude"].concat(),
         ["co", "dex"].concat(),
         ["command", "code"].concat(),
+        ["anti", "gravity"].concat(),
     ]
     .into_iter()
     .collect();

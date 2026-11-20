@@ -8,8 +8,9 @@
 // change them between replies); without it, a payload has none (an API key's).
 
 import { spawn } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
-import { FAKE_CLAUDE_VERSION } from './argv.ts'
+import { FAKE_ANTIGRAVITY_VERSION, FAKE_CLAUDE_VERSION } from './argv.ts'
 import type { Json } from './scenario.ts'
 
 /** Claude's default timeout for a command hook when the settings give none, in seconds. */
@@ -72,7 +73,7 @@ export function parseClaudeSettings(value: string, readFile: (p: string) => stri
   return config
 }
 
-/** `--settings`' status line command (inline JSON or a file, like `parseClaudeSettings`), or null when it sets none. */
+/** `--settings`' status line command (inline JSON or a file, like `parseClaudeSettings`), or null when it sets none or is disabled (`enabled: false`). */
 export function parseStatusLine(value: string, readFile: (p: string) => string = (p) => readFileSync(p, 'utf8')): string | null {
   let raw: unknown
   try {
@@ -81,9 +82,10 @@ export function parseStatusLine(value: string, readFile: (p: string) => string =
     return null
   }
   const line = raw !== null && typeof raw === 'object' ? (raw as Record<string, unknown>).statusLine : undefined
-  if (line === null || typeof line !== 'object') return null
+  if (line === null || typeof line !== 'object' || Array.isArray(line)) return null
   const o = line as Record<string, unknown>
-  return o.type === 'command' && typeof o.command === 'string' && o.command !== '' ? o.command : null
+  if (o.enabled === false) return null
+  return (o.type === undefined || o.type === 'command') && typeof o.command === 'string' && o.command.trim() !== '' ? o.command : null
 }
 
 /** The status line `--settings` set (Claude kills one that runs too long; its default hook timeout stands in here). */
@@ -405,5 +407,235 @@ function rateLimits(value: string | undefined): unknown {
     return JSON.parse(value.trimStart().startsWith('{') ? value : readFileSync(value, 'utf8')) as unknown
   } catch {
     return null
+  }
+}
+
+export interface AntigravitySessionInfo {
+  sessionId: string
+  transcriptPath: string
+  cwd: string
+  permissionMode: string
+  model: string
+  effort?: string | null
+  transcriptPathFor?: (sessionId: string) => string
+}
+
+/**
+ * Antigravity CLI's status-line feed: maintains a stateful session snapshot matching the recorded 1.5.13 payload
+ * schema (`fixtures/statusline/antigravity/1.5.13/`) and runs `statusLine.command` via `/bin/sh -c` with the JSON
+ * snapshot on stdin whenever a scenario step fires.
+ */
+export class AntigravityFeed implements HookSink {
+  private readonly info: AntigravitySessionInfo
+  private readonly env: NodeJS.ProcessEnv
+  private readonly statusLine: StatusLineConfig | null
+  private conversationId: string
+  private transcriptPath: string
+  private agentState = 'initializing'
+  private toolConfirmationPending = false
+  private cycleMode: string | null
+  private model: { id: string; display_name: string; effort?: string } | null
+  private conversationTitle = ''
+  private pendingInputCount = 0
+  private taskCount = 0
+  private subagents: Json[] = []
+  private contextUsedPct = 0
+  private costTotalUsd = 0
+  onSessionId: ((id: string) => void) | null = null
+
+  constructor(info: AntigravitySessionInfo, env: NodeJS.ProcessEnv, statusLine: StatusLineConfig | null = null) {
+    this.info = { ...info }
+    this.env = env
+    this.statusLine = statusLine
+    this.conversationId = info.sessionId
+    this.transcriptPath = info.transcriptPath
+    this.cycleMode = info.permissionMode === 'default' || info.permissionMode === 'yolo' ? null : info.permissionMode
+    this.model = {
+      id: info.model,
+      display_name: info.model,
+      ...(info.effort ? { effort: info.effort } : {}),
+    }
+  }
+
+  get sessionId(): string {
+    return this.conversationId
+  }
+
+  private setConversationId(nextId: string, customTranscriptPath?: string): void {
+    const changed = nextId !== this.conversationId
+    this.conversationId = nextId
+    this.info.sessionId = nextId
+    if (customTranscriptPath !== undefined) {
+      this.transcriptPath = customTranscriptPath
+    } else if (this.info.transcriptPathFor) {
+      this.transcriptPath = this.info.transcriptPathFor(nextId)
+    }
+    this.info.transcriptPath = this.transcriptPath
+    if (changed) this.onSessionId?.(nextId)
+  }
+
+  payload(event: string, opts: HookFireOptions): Record<string, unknown> {
+    const f = { ...opts.fields }
+    switch (event) {
+      case 'initializing':
+        this.agentState = 'initializing'
+        break
+      case 'working':
+        this.agentState = 'working'
+        this.toolConfirmationPending = false
+        break
+      case 'tool_use':
+        this.agentState = 'tool_use'
+        break
+      case 'tool_confirmation':
+        this.agentState = 'tool_use'
+        this.toolConfirmationPending = true
+        break
+      case 'tool_confirmation_clear':
+        this.toolConfirmationPending = false
+        if (this.agentState === 'tool_use') this.agentState = 'working'
+        break
+      case 'reviewing':
+        this.agentState = 'reviewing'
+        this.toolConfirmationPending = false
+        break
+      case 'authenticating':
+        this.agentState = 'authenticating'
+        this.toolConfirmationPending = false
+        break
+      case 'error':
+        this.agentState = 'error'
+        this.toolConfirmationPending = false
+        break
+      case 'idle':
+        this.agentState = 'idle'
+        this.toolConfirmationPending = false
+        break
+      case 'clear': {
+        const nextId = typeof f.conversation_id === 'string' && f.conversation_id.trim() !== '' ? f.conversation_id : randomUUID()
+        const customTp = typeof f.transcript_path === 'string' ? f.transcript_path : undefined
+        this.setConversationId(nextId, customTp)
+        this.agentState = 'idle'
+        this.toolConfirmationPending = false
+        this.conversationTitle = ''
+        this.contextUsedPct = 0
+        delete f.conversation_id
+        break
+      }
+      case 'title':
+      case 'meta':
+      case 'snapshot':
+        break
+    }
+
+    if (typeof f.conversation_id === 'string' && f.conversation_id.trim() !== '' && f.conversation_id !== this.conversationId) {
+      const customTp = typeof f.transcript_path === 'string' ? f.transcript_path : undefined
+      this.setConversationId(f.conversation_id, customTp)
+      delete f.conversation_id
+    }
+    if (typeof f.transcript_path === 'string') {
+      this.transcriptPath = f.transcript_path
+      this.info.transcriptPath = f.transcript_path
+    }
+    if (typeof f.agent_state === 'string') this.agentState = f.agent_state
+    if (typeof f.tool_confirmation_pending === 'boolean') this.toolConfirmationPending = f.tool_confirmation_pending
+    if ('cycle_mode' in f) {
+      this.cycleMode = typeof f.cycle_mode === 'string' && f.cycle_mode !== 'default' ? f.cycle_mode : null
+      delete f.cycle_mode
+    }
+    if (typeof f.conversation_title === 'string') this.conversationTitle = f.conversation_title
+    if (typeof f.title === 'string') {
+      this.conversationTitle = f.title
+      delete f.title
+    }
+    if (typeof f.pending_input_count === 'number') this.pendingInputCount = f.pending_input_count
+    if (typeof f.task_count === 'number') this.taskCount = f.task_count
+    if (Array.isArray(f.subagents)) this.subagents = f.subagents
+    if ('model' in f) {
+      if (typeof f.model === 'string') {
+        this.model = {
+          id: f.model,
+          display_name: f.model,
+          ...(this.model?.effort ? { effort: this.model.effort } : {}),
+        }
+        delete f.model
+      } else if (f.model === null || (typeof f.model === 'object' && !Array.isArray(f.model))) {
+        this.model = f.model as typeof this.model
+        delete f.model
+      }
+    }
+    if (typeof f.context_window === 'object' && f.context_window !== null && !Array.isArray(f.context_window)) {
+      const cw = f.context_window as Record<string, unknown>
+      if (typeof cw.used_percentage === 'number') this.contextUsedPct = cw.used_percentage
+    }
+    if (typeof f.cost === 'object' && f.cost !== null && !Array.isArray(f.cost)) {
+      const c = f.cost as Record<string, unknown>
+      if (typeof c.total_usd === 'number') this.costTotalUsd = c.total_usd
+    }
+
+    const baseContextWindow: Record<string, unknown> = {
+      total_input_tokens: 0,
+      total_output_tokens: 0,
+      context_window_size: 1048576,
+      used_percentage: this.contextUsedPct,
+      remaining_percentage: Math.max(0, 100 - this.contextUsedPct),
+      current_usage: null,
+    }
+    if (typeof f.context_window === 'object' && f.context_window !== null && !Array.isArray(f.context_window)) {
+      Object.assign(baseContextWindow, f.context_window)
+      delete f.context_window
+    }
+    const baseCost: Record<string, unknown> = {
+      total_usd: this.costTotalUsd,
+      subagent_usd: 0,
+      estimated: false,
+    }
+    if (typeof f.cost === 'object' && f.cost !== null && !Array.isArray(f.cost)) {
+      Object.assign(baseCost, f.cost)
+      delete f.cost
+    }
+
+    const p: Record<string, unknown> = {
+      cwd: this.info.cwd,
+      session_id: this.conversationId,
+      conversation_id: this.conversationId,
+      transcript_path: this.transcriptPath,
+      model: event === 'authenticating' && !('model' in opts.fields) ? null : this.model,
+      workspace: { current_dir: this.info.cwd, project_dir: this.info.cwd },
+      version: this.env.FAKE_AGENT_CLI_VERSION || FAKE_ANTIGRAVITY_VERSION,
+      context_window: baseContextWindow,
+      cost: baseCost,
+      exceeds_200k_tokens: false,
+      product: 'antigravity',
+      agent_state: this.agentState,
+      tool_confirmation_pending: this.toolConfirmationPending,
+      pending_input_count: this.pendingInputCount,
+      task_count: this.taskCount,
+      subagents: this.subagents,
+      email: 'fixture@example.invalid',
+    }
+    if (this.conversationTitle !== '') p.conversation_title = this.conversationTitle
+    if (this.cycleMode !== null && this.cycleMode !== 'default') p.cycle_mode = this.cycleMode
+    const quota = rateLimits(this.env.FAKE_AGENT_QUOTA)
+    if (quota !== null) p.quota = quota
+
+    return mergeFields(p, f)
+  }
+
+  async fire(event: string, opts: HookFireOptions): Promise<{ payload: Record<string, unknown>; runs: HookRun[] }> {
+    const payload = this.payload(event, opts)
+    const runs: HookRun[] = []
+    if (this.statusLine) {
+      const input = JSON.stringify(payload)
+      const args = ['-c', this.statusLine.command]
+      const r = await runCommand('/bin/sh', args, {
+        cwd: this.info.cwd,
+        env: this.env,
+        input,
+        timeoutMs: DEFAULT_HOOK_TIMEOUT_SEC * 1000,
+      })
+      runs.push({ ...r, command: '/bin/sh', args })
+    }
+    return { payload, runs }
   }
 }

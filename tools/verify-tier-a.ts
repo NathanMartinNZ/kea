@@ -9,9 +9,9 @@ export const TIER_A: Record<TierAProject, string[]> = {
   // I-PLT-*: the Linux rows (the instance lock, holders hidden by hidepid), each a named skip where it cannot run.
   // I-FT-29, I-PRJ-7: a folder made a repository outside Kea, heard through each system's own file watcher
   integration: ['I-HLD-*', 'I-PTY-1…6', 'I-PTY-13', 'I-WT-3', 'I-AGT-1/2', 'I-PLT-*', 'I-FT-29', 'I-PRJ-7'],
-  // static contract K-CL-1…6 (from its cache; a miss launches nothing), K-CM-1…5 (the same); fixture contract K-FX-1…3 and the
-  // fixture privacy scan K-FX-8
-  contract: ['K-CL-1…6', 'K-CM-1…5', 'K-FX-1…3', 'K-FX-8'],
+  // static contract K-CL-1…6 (from its cache; a miss launches nothing), K-CM-1…5 and K-AG-1…5 (the same); fixture
+  // contract K-FX-1…3, K-FX-10 and the fixture privacy scan K-FX-8
+  contract: ['K-CL-1…6', 'K-CM-1…5', 'K-AG-1…5', 'K-FX-1…3', 'K-FX-8', 'K-FX-10'],
   // I-HLD-* tests that need the real app (I-HLD-25) live with the app-level chaos suites (tests/chaos/app-*)
   chaos: ['C-KILL-1/2/3/6/11/12', 'I-HLD-*'],
   // the leak cycles fast enough for every push. L-TERM-2, L-TERM-4 and L-FV-2 are Tier B (with them the tier took

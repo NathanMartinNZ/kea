@@ -33,6 +33,7 @@
     "test:contract": "vitest run --project contract",
     "test:contract:capture": "KEA_CONTRACT_CAPTURE=1 vitest run --project contract -t K-CL-",
     "test:contract:capture:cmd": "KEA_CONTRACT_CAPTURE_CM=1 vitest run --project contract -t K-CM-",
+    "test:contract:capture:agy": "KEA_CONTRACT_CAPTURE_AG=1 vitest run --project contract -t K-AG-",
     "test:contract:live": "KEA_LIVE=1 vitest run --project contract-live",
     "perf": "node tools/perf/src/main.ts",
     "gallery": "node tools/gallery/src/main.ts",

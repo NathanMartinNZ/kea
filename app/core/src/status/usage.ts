@@ -1,13 +1,13 @@
-// Usage readings: an account's usage limits as its agent reported them (Claude's status line, on unless turned off). One reading per
+// Usage readings: an account's usage limits as its agent reported them (a status line or session feed, on unless turned off). One reading per
 // account, the agent and its config folder, held in memory only and shown to the window as the `status.usage` store.
 //
 //   report     an adapter's `account.usage` windows, stamped with when the agent reported them: the latest report wins
 //                      per window, a window a report leaves out keeps its last value, and an older report (a spooled
 //                      copy drained late) changes nothing
 //   publish    the reading held here always has the latest report's time (staleness runs from it); the store gets it
-//                      only when a window's share or reset time changes, a window comes or goes, or the time it was seen
-//                      moves to another local minute (the window shows it to the minute). The agent can rerun its status
-//                      line after every message, so a long turn repeats the same reading many times a minute
+//                      only when a window's labels, priority, share or reset time change, a window comes or goes, or the
+//                      time it was seen moves to another local minute (the window shows it to the minute). The agent can
+//                      rerun its status line after every message, so a long turn repeats the same reading many times a minute
 //   expire     on the account conditions' check (conditions.ts, at least every L.conditionCheckMs, no timer here): a
 //                      window goes at its reset time, a reading no report refreshed for L.usageStaleMs goes whole (use
 //                      outside Kea may have moved it), and so does a reading with no window left
@@ -15,7 +15,7 @@
 //   limit      a usage limit hit without a reset time takes the latest reset among the full windows, while the agent
 //                      has one account with a reading (with two, which one the session used is not known)
 
-import { KeyedStore, L, USAGE_STORE, USAGE_WINDOWS, type UsageReading, type UsageWindow } from '@kea/protocol'
+import { compareUsageWindows, KeyedStore, L, USAGE_STORE, type UsageReading, type UsageWindow } from '@kea/protocol'
 
 /** A reading's key: the agent and the account's config folder (two logins are two readings). */
 export function usageKey(agent: string, account: string): string {
@@ -56,16 +56,33 @@ export class Usage {
       if (w.resetsAt <= now) continue // reset already: the next report brings the new window
       const old = byId.get(w.id)
       if (old && old.seenAt > r.at) continue
-      const next = { id: w.id, usedPct: w.usedPct, resetsAt: w.resetsAt, seenAt: r.at }
-      if (old && old.usedPct === next.usedPct && old.resetsAt === next.resetsAt && old.seenAt === next.seenAt) continue
+      const next: HeldWindow = {
+        id: w.id,
+        shortLabel: w.shortLabel,
+        tipLabel: w.tipLabel,
+        spokenLabel: w.spokenLabel,
+        ...(w.priority !== undefined ? { priority: w.priority } : {}),
+        usedPct: w.usedPct,
+        resetsAt: w.resetsAt,
+        seenAt: r.at,
+      }
+      if (
+        old &&
+        old.shortLabel === next.shortLabel &&
+        old.tipLabel === next.tipLabel &&
+        old.spokenLabel === next.spokenLabel &&
+        old.priority === next.priority &&
+        old.usedPct === next.usedPct &&
+        old.resetsAt === next.resetsAt &&
+        old.seenAt === next.seenAt
+      )
+        continue
       byId.set(w.id, next)
       changed = true
     }
     if (!changed) return
-    const windows = USAGE_WINDOWS.flatMap((id) => {
-      const w = byId.get(id)
-      return w ? [w] : []
-    })
+    const windows = [...byId.values()].sort(compareUsageWindows).slice(0, L.usageWindowsMax)
+    if (windows.length === 0) return
     this.held.set(key, { account: key, agent: r.agent, windows, seenAt: Math.max(...windows.map((w) => w.seenAt)) })
     if (this.publish(key)) this.o.changed?.(r.agent)
   }
@@ -137,7 +154,15 @@ export class Usage {
       cur.windows.length === r.windows.length &&
       cur.windows.every((w, i) => {
         const n = r.windows[i]!
-        return w.id === n.id && w.usedPct === n.usedPct && w.resetsAt === n.resetsAt
+        return (
+          w.id === n.id &&
+          w.shortLabel === n.shortLabel &&
+          w.tipLabel === n.tipLabel &&
+          w.spokenLabel === n.spokenLabel &&
+          w.priority === n.priority &&
+          w.usedPct === n.usedPct &&
+          w.resetsAt === n.resetsAt
+        )
       })
     if (same) return false
     this.store.set(key, r)

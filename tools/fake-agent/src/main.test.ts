@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import { argvHash, argvHashLine } from './argv.ts'
-import { FAKE_AGENT_MAIN, fakeAgentCommand } from './index.ts'
+import { FAKE_AGENT_MAIN, fakeAgentCommand, writeAgentShim } from './index.ts'
 import { claudeProjectDirName, commandCodeSlug } from './transcript.ts'
 
 const dir = realpathSync(mkdtempSync(join(tmpdir(), 'fake-agent-main-')))
@@ -305,5 +305,153 @@ export default function (cmd: { on: (e: string, h: (p: unknown) => unknown) => v
     const missing = start(['--as', 'commandcode', ...base, '--resume', 'kea-none'], w)
     expect((await missing.exited).code).toBe(1)
     expect(missing.err()).toContain('No session found matching "kea-none"')
+  })
+
+  it('U-FAKE-34 · --as antigravity answers detection as 1.5.13 does (--version on stdout, --help on stderr with empty stdout, models on stdout and exit 1 when FAKE_AGENT_OFFLINE=1), writes the agy shim, runs statusLine through /bin/sh -c with stateful snapshots and quota, handles /clear conversation switching and --conversation resume', async () => {
+    const w = workspace('u34')
+    const asked = (args: string[], extra: Record<string, string> = {}) => {
+      const child = spawn(process.execPath, [FAKE_AGENT_MAIN, '--as', 'antigravity', ...args], {
+        cwd: w.cwd,
+        env: { ...env(w.home), ...extra },
+        stdio: 'pipe',
+      })
+      children.add(child)
+      let out = ''
+      let err = ''
+      child.stdout.setEncoding('utf8').on('data', (d: string) => (out += d))
+      child.stderr.setEncoding('utf8').on('data', (d: string) => (err += d))
+      return new Promise<{ code: number | null; out: string; err: string }>((resolve) =>
+        child.on('close', (code) => resolve({ code, out, err })),
+      )
+    }
+    const fixture = (f: string) => readFileSync(join(import.meta.dirname, '../../../fixtures/cli/antigravity/1.5.13', f), 'utf8')
+    const [version, older, help, models, offline] = await Promise.all([
+      asked(['--version']),
+      asked(['--version'], { FAKE_AGENT_CLI_VERSION: '1.3.0' }),
+      asked(['--help']),
+      asked(['models']),
+      asked(['models'], { FAKE_AGENT_OFFLINE: '1' }),
+    ])
+    expect(version).toEqual({ code: 0, out: '1.5.13\n', err: '' })
+    expect(older).toEqual({ code: 0, out: '1.3.0\n', err: '' })
+    // Go's flag package prints --help to stderr with empty stdout and exit code 0
+    expect(help).toEqual({ code: 0, out: '', err: fixture('help.txt') })
+    expect(models).toEqual({ code: 0, out: fixture('models.txt'), err: 'Fetching available models...\n' })
+    expect(offline.code).toBe(1)
+    expect(offline.out).toBe('')
+    expect(offline.err).toContain('Error: Please sign in to view available models.')
+
+    // writeAgentShim(..., 'antigravity') writes an executable `agy` shim
+    const shimDir = join(dir, 'u34-shims')
+    const agyShim = writeAgentShim(shimDir, 'antigravity')
+    expect(agyShim).toBe(join(shimDir, 'agy'))
+    expect(readFileSync(agyShim, 'utf8')).toContain('--as antigravity "$@"')
+
+    // End-to-end statusLine feed over /bin/sh -c, step transcript writing, /clear conversation switch, and --conversation resume
+    const feedOut = w.file('feed.jsonl')
+    const agSettings = JSON.stringify({
+      statusLine: {
+        type: 'command',
+        command: `'${process.execPath}' '${STUB}' '${feedOut}' 'feed' 'antigravity'`,
+        stack_with_default: true,
+      },
+      clearScrollbackOnResize: false,
+    })
+    const quotaJson = JSON.stringify({
+      'gemini-5h': { remaining_fraction: 0.75, reset_time: '2026-11-21T00:00:00Z', reset_in_seconds: 3600 },
+    })
+    const clearId = '77f055e0-77a0-4ec8-9f12-d184b3b76fed'
+    const scenario = w.file(
+      'ag.yaml',
+      `version: 1
+steps:
+  - hook: working
+  - transcript: { record: user, text: "{{prompt}}" }
+  - transcript: { record: running }
+  - hook: tool_confirmation
+  - hook: tool_confirmation_clear
+  - transcript: { record: assistant, text: "First reply." }
+  - hook: { event: idle, fields: { conversation_title: "First Title", subagents: [ { name: "h1", role: "worker", status: "running" } ] } }
+  - hook: { event: clear, fields: { conversation_id: "${clearId}" } }
+  - transcript: { record: user, text: "after clear" }
+  - transcript: { record: assistant, text: "Second reply." }
+  - print: "READY\\r\\n"
+  - wait: key
+`,
+    )
+    const child = spawn(
+      process.execPath,
+      [
+        FAKE_AGENT_MAIN,
+        '--as',
+        'antigravity',
+        '--scenario',
+        scenario,
+        '--fake-home',
+        w.fakeHome,
+        `--conversation=${UUID}`,
+        '--model=Gemini 3.8 Flash (Low)',
+        '--effort=low',
+        '--mode=auto',
+        `--settings=${agSettings}`,
+        '--prompt-interactive=explain repo',
+      ],
+      {
+        cwd: w.cwd,
+        env: { ...env(w.home), FAKE_AGENT_QUOTA: quotaJson },
+        stdio: 'pipe',
+      },
+    )
+    children.add(child)
+    let stdout = ''
+    await new Promise<void>((resolve, reject) => {
+      child.stdout.setEncoding('utf8').on('data', (d: string) => {
+        stdout += d
+        if (stdout.includes('READY')) resolve()
+      })
+      child.on('close', () => {
+        if (!stdout.includes('READY')) reject(new Error('closed before READY'))
+      })
+    })
+    child.stdin.end()
+    await new Promise<void>((resolve) => child.on('close', () => resolve()))
+
+    const runs = jsonl<{ argv: string[]; stdin: string }>(feedOut)
+    expect(runs.every((r) => r.argv[0] === 'feed' && r.argv[1] === 'antigravity')).toBe(true)
+    const snapshots = runs.map((r) => JSON.parse(r.stdin) as Record<string, unknown>)
+    expect(snapshots.map((s) => s.agent_state)).toEqual(['initializing', 'working', 'tool_use', 'working', 'idle', 'idle'])
+    expect(snapshots[0]).toMatchObject({
+      conversation_id: UUID,
+      agent_state: 'initializing',
+      cycle_mode: 'auto',
+      model: { id: 'Gemini 3.8 Flash (Low)', display_name: 'Gemini 3.8 Flash (Low)', effort: 'low' },
+      quota: { 'gemini-5h': { remaining_fraction: 0.75 } },
+    })
+    expect(snapshots[2]?.tool_confirmation_pending).toBe(true)
+    expect(snapshots[3]?.tool_confirmation_pending).toBe(false)
+    expect(snapshots[4]).toMatchObject({
+      conversation_id: UUID,
+      agent_state: 'idle',
+      conversation_title: 'First Title',
+      subagents: [{ name: 'h1', role: 'worker', status: 'running' }],
+    })
+    // /clear switched conversation_id, updated transcript_path to the new brain folder, and cleared conversation_title
+    const tp1 = join(w.fakeHome, '.gemini', 'antigravity-cli', 'brain', UUID, '.system_generated', 'logs', 'transcript.jsonl')
+    const tp2 = join(w.fakeHome, '.gemini', 'antigravity-cli', 'brain', clearId, '.system_generated', 'logs', 'transcript.jsonl')
+    expect(snapshots[0]?.transcript_path).toBe(tp1)
+    expect(snapshots[5]?.conversation_id).toBe(clearId)
+    expect(snapshots[5]?.transcript_path).toBe(tp2)
+    expect(snapshots[5]?.conversation_title).toBeUndefined()
+
+    // Both transcripts exist in their respective brain/<id>/.system_generated/logs/ folders
+    expect(jsonl<Record<string, unknown>>(tp1).map((r) => [r.step_index, r.type, r.status])).toEqual([
+      [0, 'USER_INPUT', 'DONE'],
+      [1, 'PLANNER_RESPONSE', 'RUNNING'],
+      [2, 'PLANNER_RESPONSE', 'DONE'],
+    ])
+    expect(jsonl<Record<string, unknown>>(tp2).map((r) => [r.step_index, r.type, r.status])).toEqual([
+      [0, 'USER_INPUT', 'DONE'],
+      [1, 'PLANNER_RESPONSE', 'DONE'],
+    ])
   })
 })
