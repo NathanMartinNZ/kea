@@ -1,6 +1,6 @@
 [package]
 name = "kea-helper"
-version = "1.4.2"
+version = "1.5.0"
 edition = "2024"
 publish = false
 description = "Kea's native helper: PTY holder, hook relay, footprint and port probes"
