@@ -184,7 +184,8 @@ describe('the colours of a document the user edits', () => {
 
   it('U-FV-26 · through the worker: random typing at several cursors, coalesced per frame and changed while runs are under way, leaves the colours of a whole-file run', async () => {
     const grammars = new ShikiGrammars()
-    const limits = { firstLines: 5, chunkLines: 7, lineMax: 20_000, lineMs: 500, docsMax: 4 }
+    // `lineMs: 0` turns off vscode-textmate's per-line wall-clock cap so a scheduler pause never cuts a line short
+    const limits = { firstLines: 5, chunkLines: 7, lineMax: 20_000, lineMs: 0, docsMax: 4 }
     const tick = () => new Promise<void>((r) => setImmediate(r))
     let requests = 0
     /** The engine in this process, its messages crossing later and in order, as a worker's do. */

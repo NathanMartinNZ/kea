@@ -25,7 +25,7 @@ export interface EngineLimits {
   chunkLines: number
   /** A longer line is not tokenised. */
   lineMax: number
-  /** One line's tokenising stops after this long. */
+  /** One line's tokenising stops after this long (0: no limit). */
   lineMs: number
   /** Documents whose marks are kept (the window's visible documents and its cache). */
   docsMax: number

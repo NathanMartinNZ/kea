@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import { ChangeSet, Text, type ChangeSpec } from '@codemirror/state'
 import { INITIAL } from 'shiki/textmate'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { followEdits, lineEdits } from '../highlight.ts'
 import { SYNTAX_ROLES, SYNTAX_THEME, syntaxCss, tokenClass } from '../syntax.ts'
 import { TokenStore, tokenStart, tokenStyle } from '../tokens.ts'
@@ -178,7 +178,9 @@ function host(posted: FromWorker[], o: { onYield?: () => void; onPost?: (m: From
   }
 }
 
-const LIMITS = { firstLines: 5, chunkLines: 7, lineMax: 20_000, lineMs: 500, docsMax: 4 }
+// `lineMs: 0` turns off vscode-textmate's per-line wall-clock cap (`Date.now()`), so a scheduler pause under load
+// never cuts a line short and makes a chunked or edit run disagree with a whole-file run.
+const LIMITS = { firstLines: 5, chunkLines: 7, lineMax: 20_000, lineMs: 0, docsMax: 4 }
 
 async function drained(engine: HighlightEngine): Promise<void> {
   while (engine.pending > 0) await new Promise<void>((r) => setImmediate(r))
@@ -323,13 +325,30 @@ describe('chunked tokenisation', () => {
     await drained(engine3)
     expect(posted3.filter((m) => m.t === 'failed').map((m) => m.id)).toEqual([40, 41])
     const longLine = `const s = "${'x'.repeat(50)}"`
-    const tk = new LineTokenizer(ts!, grammars.roleOf(), { lineMax: 20, lineMs: 500 })
+    const tk = new LineTokenizer(ts!, grammars.roleOf(), { lineMax: 20, lineMs: 0 })
     const s = new TokenStore()
     s.put(tk.run(['const a = 1', longLine, '/* open', '*/ let b = 2'], 0, 4, INITIAL).chunk)
     expect(lineOf(s, 1)).toEqual([])
     expect((lineOf(s, 0) as number[]).length).toBeGreaterThan(1)
     // the state carried on past the skipped line: the comment that opens after it still closes
     expect((lineOf(s, 3) as number[]).length).toBeGreaterThan(1)
+    // a wall-clock jump stops a line early when `lineMs` is positive, and leaves `lineMs: 0` untouched
+    const sampleLine = ['const n = 42']
+    const full = new TokenStore()
+    full.put(new LineTokenizer(ts!, grammars.roleOf(), { lineMax: 20_000, lineMs: 0 }).run(sampleLine, 0, 1, INITIAL).chunk)
+    expect((lineOf(full, 0) as number[]).length).toBeGreaterThan(1)
+    let clock = 1_000
+    const now = vi.spyOn(Date, 'now').mockImplementation(() => (clock += 1_000))
+    try {
+      const uncapped = new TokenStore()
+      uncapped.put(new LineTokenizer(ts!, grammars.roleOf(), { lineMax: 20_000, lineMs: 0 }).run(sampleLine, 0, 1, INITIAL).chunk)
+      expect(lineOf(uncapped, 0)).toEqual(lineOf(full, 0))
+      const capped = new TokenStore()
+      capped.put(new LineTokenizer(ts!, grammars.roleOf(), { lineMax: 20_000, lineMs: 500 }).run(sampleLine, 0, 1, INITIAL).chunk)
+      expect((lineOf(capped, 0) as number[]).length).toBeLessThan((lineOf(full, 0) as number[]).length)
+    } finally {
+      now.mockRestore()
+    }
   })
 })
 
@@ -612,7 +631,7 @@ describe('highlighting while the user types', () => {
 describe('token colours', () => {
   it('U-FV-5 · a token is drawn in the role its theme colour stands for, also after Shiki has taken the theme: comment, keyword, string, number, function', async () => {
     const g = await grammars.grammar('javascript')
-    const t = new LineTokenizer(g!, grammars.roleOf(), { lineMax: 20000, lineMs: 500 })
+    const t = new LineTokenizer(g!, grammars.roleOf(), { lineMax: 20000, lineMs: 0 })
     const lines = ['// note', 'const n = 42', 'function f() { return "s" }']
     const { chunk } = t.run(lines, 0, lines.length, INITIAL)
     const store = new TokenStore()

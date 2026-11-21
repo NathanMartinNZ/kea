@@ -46,7 +46,7 @@ export class LineTokenizer {
   private readonly roleOf: Uint8Array
   /** A longer line is not tokenised (it shows as plain text and leaves the state as it was). */
   private readonly lineMax: number
-  /** One line's tokenising stops after this long; what it had not reached shows as plain text. */
+  /** One line's tokenising stops after this long (0: no limit); what it had not reached shows as plain text. */
   private readonly lineMs: number
 
   constructor(grammar: IGrammar, roleOf: Uint8Array, o: { lineMax: number; lineMs: number }) {
