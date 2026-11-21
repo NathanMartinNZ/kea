@@ -1,6 +1,6 @@
 // The Kea mark: a K of three polygons on a 16-unit grid, a stem and two arms. One shape everywhere: main draws
 // the menu-bar item and the Linux tray icon from it at run time (app/main/src/trayIcon.ts), and tools/pack/src/icons.ts
-// draws the app icon and the icon files of assets/icon/ from it. No Node, DOM or Electron API, so main, the tools and
+// draws the menu-bar and tray files of assets/icon/ from it. No Node, DOM or Electron API, so main, the tools and
 // the tests share it as it is.
 
 import { L } from '@kea/protocol/limits'
@@ -50,13 +50,6 @@ export function insidePolygon(poly: Polygon, x: number, y: number): boolean {
 /** Whether the grid point (x, y) lies inside the mark. */
 export function insideMark(x: number, y: number): boolean {
   return MARK.some((p) => insidePolygon(p, x, y))
-}
-
-/** The mark's bounding box on its grid, `[left, top, right, bottom]`. */
-export function markBounds(): [number, number, number, number] {
-  const xs = MARK.flat().map(([x]) => x)
-  const ys = MARK.flat().map(([, y]) => y)
-  return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]
 }
 
 /**

@@ -71,13 +71,13 @@ function both(rows: (ground: 'light' | 'dark') => string): string {
 const SCREENS: { name: string; caption: string; design: string; html: string }[] = [
   {
     name: 'app-real',
-    caption: 'The app icon, the PNGs of assets/icon/png at their real size (one file pixel to one screen pixel), 16 to 512 px, on a light and a dark ground (1024 px below): the K in the accent on the terminal canvas, outlined in --line-strong',
+    caption: 'The app icon, the PNGs of assets/icon/png at their real size (one file pixel to one screen pixel), 16 to 512 px, on a light and a dark ground (1024 px below): the pixel-art bird on the terminal canvas, outlined in --line-strong',
     design: 'App icon, Colour',
     html: both(() => PNG_SIZES.filter((px) => px < 1024).map((px) => figure(png(px), real(px), `${px}`)).join('')),
   },
   {
     name: 'app-enlarged',
-    caption: 'The small PNGs enlarged eight times, pixel for pixel: 16 and 24 px (the body and the K blur at 16 px, as every 16 px icon does), 32 and 48 px (the stem, the top and the bottom fall on whole pixels from 32 px)',
+    caption: 'The small PNGs enlarged eight times, pixel for pixel: 16, 24, 32 and 48 px, each the bird drawn by hand for its size at one pixel a sprite pixel (assets/icon-art/), so none of them blurs',
     design: 'App icon',
     html: both(() => [16, 24, 32, 48].map((px) => figure(png(px), enlarged(px), `${px} × 8`, 'px')).join('')),
   },

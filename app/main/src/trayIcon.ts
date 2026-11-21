@@ -1,5 +1,5 @@
 // The menu-bar item's icon: a monochrome template image of the Kea mark at the icon size (`SIZE_PX.icon`), drawn at 1×
-// and 2× from the mark's polygons (`@kea/ui/mark`, the shape the icon files of assets/icon/ are drawn from too), so no
+// and 2× from the mark's polygons (`@kea/ui/mark`, the shape the tray files of assets/icon/ are drawn from too), so no
 // image file has to be read. A template image is black with alpha; macOS tints it to the menu bar's appearance (light,
 // dark, highlighted). A Linux tray draws a template as it is, black, which is lost on a dark panel, so there the mark
 // is drawn in Kea's accent, which reads on light and dark panels.

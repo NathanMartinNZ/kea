@@ -1,6 +1,7 @@
-// The icon files of assets/icon/, drawn from the Kea mark (packages/ui/src/mark.ts) and the design tokens with
-// no image tool: shapes rasterised here with supersampling, PNG written with node:zlib, the ICNS written chunk by chunk
-// (Apple's format: a header, then one image per size), so it runs on either system.
+// The icon files of assets/icon/ with no image tool: the app icon is the bird's pixel-art sprites (assets/icon-art/)
+// on a rounded-square body drawn from the design tokens, and the menu-bar and tray icons are the Kea mark
+// (packages/ui/src/mark.ts). Shapes are rasterised here with supersampling, PNG read and written with node:zlib, the
+// ICNS written chunk by chunk (Apple's format: a header, then one image per size), so it runs on either system.
 //
 //   node tools/pack/src/icons.ts           write assets/icon/
 //   node tools/pack/src/icons.ts --check   exit 1 if a file there differs from what this would write, or is not one
@@ -14,7 +15,7 @@ import path from 'node:path'
 import zlib from 'node:zlib'
 import { L } from '../../../packages/protocol/src/generated/limits.ts'
 import { COLOR } from '../../../packages/ui/src/generated/tokens.ts'
-import { insideMark, MARK, MARK_GRID, markBounds, markCoverage } from '../../../packages/ui/src/mark.ts'
+import { MARK_GRID, markCoverage } from '../../../packages/ui/src/mark.ts'
 
 /** An image: `width` × `height` pixels, RGBA, straight (not premultiplied) alpha, row by row. */
 export interface Image {
@@ -23,18 +24,17 @@ export interface Image {
   rgba: Uint8Array
 }
 
-/** The app icon's colours. */
+/** The app icon body's colours. */
 export interface AppIconColors {
   face: string
   rim: string
-  mark: string
 }
 
 /**
  * The body is the terminal's canvas (`--surface-0`) outlined in `--line-strong` as Kea outlines a floating layer, so
- * it reads on a dark Dock as on a light desktop; the K is the one accent, the terminal cursor's colour.
+ * it reads on a dark Dock as on a light desktop; the bird is drawn on the face.
  */
-export const APP_ICON: AppIconColors = { face: COLOR['surface-0'], rim: COLOR['line-strong'], mark: COLOR.accent }
+export const APP_ICON: AppIconColors = { face: COLOR['surface-0'], rim: COLOR['line-strong'] }
 
 /**
  * The PNG sizes of the app icon: the hicolor sizes Kea's Linux packages install
@@ -62,17 +62,30 @@ export const ICNS_TYPES = [
 /** Where the files go, from the repository root. */
 export const ICON_DIR = 'assets/icon'
 
+/**
+ * The bird's sprites, from the repository root: 8-bit RGBA PNGs (what Aseprite exports from an RGB sprite), every
+ * pixel opaque or clear. Edit them there, then run this tool.
+ */
+export const ART_DIR = 'assets/icon-art'
+
+/** The large sprite, for 64 px and every larger size: `app_icon_art_px` grid pixels a sprite pixel, whole pixels at each. */
+export const ART_LARGE = 'bird.png'
+
+/** The sprites drawn by hand for the sizes too small for the large one, by the size each draws at one pixel a sprite pixel. */
+export const ART_SMALL: ReadonlyMap<number, string> = new Map([
+  [16, 'bird-16.png'],
+  [24, 'bird-24.png'],
+  [32, 'bird-32.png'],
+  [48, 'bird-48.png'],
+])
+
+const ROOT = path.resolve(import.meta.dirname, '..', '..', '..')
+
 // ── the app icon's geometry, on the 1024 px grid ─────────────────────────────────────────────────────────────────────
 
 const GRID = L.appIconGridPx
 const BODY_LO = (GRID - L.appIconBodyPx) / 2
 const BODY_HI = BODY_LO + L.appIconBodyPx
-const MARK_SCALE = L.appIconMarkPx / MARK_GRID
-const [MARK_L, MARK_T, MARK_R, MARK_B] = markBounds()
-/** The K's box centred on the body, then moved to the nearest multiple of `app_icon_mark_snap_px`, so its straight edges fall on whole pixels. */
-const snap = (v: number) => Math.round(v / L.appIconMarkSnapPx) * L.appIconMarkSnapPx
-const MARK_X = snap(GRID / 2 - ((MARK_L + MARK_R) / 2) * MARK_SCALE)
-const MARK_Y = snap(GRID / 2 - ((MARK_T + MARK_B) / 2) * MARK_SCALE)
 
 /** `x`ⁿ, by multiplication when `n` is whole (so the corner is drawn the same on every system). */
 function power(x: number, n: number): number {
@@ -100,11 +113,6 @@ function insideSquircle(sq: Squircle, x: number, y: number): boolean {
 /** Whether the grid point (x, y) lies inside the body. */
 function insideBody(x: number, y: number): boolean {
   return insideSquircle(BODY, x, y)
-}
-
-/** Whether the grid point (x, y) lies inside the K. */
-function insideAppMark(x: number, y: number): boolean {
-  return insideMark((x - MARK_X) / MARK_SCALE, (y - MARK_Y) / MARK_SCALE)
 }
 
 /**
@@ -140,29 +148,6 @@ function squircleSettled(sq: Squircle): (x: number, y: number) => number | null 
   }
 }
 
-/** The K's pixels no edge crosses: every edge farther from the centre than half the pixel's diagonal. */
-function markSettled(): (x: number, y: number) => number | null {
-  const edges = MARK.flatMap((p) =>
-    p.map((a, i) => {
-      const b = p[(i + 1) % p.length]!
-      return [MARK_X + a[0] * MARK_SCALE, MARK_Y + a[1] * MARK_SCALE, MARK_X + b[0] * MARK_SCALE, MARK_Y + b[1] * MARK_SCALE] as const
-    }),
-  )
-  return (x, y) => {
-    const px = x + 0.5
-    const py = y + 0.5
-    for (const [ax, ay, bx, by] of edges) {
-      const dx = bx - ax
-      const dy = by - ay
-      const t = Math.min(1, Math.max(0, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)))
-      const ex = ax + t * dx - px
-      const ey = ay + t * dy - py
-      if (ex * ex + ey * ey <= 0.5) return null
-    }
-    return insideAppMark(px, py) ? 1 : 0
-  }
-}
-
 /** One pass of a box blur of radius `r` along a line of `n` values `step` apart from `start`; outside the grid is 0. */
 function boxLine(src: Float64Array, dst: Float64Array, start: number, step: number, n: number, r: number): void {
   let sum = 0
@@ -195,21 +180,26 @@ function rgb(hex: string): [number, number, number] {
   return [((n >> 16) & 0xff) / 255, ((n >> 8) & 0xff) / 255, (n & 0xff) / 255]
 }
 
-/** The app icon at the grid's size, premultiplied, channels from 0 to 1: the shadow, the body over it, the K over that. */
+/** `#RRGGBB` of the pixel at byte offset `j` of 8-bit RGBA pixels. */
+function hexAt(rgba: Uint8Array, j: number): string {
+  return `#${[rgba[j]!, rgba[j + 1]!, rgba[j + 2]!].map((v) => v.toString(16).padStart(2, '0').toUpperCase()).join('')}`
+}
+
+/** The app icon's body at the grid's size, premultiplied, channels from 0 to 1: the shadow and the body over it. */
 export interface Drawing {
   /** r, g, b, a per pixel, the colour premultiplied by a. */
   px: Float64Array
+  /** The share of each pixel inside the face, which clips the bird. */
+  face: Float64Array
 }
 
 export function drawAppIcon(colors: AppIconColors = APP_ICON): Drawing {
   const body = cover(insideBody, squircleSettled(BODY))
   const face = cover((x, y) => insideSquircle(FACE, x, y), squircleSettled(FACE))
-  const mark = cover(insideAppMark, markSettled())
   const shade = blur(body, L.appIconShadowRadiusPx)
   const dy = L.appIconShadowOffsetPx
   const [fr, fg, fb] = rgb(colors.face)
   const [rr, rg, rb] = rgb(colors.rim)
-  const [mr, mg, mb] = rgb(colors.mark)
   const px = new Float64Array(GRID * GRID * 4)
   for (let y = 0; y < GRID; y++)
     for (let x = 0; x < GRID; x++) {
@@ -217,14 +207,59 @@ export function drawAppIcon(colors: AppIconColors = APP_ICON): Drawing {
       const s = y >= dy ? shade[i - dy * GRID]! * L.appIconShadowOpacity : 0
       const b = body[i]!
       const f = face[i]!
-      const m = mark[i]!
-      // the K over the face, the face inside the rim, the body over the shadow (black); premultiplied
-      px[i * 4] = m * mr + (1 - m) * (f * fr + (b - f) * rr)
-      px[i * 4 + 1] = m * mg + (1 - m) * (f * fg + (b - f) * rg)
-      px[i * 4 + 2] = m * mb + (1 - m) * (f * fb + (b - f) * rb)
-      px[i * 4 + 3] = m + (1 - m) * (b + (1 - b) * s)
+      // the face inside the rim, the body over the shadow (black); premultiplied
+      px[i * 4] = f * fr + (b - f) * rr
+      px[i * 4 + 1] = f * fg + (b - f) * rg
+      px[i * 4 + 2] = f * fb + (b - f) * rb
+      px[i * 4 + 3] = b + (1 - b) * s
     }
-  return { px }
+  return { px, face }
+}
+
+/** The bird's sprites: the large one and the hand-drawn ones by the size each draws. */
+export interface Art {
+  large: Image
+  small: ReadonlyMap<number, Image>
+}
+
+/** The sprites of `ART_DIR` under `root`; throws, naming the file, on a PNG of another kind or a pixel partly clear. */
+export function readArt(root: string = ROOT): Art {
+  const read = (name: string): Image => {
+    const file = path.join(ART_DIR, name)
+    let img: Image
+    try {
+      img = decodePng(fs.readFileSync(path.join(root, file)))
+    } catch (e) {
+      throw new Error(`icons: ${file}: ${(e as Error).message}`)
+    }
+    for (let i = 3; i < img.rgba.length; i += 4) if (img.rgba[i] !== 0 && img.rgba[i] !== 255) throw new Error(`icons: ${file} has a pixel neither opaque nor clear`)
+    return img
+  }
+  return { large: read(ART_LARGE), small: new Map([...ART_SMALL].map(([px, name]) => [px, read(name)])) }
+}
+
+/** Where the bird goes at one size: its sprite, how many pixels of that size a sprite pixel covers, and its top-left pixel. */
+export interface ArtPlacement {
+  sprite: Image
+  scale: number
+  left: number
+  top: number
+}
+
+/**
+ * The bird at `size`: its own hand-drawn sprite at one pixel a sprite pixel, else the large sprite at
+ * `app_icon_art_px` grid pixels a sprite pixel, which has to be a whole number of pixels at that size. The bird is cut
+ * off at its left and its bottom, so the sprite's left and bottom edges go on the first sprite-pixel boundary at or
+ * beyond the face's edges, where the face's curve clips them.
+ */
+export function placeArt(art: Art, size: number): ArtPlacement {
+  const own = art.small.get(size)
+  const sprite = own ?? art.large
+  const scale = own ? 1 : (L.appIconArtPx * size) / GRID
+  if (!Number.isInteger(scale) || scale < 1) throw new Error(`icons: no sprite for ${size} px (the large one would be ${scale} px a sprite pixel): draw ${ART_DIR}/bird-${size}.png`)
+  const left = Math.floor((FACE.lo * size) / GRID / scale) * scale
+  const bottom = Math.ceil((FACE.hi * size) / GRID / scale) * scale
+  return { sprite, scale, left, top: bottom - sprite.height * scale }
 }
 
 /** For each of `dst` pixels, the `src` pixels it averages and their weights (their share of its width, exact). */
@@ -242,31 +277,59 @@ function weights(src: number, dst: number): { from: number; w: number[] }[] {
   return out
 }
 
-/** The drawing averaged down to `size` × `size` (each pixel the mean of the grid area it covers), as 8-bit RGBA. */
-export function appIconImage(drawing: Drawing, size: number): Image {
+/** `channels` values per grid pixel averaged down to `size` × `size`: each pixel the mean of the grid area it covers. */
+function average(src: Float64Array, channels: number, size: number): Float64Array {
   const ws = weights(GRID, size)
   // rows first: GRID rows of `size` pixels
-  const rows = new Float64Array(GRID * size * 4)
+  const rows = new Float64Array(GRID * size * channels)
   for (let y = 0; y < GRID; y++)
     for (let x = 0; x < size; x++) {
       const { from, w } = ws[x]!
-      for (let c = 0; c < 4; c++) {
+      for (let c = 0; c < channels; c++) {
         let v = 0
-        for (let k = 0; k < w.length; k++) v += drawing.px[(y * GRID + from + k) * 4 + c]! * w[k]!
-        rows[(y * size + x) * 4 + c] = v
+        for (let k = 0; k < w.length; k++) v += src[(y * GRID + from + k) * channels + c]! * w[k]!
+        rows[(y * size + x) * channels + c] = v
       }
     }
-  const rgba = new Uint8Array(size * size * 4)
+  const out = new Float64Array(size * size * channels)
   for (let y = 0; y < size; y++)
     for (let x = 0; x < size; x++) {
       const { from, w } = ws[y]!
-      const p = [0, 0, 0, 0]
-      for (let c = 0; c < 4; c++) for (let k = 0; k < w.length; k++) p[c]! += rows[((from + k) * size + x) * 4 + c]! * w[k]!
-      const a = Math.round(p[3]! * 255)
-      const i = (y * size + x) * 4
-      if (a === 0) continue
-      for (let c = 0; c < 3; c++) rgba[i + c] = Math.min(255, Math.round((p[c]! / p[3]!) * 255))
-      rgba[i + 3] = a
+      for (let c = 0; c < channels; c++) {
+        let v = 0
+        for (let k = 0; k < w.length; k++) v += rows[((from + k) * size + x) * channels + c]! * w[k]!
+        out[(y * size + x) * channels + c] = v
+      }
+    }
+  return out
+}
+
+/**
+ * The app icon at `size` × `size` as 8-bit RGBA: the body averaged down, then the bird's sprite for that size over the
+ * face. A sprite pixel covers whole pixels, so it keeps its exact colour wherever the face covers the pixel.
+ */
+export function appIconImage(drawing: Drawing, size: number, art: Art): Image {
+  const body = average(drawing.px, 4, size)
+  const face = average(drawing.face, 1, size)
+  const { sprite, scale, left, top } = placeArt(art, size)
+  const rgba = new Uint8Array(size * size * 4)
+  for (let y = 0; y < size; y++)
+    for (let x = 0; x < size; x++) {
+      const i = y * size + x
+      const p = [body[i * 4]!, body[i * 4 + 1]!, body[i * 4 + 2]!, body[i * 4 + 3]!]
+      const sx = Math.floor((x - left) / scale)
+      const sy = Math.floor((y - top) / scale)
+      const j = (sy * sprite.width + sx) * 4
+      if (sx >= 0 && sx < sprite.width && sy >= 0 && sy < sprite.height && sprite.rgba[j + 3] === 255) {
+        // the sprite pixel over the body where the face covers this pixel; premultiplied
+        const a = face[i]!
+        for (let c = 0; c < 3; c++) p[c] = (a * sprite.rgba[j + c]!) / 255 + (1 - a) * p[c]!
+        p[3] = a + (1 - a) * p[3]!
+      }
+      const alpha = Math.round(p[3]! * 255)
+      if (alpha === 0) continue
+      for (let c = 0; c < 3; c++) rgba[i * 4 + c] = Math.min(255, Math.round((p[c]! / p[3]!) * 255))
+      rgba[i * 4 + 3] = alpha
     }
   return { width: size, height: size, rgba }
 }
@@ -334,24 +397,52 @@ function squirclePath(sq: Squircle): string {
   return `M${pts.map(([x, y]) => `${num(x)} ${num(y)}`).join('L')}Z`
 }
 
-/** The K's outline on the grid, one subpath per polygon (all wound the same way, so they add). */
-function markPath(): string {
-  return MARK.map((p) => `M${p.map(([x, y]) => `${num(MARK_X + x * MARK_SCALE)} ${num(MARK_Y + y * MARK_SCALE)}`).join('L')}Z`).join('')
+/**
+ * The large sprite where the 1024 px PNG has it, as one path per colour (in the order the colours first appear, row by
+ * row): each run of same-coloured pixels along a row is a rectangle subpath.
+ */
+function artPaths(art: Art): string[] {
+  const { sprite, scale, left, top } = placeArt(art, GRID)
+  const runs = new Map<string, string[]>()
+  for (let y = 0; y < sprite.height; y++)
+    for (let x = 0; x < sprite.width; ) {
+      const j = (y * sprite.width + x) * 4
+      if (sprite.rgba[j + 3] !== 255) {
+        x++
+        continue
+      }
+      const colour = hexAt(sprite.rgba, j)
+      let end = x + 1
+      while (end < sprite.width && sprite.rgba[(y * sprite.width + end) * 4 + 3] === 255 && hexAt(sprite.rgba, (y * sprite.width + end) * 4) === colour) end++
+      const w = (end - x) * scale
+      if (!runs.has(colour)) runs.set(colour, [])
+      runs.get(colour)!.push(`M${left + x * scale} ${top + y * scale}h${w}v${scale}h-${w}z`)
+      x = end
+    }
+  return [...runs].map(([colour, d]) => `<path d="${d.join('')}" fill="${colour}"/>`)
 }
 
-/** The app icon as an SVG on the 1024 grid: the same shadow, body, rim and K as the PNGs (the shadow a true Gaussian of the same spread). */
-export function appIconSvg(colors: AppIconColors = APP_ICON): string {
+/**
+ * The app icon as an SVG on the 1024 grid: the same shadow, body and rim as the PNGs (the shadow a true Gaussian of the
+ * same spread) and the large sprite clipped to the face. `crispEdges` keeps the sprite's pixels square and seamless
+ * wherever a desktop scales the SVG.
+ */
+export function appIconSvg(art: Art, colors: AppIconColors = APP_ICON): string {
   const r = L.appIconShadowRadiusPx
   // three box passes of radius r have a variance of r(r + 1)
   const sigma = Math.sqrt(r * (r + 1))
   const body = squirclePath(BODY)
+  const face = squirclePath(FACE)
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${GRID}" height="${GRID}" viewBox="0 0 ${GRID} ${GRID}">`,
     `<filter id="shadow" x="-0.2" y="-0.2" width="1.4" height="1.4" color-interpolation-filters="sRGB"><feGaussianBlur stdDeviation="${num(sigma)}"/></filter>`,
+    `<clipPath id="face"><path d="${face}"/></clipPath>`,
     `<path d="${body}" transform="translate(0 ${L.appIconShadowOffsetPx})" fill="#000" fill-opacity="${L.appIconShadowOpacity}" filter="url(#shadow)"/>`,
     `<path d="${body}" fill="${colors.rim}"/>`,
-    `<path d="${squirclePath(FACE)}" fill="${colors.face}"/>`,
-    `<path d="${markPath()}" fill="${colors.mark}"/>`,
+    `<path d="${face}" fill="${colors.face}"/>`,
+    '<g clip-path="url(#face)" shape-rendering="crispEdges">',
+    ...artPaths(art),
+    '</g>',
     '</svg>',
     '',
   ].join('\n')
@@ -536,15 +627,15 @@ export function readIcns(buf: Uint8Array): { type: string; data: Buffer }[] {
 // ── the files ────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 /** Every file of assets/icon/, by its path there. */
-export function iconFiles(): { name: string; bytes: Buffer }[] {
+export function iconFiles(art: Art = readArt()): { name: string; bytes: Buffer }[] {
   const drawing = drawAppIcon()
   const sizes = [...new Set([...PNG_SIZES, ...ICNS_TYPES.map((t) => t.px)])]
-  const images = new Map(sizes.map((px) => [px, appIconImage(drawing, px)]))
+  const images = new Map(sizes.map((px) => [px, appIconImage(drawing, px, art)]))
   const pngs = new Map(sizes.map((px) => [px, encodePng(images.get(px)!)]))
   const pt = MARK_GRID
   return [
     { name: 'kea.icns', bytes: encodeIcns(ICNS_TYPES.map((t) => ({ type: t.type, data: t.argb ? encodeArgb(images.get(t.px)!) : pngs.get(t.px)! }))) },
-    { name: 'kea.svg', bytes: Buffer.from(appIconSvg()) },
+    { name: 'kea.svg', bytes: Buffer.from(appIconSvg(art)) },
     ...PNG_SIZES.map((px) => ({ name: `png/${px}x${px}.png`, bytes: pngs.get(px)! })),
     { name: 'trayTemplate.png', bytes: encodePng(markImage(pt)) },
     { name: 'trayTemplate@2x.png', bytes: encodePng(markImage(pt * 2)) },
@@ -583,8 +674,7 @@ function filesUnder(dir: string): string[] {
 }
 
 function main(): void {
-  const root = path.resolve(import.meta.dirname, '..', '..', '..')
-  const dir = path.join(root, ICON_DIR)
+  const dir = path.join(ROOT, ICON_DIR)
   const check = process.argv.includes('--check')
   const files = iconFiles()
   const names = new Set(files.map((f) => f.name))

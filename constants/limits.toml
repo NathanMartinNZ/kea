@@ -1875,7 +1875,7 @@ why = "samples per pixel side when an icon is drawn from its shapes (the mark at
 [app_icon_grid_px]
 value = 1024
 unit = "px"
-why = "the app icon is drawn on Apple's 1024 px macOS icon grid, its largest file (the ICNS's 512 pt @2x); every smaller file is this drawing averaged down"
+why = "the app icon is drawn on Apple's 1024 px macOS icon grid, its largest file (the ICNS's 512 pt @2x); every smaller file is the body averaged down with the bird's sprite for that size over it"
 
 [app_icon_body_px]
 value = 824
@@ -1897,15 +1897,10 @@ value = 8
 unit = "px"
 why = "the body's outline, inside its edge: one device pixel at the Dock's usual 64 pt, so the body reads on a dark Dock or desktop"
 
-[app_icon_mark_px]
-value = 512
+[app_icon_art_px]
+value = 16
 unit = "px"
-why = "the mark's 16-unit grid spans this much of the app icon's grid, the K's box centred on the body"
-
-[app_icon_mark_snap_px]
-value = 32
-unit = "px"
-why = "the centred K is moved to the nearest multiple of this, so its stem, top and bottom fall on whole pixels at 32 px (the Finder's 16 pt @2x) and every larger size"
+why = "each pixel of the bird's large sprite (assets/icon-art/bird.png) covers this many grid pixels: one pixel at 64 px, so the sprite stays whole, square pixels at 64 px and every larger size; the smaller sizes have sprites drawn by hand"
 
 [app_icon_shadow_offset_px]
 value = 8

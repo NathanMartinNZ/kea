@@ -140,14 +140,23 @@ or key of a run).
 
 ## Icons
 
-`src/icons.ts` draws every file in `assets/icon/` from the Kea mark (`packages/ui/src/mark.ts`, the K that main also
-draws its menu-bar and tray icon from) and the design tokens, with no image tool and no new dependency: shapes are
-rasterised in TypeScript with supersampling, the app icon once on Apple's 1024 px grid and averaged down to every
-smaller size; PNG is written with `node:zlib` and the ICNS chunk by chunk (16 and 32 px as ARGB, the rest as PNG), so
-it builds on Linux too. The app icon is the K in the accent on the terminal canvas (`--surface-0`), outlined in
-`--line-strong`, on Apple's 824 px body with continuous corners and macOS's icon shadow; `kea.svg` is the same art as a
-vector. The menu-bar template (`trayTemplate*.png`, black and alpha) and the Linux tray icon (`trayAccent*.png`) have
-exactly the pixels main draws at run time. `node src/icons.ts` writes the folder and `--check` fails when it differs (a
+`src/icons.ts` draws every file in `assets/icon/` with no image tool and no new dependency: shapes are rasterised in
+TypeScript with supersampling, PNG is read and written with `node:zlib` and the ICNS chunk by chunk (16 and 32 px as
+ARGB, the rest as PNG), so it builds on Linux too.
+
+- **The app icon** is a pixel-art bird on the terminal canvas (`--surface-0`), outlined in `--line-strong`, on Apple's
+  824 px body with continuous corners and macOS's icon shadow, transparent around it. The body is drawn once on the
+  1024 px grid and averaged down to every size. The bird comes from the sprites in `assets/icon-art/`: `bird.png` at
+  16 grid pixels a sprite pixel (`app_icon_art_px`), so it stays whole, square pixels at 64 px and every larger size,
+  and `bird-16.png`, `bird-24.png`, `bird-32.png` and `bird-48.png`, drawn by hand at one pixel a sprite pixel for the
+  sizes where the large sprite would blur. Each sprite is cut off at its left and bottom edges, where the face's curve
+  clips it. `kea.svg` is the body and the large sprite as vectors, its pixels kept square by `crispEdges` wherever a
+  desktop scales it.
+- **The menu-bar template** (`trayTemplate*.png`, black and alpha) and **the Linux tray icon** (`trayAccent*.png`) are
+  the Kea mark (`packages/ui/src/mark.ts`), with exactly the pixels main draws at run time.
+
+To change the bird, edit the sprites in an editor such as Aseprite (RGB colour mode, exported as 8-bit RGBA PNG, every
+pixel opaque or clear), then run the tool. `node src/icons.ts` writes the folder and `--check` fails when it differs (a
 PNG is compared by its pixels, since another zlib may compress the same pixels differently). Every geometry number
 comes from `constants/limits.toml`'s icons section. Tests: `src/icons.test.ts`; the gallery's set V-16 shows the
 committed files.

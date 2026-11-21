@@ -735,7 +735,7 @@ pub const WINDOW_HANDOFF_DRAFTS_MAX: u64 = 200;
 pub const DESKTOP_ENTRY_MAX_BYTES: u64 = 1048576;
 /// samples per pixel side when an icon is drawn from its shapes (the mark at run time, the icon files): a pixel's alpha is the share of its samples inside (count)
 pub const ICON_SAMPLES: u64 = 4;
-/// the app icon is drawn on Apple's 1024 px macOS icon grid, its largest file (the ICNS's 512 pt @2x); every smaller file is this drawing averaged down (px)
+/// the app icon is drawn on Apple's 1024 px macOS icon grid, its largest file (the ICNS's 512 pt @2x); every smaller file is the body averaged down with the bird's sprite for that size over it (px)
 pub const APP_ICON_GRID_PX: u64 = 1024;
 /// the app icon's rounded-square body, centred on the grid, leaving the rest for its shadow (Apple's macOS 11+ icon template) (px)
 pub const APP_ICON_BODY_PX: u64 = 824;
@@ -745,10 +745,8 @@ pub const APP_ICON_CORNER_PX: u64 = 256;
 pub const APP_ICON_CORNER_EXPONENT: u64 = 3;
 /// the body's outline, inside its edge: one device pixel at the Dock's usual 64 pt, so the body reads on a dark Dock or desktop (px)
 pub const APP_ICON_RIM_PX: u64 = 8;
-/// the mark's 16-unit grid spans this much of the app icon's grid, the K's box centred on the body (px)
-pub const APP_ICON_MARK_PX: u64 = 512;
-/// the centred K is moved to the nearest multiple of this, so its stem, top and bottom fall on whole pixels at 32 px (the Finder's 16 pt @2x) and every larger size (px)
-pub const APP_ICON_MARK_SNAP_PX: u64 = 32;
+/// each pixel of the bird's large sprite (assets/icon-art/bird.png) covers this many grid pixels: one pixel at 64 px, so the sprite stays whole, square pixels at 64 px and every larger size; the smaller sizes have sprites drawn by hand (px)
+pub const APP_ICON_ART_PX: u64 = 16;
 /// the body's shadow falls this far below it (macOS's own icons) (px)
 pub const APP_ICON_SHADOW_OFFSET_PX: u64 = 8;
 /// the shadow is the body blurred by three box passes of this radius, a Gaussian of about 16.5 px (macOS's own icons) (px)

@@ -736,7 +736,7 @@ export const L = {
   desktopEntryMaxBytes: 1048576,
   /** samples per pixel side when an icon is drawn from its shapes (the mark at run time, the icon files): a pixel's alpha is the share of its samples inside (count) */
   iconSamples: 4,
-  /** the app icon is drawn on Apple's 1024 px macOS icon grid, its largest file (the ICNS's 512 pt @2x); every smaller file is this drawing averaged down (px) */
+  /** the app icon is drawn on Apple's 1024 px macOS icon grid, its largest file (the ICNS's 512 pt @2x); every smaller file is the body averaged down with the bird's sprite for that size over it (px) */
   appIconGridPx: 1024,
   /** the app icon's rounded-square body, centred on the grid, leaving the rest for its shadow (Apple's macOS 11+ icon template) (px) */
   appIconBodyPx: 824,
@@ -746,10 +746,8 @@ export const L = {
   appIconCornerExponent: 3,
   /** the body's outline, inside its edge: one device pixel at the Dock's usual 64 pt, so the body reads on a dark Dock or desktop (px) */
   appIconRimPx: 8,
-  /** the mark's 16-unit grid spans this much of the app icon's grid, the K's box centred on the body (px) */
-  appIconMarkPx: 512,
-  /** the centred K is moved to the nearest multiple of this, so its stem, top and bottom fall on whole pixels at 32 px (the Finder's 16 pt @2x) and every larger size (px) */
-  appIconMarkSnapPx: 32,
+  /** each pixel of the bird's large sprite (assets/icon-art/bird.png) covers this many grid pixels: one pixel at 64 px, so the sprite stays whole, square pixels at 64 px and every larger size; the smaller sizes have sprites drawn by hand (px) */
+  appIconArtPx: 16,
   /** the body's shadow falls this far below it (macOS's own icons) (px) */
   appIconShadowOffsetPx: 8,
   /** the shadow is the body blurred by three box passes of this radius, a Gaussian of about 16.5 px (macOS's own icons) (px) */
@@ -1201,13 +1199,12 @@ export const LIMIT_META: Record<LimitName, { unit: string; why: string; whyLinux
   windowHandoffDraftsMax: { unit: "count", why: "the most composer drafts (one per project) a rebuilt window hands the next, the latest kept; more projects with a draft than anyone keeps" },
   desktopEntryMaxBytes: { unit: "bytes", why: "a desktop entry is read whole on core's thread when editors and terminal apps are looked for (Linux); GNOME's own, with every translation, run to a few tens of KiB, and a bigger file at a user-writable entry's place is passed over as not there" },
   iconSamples: { unit: "count", why: "samples per pixel side when an icon is drawn from its shapes (the mark at run time, the icon files): a pixel's alpha is the share of its samples inside" },
-  appIconGridPx: { unit: "px", why: "the app icon is drawn on Apple's 1024 px macOS icon grid, its largest file (the ICNS's 512 pt @2x); every smaller file is this drawing averaged down" },
+  appIconGridPx: { unit: "px", why: "the app icon is drawn on Apple's 1024 px macOS icon grid, its largest file (the ICNS's 512 pt @2x); every smaller file is the body averaged down with the bird's sprite for that size over it" },
   appIconBodyPx: { unit: "px", why: "the app icon's rounded-square body, centred on the grid, leaving the rest for its shadow (Apple's macOS 11+ icon template)" },
   appIconCornerPx: { unit: "px", why: "each corner of the body curves over this much of both edges (a quarter superellipse: macOS's continuous icon corner, fitted to its own icons' mask)" },
   appIconCornerExponent: { unit: "exponent", why: "the corner curve is |u|^n + |v|^n = 1 with this n (2 would be a circular arc; 3 is the continuous corner macOS draws)" },
   appIconRimPx: { unit: "px", why: "the body's outline, inside its edge: one device pixel at the Dock's usual 64 pt, so the body reads on a dark Dock or desktop" },
-  appIconMarkPx: { unit: "px", why: "the mark's 16-unit grid spans this much of the app icon's grid, the K's box centred on the body" },
-  appIconMarkSnapPx: { unit: "px", why: "the centred K is moved to the nearest multiple of this, so its stem, top and bottom fall on whole pixels at 32 px (the Finder's 16 pt @2x) and every larger size" },
+  appIconArtPx: { unit: "px", why: "each pixel of the bird's large sprite (assets/icon-art/bird.png) covers this many grid pixels: one pixel at 64 px, so the sprite stays whole, square pixels at 64 px and every larger size; the smaller sizes have sprites drawn by hand" },
   appIconShadowOffsetPx: { unit: "px", why: "the body's shadow falls this far below it (macOS's own icons)" },
   appIconShadowRadiusPx: { unit: "px", why: "the shadow is the body blurred by three box passes of this radius, a Gaussian of about 16.5 px (macOS's own icons)" },
   appIconShadowOpacity: { unit: "ratio", why: "the shadow's black at its darkest (macOS's own icons)" },
